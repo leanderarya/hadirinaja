@@ -1,0 +1,35 @@
+node_modules
+.DS_Store
+dist
+dist-ssr
+*.local
+*.local.*
+.env*
+!.env.example
+/src/routeTree.gen.ts
+.tanstack
+.wrangler
+.output
+.vinxi
+__unconfig*
+todos.json
+
+# typescript
+*.tsbuildinfo
+
+# npm auth
+.npmrc
+
+# credentials and private keys
+credentials.json
+secrets.json
+service-account*.json
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# faiz-ui control panel config (contains secrets)
+create-faiz-ui/app/config.json
