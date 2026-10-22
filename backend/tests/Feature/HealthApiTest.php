@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 class HealthApiTest extends TestCase
@@ -36,5 +37,25 @@ class HealthApiTest extends TestCase
                 'checks' => ['database' => 'unavailable'],
             ])
             ->assertDontSee('database driver details');
+    }
+
+    public function test_health_endpoint_works_against_the_isolated_mysql_test_database(): void
+    {
+        $this->getJson('/api/v1/health')
+            ->assertOk()
+            ->assertExactJson([
+                'status' => 'healthy',
+                'checks' => ['database' => 'available'],
+            ]);
+    }
+
+    public function test_no_public_domain_management_routes_are_registered(): void
+    {
+        $apiRoutes = collect(Route::getRoutes()->getRoutes())
+            ->filter(fn ($route) => str_starts_with($route->uri(), 'api/'))
+            ->map(fn ($route) => $route->uri())
+            ->unique()->sort()->values()->all();
+
+        $this->assertSame(['api/v1/health'], $apiRoutes);
     }
 }

@@ -33,7 +33,16 @@ Verified locally: Laravel 13.38.0, Composer 2.10.2 and backend tests on PHP 8.3.
    GRANT ALL PRIVILEGES ON hadirinaja_dev.* TO 'hadirinaja_app'@'127.0.0.1';
    ```
 
-3. In `backend/`, copy the example file, set `DB_PASSWORD` to the local account password, install the locked Composer dependencies, and generate a local app key:
+3. In the privileged local MySQL session, create a separate test schema and grant the local application account access to it:
+
+   ```sql
+   CREATE DATABASE hadirinaja_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+   GRANT ALL PRIVILEGES ON hadirinaja_test.* TO 'hadirinaja_app'@'127.0.0.1';
+   ```
+
+   Laravel tests are pinned to this local schema and refuse to run against another database. Test setup may recreate tables in `hadirinaja_test`; it must never be pointed at `hadirinaja_dev`.
+
+4. In `backend/`, copy the example file, set `DB_PASSWORD` to the local account password, install the locked Composer dependencies, and generate a local app key:
 
    ```sh
    cd backend
@@ -44,23 +53,22 @@ Verified locally: Laravel 13.38.0, Composer 2.10.2 and backend tests on PHP 8.3.
 
    The example contains placeholders only. Real database credentials and the generated application key stay in the ignored `.env`.
 
-4. Start Laravel from `backend/`:
+5. Apply the forward migrations to the dedicated development schema, then start Laravel from `backend/`:
 
    ```sh
+   php artisan migrate
    php artisan serve --host=127.0.0.1 --port=8000
    ```
 
-5. In a second terminal at the repository root, start TanStack Start:
+6. In a second terminal at the repository root, start TanStack Start:
 
    ```sh
    bun run dev
    ```
 
-6. Open `http://localhost:3000/api-health` and choose **Check API**. The browser uses the same-origin `/api` Vite proxy by default.
-7. The API can also be checked directly at `http://127.0.0.1:8000/api/v1/health`.
-8. Run backend tests from `backend/` with `composer test`. Run frontend checks from the repository root with `bun run typecheck`, `bun run check`, `bun run test`, and `bun run build`.
-
-No migration is required for S0-B: the health route only runs the read-only `SELECT 1` query. Laravel starter migrations are retained as framework defaults, but setup scripts do not run them.
+7. Open `http://localhost:3000/api-health` and choose **Check API**. The browser uses the same-origin `/api` Vite proxy by default.
+8. The API can also be checked directly at `http://127.0.0.1:8000/api/v1/health`.
+9. Run backend tests from `backend/` with `composer test`. Run frontend checks from the repository root with `bun run typecheck`, `bun run check`, `bun run test`, and `bun run build`.
 
 ## API and frontend configuration
 
@@ -70,9 +78,17 @@ The browser client in `src/lib/api.ts` reads the public `VITE_API_BASE_URL`. Its
 
 `CORS_ALLOWED_ORIGINS` is a comma-separated allowlist of exact frontend origins. It defaults to `http://localhost:3000`; production must replace it with the deployed frontend origin. Wildcard origins and credentialed CORS are disabled in S0-B.
 
+## S1 organization and identity foundation
+
+S1 stores a tenant-owned organization as `Tenant → Business Unit → Outlet`. Employees are separate from login Users; each User can have a distinct membership in multiple tenants. Tenant IDs use Laravel's unsigned 64-bit integer keys, and composite foreign keys keep organization, role, supervisor-scope, employee-link, and outlet-assignment relationships inside one tenant. S1 tables use InnoDB. User email is trimmed and lowercased; optional phone values are stored in canonical E.164 form with a unique index.
+
+Owner, Supervisor, and Employee roles are assigned per membership. Owners manage their tenant. Supervisors can manage only explicitly scoped outlets. Employee links are explicit, one-to-one within a tenant, and do not infer identity from names or email. Primary and temporary outlet assignments keep effective-time history. Primary changes lock the employee row, close the previous interval, and reject overlapping primary history. An open-ended primary interval uses `9999-12-31 23:59:59` as its exclusive end sentinel.
+
+S1 organization and identity operations are application services only. No public tenant, outlet, employee, membership, or role-management routes are registered.
+
 ## Authentication boundary
 
-S0-B does not install Sanctum and has no login, token, kiosk, tenant, or protected API routes. For future Sanctum sessions, configure the exact stateful frontend domains, secure cookie domain and attributes, CSRF initialization, credentialed CORS, and HTTPS together. Personal sessions and kiosk device identity must remain separate. Production domains and cookie/CSRF configuration are unresolved.
+S1 does not install Sanctum and has no login, token issuance, kiosk, or protected management routes. In S2, resolve the authenticated global User, validate an active membership for the selected tenant, and pass that membership as the actor to application services. A client-supplied tenant ID alone never authorizes access. Supervisor outlet access comes only from stored outlet scopes; Employee access comes only from the explicit membership-to-employee link. For future Sanctum sessions, configure the exact stateful frontend domains, secure cookie domain and attributes, CSRF initialization, credentialed CORS, and HTTPS together. Personal sessions and kiosk device identity must remain separate. Production domains and cookie/CSRF configuration are unresolved.
 
 ## Hostinger Business considerations
 
