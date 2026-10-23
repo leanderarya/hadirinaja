@@ -175,6 +175,46 @@ async function sendRequest(
   return fetch(`${API_BASE_URL}${path}`, init)
 }
 
+export async function downloadApiFile(
+  path: string,
+  filename: string
+): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: "include",
+    cache: "no-store",
+    headers: { Accept: "text/csv" },
+  })
+
+  if (
+    (response.status === 401 || response.status === 419) &&
+    path.startsWith("/management/")
+  ) {
+    window.dispatchEvent(new Event("hadirinaja:session-expired"))
+  }
+
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => null)
+    const message =
+      typeof payload === "object" &&
+      payload !== null &&
+      typeof (payload as { message?: unknown }).message === "string"
+        ? (payload as { message: string }).message
+        : "Ekspor laporan belum dapat dibuat."
+    throw new ApiError(message, response.status)
+  }
+
+  const file = await response.blob()
+  const url = URL.createObjectURL(file)
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = filename
+  anchor.style.display = "none"
+  document.body.append(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
 function readCookie(name: string): string | undefined {
   const prefix = `${name}=`
   const cookie = document.cookie

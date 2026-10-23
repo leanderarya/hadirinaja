@@ -43,4 +43,9 @@ class AttendanceSession extends Model
     {
         return $this->hasMany(AttendanceEvent::class);
     }
+
+    public function corrections(): HasMany
+    {
+        return $this->hasMany(AttendanceCorrection::class);
+    }
 }

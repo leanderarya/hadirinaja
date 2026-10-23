@@ -6,6 +6,7 @@ use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use LogicException;
 
 #[Fillable([
@@ -41,5 +42,15 @@ class AttendanceCorrection extends Model
     protected function performDeleteOnModel(): void
     {
         throw new LogicException('Attendance corrections are append-only.');
+    }
+
+    public function approvalRequest(): BelongsTo
+    {
+        return $this->belongsTo(ApprovalRequest::class);
+    }
+
+    public function session(): BelongsTo
+    {
+        return $this->belongsTo(AttendanceSession::class, 'attendance_session_id');
     }
 }

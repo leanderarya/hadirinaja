@@ -23,9 +23,14 @@ final class EffectiveScheduleResolver
 {
     public function __construct(private readonly LocalTimeResolver $localTime) {}
 
-    public function resolve(int $tenantId, int $employeeId, string $workDate, ?int $outletContext = null): EffectiveScheduleResult
-    {
-        return $this->resolveWeek($tenantId, [$employeeId], $workDate, 1, $outletContext)[0];
+    public function resolve(
+        int $tenantId,
+        int $employeeId,
+        string $workDate,
+        ?int $outletContext = null,
+        ?array $outletScopeIds = null,
+    ): EffectiveScheduleResult {
+        return $this->resolveWeek($tenantId, [$employeeId], $workDate, 1, $outletContext, $outletScopeIds)[0];
     }
 
     /**
@@ -34,8 +39,14 @@ final class EffectiveScheduleResolver
      * @param  list<int>  $employeeIds
      * @return list<EffectiveScheduleResult>
      */
-    public function resolveWeek(int $tenantId, array $employeeIds, string $startDate, int $days = 7, ?int $outletContext = null): array
-    {
+    public function resolveWeek(
+        int $tenantId,
+        array $employeeIds,
+        string $startDate,
+        int $days = 7,
+        ?int $outletContext = null,
+        ?array $outletScopeIds = null,
+    ): array {
         if ($days < 1 || $days > 14) {
             throw ValidationException::withMessages(['days' => 'Rentang jadwal harus terdiri dari 1 sampai 14 hari.']);
         }
@@ -57,18 +68,25 @@ final class EffectiveScheduleResolver
         $firstDate = $start->toDateString();
         $lastDate = $end->toDateString();
         $employees = Employee::query()->forTenant($tenantId)->whereIn('id', $employeeIds)->get()->keyBy('id');
-        $rules = WeeklyScheduleRule::query()->forTenant($tenantId)
+        $rulesQuery = WeeklyScheduleRule::query()->forTenant($tenantId)
             ->whereIn('employee_id', $employees->keys())
             ->where('effective_from', '<=', $lastDate)
             ->where(fn ($query) => $query->whereNull('effective_until')->orWhere('effective_until', '>', $firstDate))
-            ->with(['outlet', 'shiftVersion.template'])
-            ->get()->groupBy('employee_id');
-        $exceptions = ScheduleException::query()->forTenant($tenantId)
+            ->with(['outlet', 'shiftVersion.template']);
+        if ($outletScopeIds !== null) {
+            $rulesQuery->whereIn('outlet_id', $outletScopeIds);
+        }
+        $rules = $rulesQuery->get()->groupBy('employee_id');
+        $exceptionsQuery = ScheduleException::query()->forTenant($tenantId)
             ->whereIn('employee_id', $employees->keys())
             ->whereBetween('work_date', [$firstDate, $lastDate])
             ->whereNull('superseded_at')
-            ->with(['shiftVersion.template'])
-            ->get()->groupBy(fn (ScheduleException $exception): string => $exception->employee_id.'|'.$exception->work_date->toDateString());
+            ->with(['shiftVersion.template']);
+        if ($outletScopeIds !== null) {
+            $exceptionsQuery->whereIn('outlet_id', $outletScopeIds);
+        }
+        $exceptions = $exceptionsQuery->get()
+            ->groupBy(fn (ScheduleException $exception): string => $exception->employee_id.'|'.$exception->work_date->toDateString());
         $assignments = EmployeeOutletAssignment::query()->forTenant($tenantId)
             ->whereIn('employee_id', $employees->keys())
             ->where('effective_from', '<', $end->addDays(2)->endOfDay()->utc())
@@ -76,6 +94,7 @@ final class EffectiveScheduleResolver
             ->get()->groupBy('employee_id');
 
         $outletIds = collect([$outletContext])
+            ->merge($outletScopeIds ?? [])
             ->merge($rules->flatten()->pluck('outlet_id'))
             ->merge($exceptions->flatten()->pluck('outlet_id'))
             ->filter()->map(fn ($id): int => (int) $id)->unique()->values();

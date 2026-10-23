@@ -15,7 +15,7 @@ import {
 export function ManagementSidebar({
   activePage,
 }: {
-  activePage: "workspace" | "scheduling" | "approvals"
+  activePage: "workspace" | "scheduling" | "approvals" | "reports" | "audit"
 }) {
   return (
     <Sidebar>
@@ -62,6 +62,22 @@ export function ManagementSidebar({
                   render={<a href="/approvals" />}
                 >
                   <span>Approval Center</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={activePage === "reports"}
+                  render={<a href="/reports" />}
+                >
+                  <span>Laporan kehadiran</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  isActive={activePage === "audit"}
+                  render={<a href="/reports/audit" />}
+                >
+                  <span>Audit aktivitas</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

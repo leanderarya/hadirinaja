@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\AuthSessionController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\KioskAccessController;
 use App\Http\Controllers\Api\V1\ManagementController;
+use App\Http\Controllers\Api\V1\ReportingController;
 use App\Http\Controllers\Api\V1\SchedulingController;
 use Illuminate\Support\Facades\Route;
 
@@ -69,6 +70,16 @@ Route::prefix('/v1/management')
         Route::post('/attendance/reviews/discover', [ApprovalController::class, 'discoverReviews'])->name('attendance.reviews.discover');
         Route::get('/attendance/effective', [ApprovalController::class, 'managementProjection'])->name('attendance.effective');
         Route::post('/attendance/finalizations', [ApprovalController::class, 'finalize'])->name('attendance.finalizations.store');
+
+        Route::prefix('/reports')->name('reports.')->controller(ReportingController::class)->group(function (): void {
+            Route::get('/filters', 'filters')->name('filters');
+            Route::get('/dashboard', 'dashboard')->name('dashboard');
+            Route::get('/attendance', 'attendance')->name('attendance');
+            Route::get('/approvals', 'approvals')->name('approvals');
+            Route::get('/attendance.csv', 'export')->name('attendance.export');
+            Route::get('/audit', 'audit')->name('audit.index');
+            Route::get('/audit/{source}/{entry}', 'auditEntry')->where(['source' => '[a-z_]+', 'entry' => '[0-9]+'])->name('audit.show');
+        });
     });
 
 Route::prefix('/v1/attendance/me')
