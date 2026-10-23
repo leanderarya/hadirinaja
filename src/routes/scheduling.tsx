@@ -115,7 +115,12 @@ type PolicyConfiguration = {
   late_tolerance_minutes: number
   check_in_window: { early_minutes: number; late_minutes: number }
   attendance_mode: "kiosk" | "personal" | "hybrid"
-  personal_location_validation: { required: true; radius_meters: number }
+  personal_location_validation: {
+    required: true
+    radius_meters: number
+    latitude?: number | null
+    longitude?: number | null
+  }
   retroactive_request_limit_days: number
   operational_review: {
     schedule_change_reason_required: true
@@ -195,7 +200,12 @@ const defaultPolicy: PolicyConfiguration = {
   late_tolerance_minutes: 5,
   check_in_window: { early_minutes: 60, late_minutes: 60 },
   attendance_mode: "kiosk",
-  personal_location_validation: { required: true, radius_meters: 100 },
+  personal_location_validation: {
+    required: true,
+    radius_meters: 100,
+    latitude: null,
+    longitude: null,
+  },
   retroactive_request_limit_days: 7,
   operational_review: {
     schedule_change_reason_required: true,
@@ -254,10 +264,14 @@ function SchedulingPage() {
   const [policyMode, setPolicyMode] =
     useState<PolicyConfiguration["attendance_mode"]>("kiosk")
   const [policyRadius, setPolicyRadius] = useState("100")
+  const [policyLatitude, setPolicyLatitude] = useState("")
+  const [policyLongitude, setPolicyLongitude] = useState("")
   const [policyRetroactiveDays, setPolicyRetroactiveDays] = useState("7")
   const [policyNoticeHours, setPolicyNoticeHours] = useState("24")
   const [overrideField, setOverrideField] = useState("late_tolerance_minutes")
   const [overrideValue, setOverrideValue] = useState("5")
+  const [overrideLatitude, setOverrideLatitude] = useState("")
+  const [overrideLongitude, setOverrideLongitude] = useState("")
   const [overrideEffectiveFrom, setOverrideEffectiveFrom] = useState(tomorrow())
   const [overrideReason, setOverrideReason] = useState("")
 
@@ -332,6 +346,16 @@ function SchedulingPage() {
           setPolicyMode(config.attendance_mode)
           setPolicyRadius(
             String(config.personal_location_validation.radius_meters)
+          )
+          setPolicyLatitude(
+            config.personal_location_validation.latitude == null
+              ? ""
+              : String(config.personal_location_validation.latitude)
+          )
+          setPolicyLongitude(
+            config.personal_location_validation.longitude == null
+              ? ""
+              : String(config.personal_location_validation.longitude)
           )
           setPolicyRetroactiveDays(
             String(config.retroactive_request_limit_days)
@@ -494,6 +518,11 @@ function SchedulingPage() {
   const isOwner = context.capabilities.manage_policies
   const canManage = context.capabilities.manage_schedules
   const config = policy?.effective.tenant_default ?? defaultPolicy
+  const effectiveLocation =
+    policy?.effective.configuration?.personal_location_validation ??
+    config.personal_location_validation
+  const effectiveGeofenceConfigured =
+    effectiveLocation.latitude != null && effectiveLocation.longitude != null
   const flatHolidayOptions =
     calendar?.days.flatMap((day) => day.holiday_references) ?? []
 
@@ -590,6 +619,10 @@ function SchedulingPage() {
 
   async function createTenantPolicy(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (Boolean(policyLatitude) !== Boolean(policyLongitude)) {
+      setError("Latitude dan longitude titik lokasi harus diisi bersama.")
+      return
+    }
     const saved = await runAction(
       () =>
         apiRequest("/management/scheduling/policies/tenant", {
@@ -607,6 +640,8 @@ function SchedulingPage() {
               personal_location_validation: {
                 required: true,
                 radius_meters: Number(policyRadius),
+                latitude: policyLatitude ? Number(policyLatitude) : null,
+                longitude: policyLongitude ? Number(policyLongitude) : null,
               },
               retroactive_request_limit_days: Number(policyRetroactiveDays),
               operational_review: {
@@ -638,6 +673,18 @@ function SchedulingPage() {
         break
       case "radius_meters":
         overrides = { personal_location_validation: { radius_meters: value } }
+        break
+      case "geofence_center":
+        if (!overrideLatitude || !overrideLongitude) {
+          setError("Latitude dan longitude titik lokasi harus diisi bersama.")
+          return
+        }
+        overrides = {
+          personal_location_validation: {
+            latitude: Number(overrideLatitude),
+            longitude: Number(overrideLongitude),
+          },
+        }
         break
       case "retroactive_request_limit_days":
         overrides = { retroactive_request_limit_days: value }
@@ -1587,6 +1634,14 @@ function SchedulingPage() {
                           value={`Wajib · radius ${policy?.effective.configuration?.personal_location_validation.radius_meters ?? config.personal_location_validation.radius_meters} m`}
                         />
                         <PolicyValue
+                          label="Titik geofence personal"
+                          value={
+                            effectiveGeofenceConfigured
+                              ? "Disetel"
+                              : "Belum disetel · lokasi perlu ditinjau"
+                          }
+                        />
+                        <PolicyValue
                           label="Batas permintaan retrospektif"
                           value={`${policy?.effective.configuration?.retroactive_request_limit_days ?? config.retroactive_request_limit_days} hari`}
                         />
@@ -1718,6 +1773,40 @@ function SchedulingPage() {
                                 />
                               </Field>
                               <Field>
+                                <FieldLabel htmlFor="policy-latitude">
+                                  Latitude outlet (opsional)
+                                </FieldLabel>
+                                <Input
+                                  id="policy-latitude"
+                                  max={90}
+                                  min={-90}
+                                  onChange={(event) =>
+                                    setPolicyLatitude(event.target.value)
+                                  }
+                                  placeholder="-6.200000"
+                                  step="any"
+                                  type="number"
+                                  value={policyLatitude}
+                                />
+                              </Field>
+                              <Field>
+                                <FieldLabel htmlFor="policy-longitude">
+                                  Longitude outlet (opsional)
+                                </FieldLabel>
+                                <Input
+                                  id="policy-longitude"
+                                  max={180}
+                                  min={-180}
+                                  onChange={(event) =>
+                                    setPolicyLongitude(event.target.value)
+                                  }
+                                  placeholder="106.816666"
+                                  step="any"
+                                  type="number"
+                                  value={policyLongitude}
+                                />
+                              </Field>
+                              <Field>
                                 <FieldLabel htmlFor="policy-retro-days">
                                   Batas permintaan retrospektif (hari)
                                 </FieldLabel>
@@ -1749,8 +1838,9 @@ function SchedulingPage() {
                               </Field>
                             </FieldGroup>
                             <p className="text-caption text-muted-foreground">
-                              Validasi lokasi saat perangkat pribadi digunakan
-                              dan alasan perubahan jadwal selalu wajib.
+                              Jika titik geofence belum disetel, bukti lokasi
+                              tetap direkam dengan indikator perlu ditinjau.
+                              Alasan perubahan jadwal selalu wajib.
                             </p>
                             <Field>
                               <FieldLabel htmlFor="policy-reason">
@@ -1797,6 +1887,21 @@ function SchedulingPage() {
                                     id="override-field"
                                     onChange={(event) => {
                                       setOverrideField(event.target.value)
+                                      if (event.target.value === "geofence_center") {
+                                        const location =
+                                          policy?.effective.configuration
+                                            ?.personal_location_validation
+                                        setOverrideLatitude(
+                                          location?.latitude == null
+                                            ? ""
+                                            : String(location.latitude)
+                                        )
+                                        setOverrideLongitude(
+                                          location?.longitude == null
+                                            ? ""
+                                            : String(location.longitude)
+                                        )
+                                      }
                                       setOverrideValue(
                                         event.target.value ===
                                           "late_tolerance_minutes"
@@ -1823,6 +1928,9 @@ function SchedulingPage() {
                                     <NativeSelectOption value="radius_meters">
                                       Radius lokasi pribadi
                                     </NativeSelectOption>
+                                    <NativeSelectOption value="geofence_center">
+                                      Titik lokasi outlet
+                                    </NativeSelectOption>
                                     <NativeSelectOption value="retroactive_request_limit_days">
                                       Batas retrospektif
                                     </NativeSelectOption>
@@ -1831,7 +1939,44 @@ function SchedulingPage() {
                                     </NativeSelectOption>
                                   </NativeSelect>
                                 </Field>
-                                {overrideField === "attendance_mode" ? (
+                                {overrideField === "geofence_center" ? (
+                                  <>
+                                    <Field>
+                                      <FieldLabel htmlFor="override-latitude">
+                                        Latitude outlet
+                                      </FieldLabel>
+                                      <Input
+                                        id="override-latitude"
+                                        max={90}
+                                        min={-90}
+                                        onChange={(event) =>
+                                          setOverrideLatitude(event.target.value)
+                                        }
+                                        required
+                                        step="any"
+                                        type="number"
+                                        value={overrideLatitude}
+                                      />
+                                    </Field>
+                                    <Field>
+                                      <FieldLabel htmlFor="override-longitude">
+                                        Longitude outlet
+                                      </FieldLabel>
+                                      <Input
+                                        id="override-longitude"
+                                        max={180}
+                                        min={-180}
+                                        onChange={(event) =>
+                                          setOverrideLongitude(event.target.value)
+                                        }
+                                        required
+                                        step="any"
+                                        type="number"
+                                        value={overrideLongitude}
+                                      />
+                                    </Field>
+                                  </>
+                                ) : overrideField === "attendance_mode" ? (
                                   <Field>
                                     <FieldLabel htmlFor="override-mode">
                                       Mode
@@ -2413,6 +2558,9 @@ function PersonalSchedule({
         <CardDescription>
           Minggu mulai {weekStart}. Tampilan hanya memuat jadwal milik Anda.
         </CardDescription>
+        <Button className="w-fit" render={<a href="/attendance" />} variant="outline">
+          Catat kehadiran
+        </Button>
       </CardHeader>
       <CardContent>
         {loading ? (

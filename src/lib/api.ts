@@ -153,8 +153,16 @@ async function sendRequest(
   }
 
   if (options.body !== undefined) {
-    headers.set("Content-Type", "application/json")
-    init.body = JSON.stringify(options.body)
+    const isFormData =
+      typeof FormData !== "undefined" && options.body instanceof FormData
+
+    if (isFormData) {
+      headers.delete("Content-Type")
+      init.body = options.body as FormData
+    } else {
+      headers.set("Content-Type", "application/json")
+      init.body = JSON.stringify(options.body)
+    }
   }
 
   if (!SAFE_METHODS.has(method)) {

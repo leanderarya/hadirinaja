@@ -58,16 +58,27 @@ class HealthApiTest extends TestCase
             ->keyBy(fn ($route) => $route->uri());
 
         $this->assertSame([
+            'api/v1/attendance/me',
+            'api/v1/attendance/me/check-in',
+            'api/v1/attendance/me/check-out',
+            'api/v1/attendance/me/operations/{operation}/{key}',
             'api/v1/auth/login',
             'api/v1/auth/logout',
             'api/v1/auth/me',
             'api/v1/auth/tenant',
             'api/v1/auth/tenants',
             'api/v1/health',
+            'api/v1/kiosk/attendance/check-in',
+            'api/v1/kiosk/attendance/check-out',
+            'api/v1/kiosk/attendance/employees',
+            'api/v1/kiosk/attendance/next-operation',
+            'api/v1/kiosk/attendance/operations/{operation}/{key}',
             'api/v1/kiosk/pair',
             'api/v1/kiosk/pin/enroll',
             'api/v1/kiosk/pin/verify',
             'api/v1/kiosk/status',
+            'api/v1/management/attendance',
+            'api/v1/management/attendance/events/{event}/evidence',
             'api/v1/management/business-units',
             'api/v1/management/employees',
             'api/v1/management/employees/{employee}',
@@ -99,8 +110,38 @@ class HealthApiTest extends TestCase
             $this->assertContains('active-tenant', $route->middleware());
         }
 
-        foreach (['api/v1/kiosk/status', 'api/v1/kiosk/pin/enroll', 'api/v1/kiosk/pin/verify'] as $uri) {
+        foreach ([
+            'api/v1/kiosk/attendance/check-in',
+            'api/v1/kiosk/attendance/check-out',
+            'api/v1/kiosk/attendance/employees',
+            'api/v1/kiosk/attendance/next-operation',
+            'api/v1/kiosk/attendance/operations/{operation}/{key}',
+            'api/v1/kiosk/pin/enroll',
+            'api/v1/kiosk/pin/verify',
+            'api/v1/kiosk/status',
+        ] as $uri) {
             $this->assertContains('kiosk-device', $apiRoutes->get($uri)->middleware());
+        }
+
+        foreach ([
+            'api/v1/kiosk/attendance/check-in',
+            'api/v1/kiosk/attendance/check-out',
+            'api/v1/kiosk/attendance/next-operation',
+            'api/v1/kiosk/pin/enroll',
+            'api/v1/kiosk/pin/verify',
+        ] as $uri) {
+            $this->assertContains('throttle:kiosk-pin', $apiRoutes->get($uri)->middleware());
+        }
+
+        foreach ([
+            'api/v1/attendance/me',
+            'api/v1/attendance/me/check-in',
+            'api/v1/attendance/me/check-out',
+            'api/v1/attendance/me/operations/{operation}/{key}',
+        ] as $uri) {
+            $middleware = $apiRoutes->get($uri)->middleware();
+            $this->assertContains('auth:sanctum', $middleware);
+            $this->assertContains('active-tenant', $middleware);
         }
 
         $this->assertContains('throttle:auth-login', $apiRoutes->get('api/v1/auth/login')->middleware());

@@ -246,14 +246,17 @@ final class SchedulingController extends Controller
             'configuration.check_in_window.early_minutes' => ['required', 'integer', 'min:0', 'max:360'],
             'configuration.check_in_window.late_minutes' => ['required', 'integer', 'min:0', 'max:360'],
             'configuration.attendance_mode' => ['required', Rule::in(['kiosk', 'personal', 'hybrid'])],
-            'configuration.personal_location_validation' => ['required', 'array:required,radius_meters'],
+            'configuration.personal_location_validation' => ['required', 'array:required,radius_meters,latitude,longitude'],
             'configuration.personal_location_validation.required' => ['required', 'accepted'],
             'configuration.personal_location_validation.radius_meters' => ['required', 'integer', 'min:50', 'max:5000'],
+            'configuration.personal_location_validation.latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'configuration.personal_location_validation.longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'configuration.retroactive_request_limit_days' => ['required', 'integer', 'min:0', 'max:30'],
             'configuration.operational_review' => ['required', 'array:schedule_change_reason_required,minimum_notice_hours'],
             'configuration.operational_review.schedule_change_reason_required' => ['required', 'accepted'],
             'configuration.operational_review.minimum_notice_hours' => ['required', 'integer', 'min:0', 'max:168'],
         ]);
+        $this->assertGeofenceCoordinatePair($validated['configuration']['personal_location_validation'], 'configuration.personal_location_validation');
         $version = $this->policies->createTenantVersion($this->activeMembership($request), $validated['effective_from'], $validated['configuration'], $validated['reason']);
 
         return response()->json(['version' => ['id' => (int) $version->getKey(), 'effective_from' => $version->effective_from->toDateString()]], 201);
@@ -271,14 +274,20 @@ final class SchedulingController extends Controller
             'overrides.check_in_window.early_minutes' => ['sometimes', 'integer', 'min:0', 'max:360'],
             'overrides.check_in_window.late_minutes' => ['sometimes', 'integer', 'min:0', 'max:360'],
             'overrides.attendance_mode' => ['sometimes', Rule::in(['kiosk', 'personal', 'hybrid'])],
-            'overrides.personal_location_validation' => ['sometimes', 'array:required,radius_meters'],
+            'overrides.personal_location_validation' => ['sometimes', 'array:required,radius_meters,latitude,longitude'],
             'overrides.personal_location_validation.required' => ['sometimes', 'accepted'],
             'overrides.personal_location_validation.radius_meters' => ['sometimes', 'integer', 'min:50', 'max:5000'],
+            'overrides.personal_location_validation.latitude' => ['sometimes', 'nullable', 'numeric', 'between:-90,90'],
+            'overrides.personal_location_validation.longitude' => ['sometimes', 'nullable', 'numeric', 'between:-180,180'],
             'overrides.retroactive_request_limit_days' => ['sometimes', 'integer', 'min:0', 'max:30'],
             'overrides.operational_review' => ['sometimes', 'array:schedule_change_reason_required,minimum_notice_hours'],
             'overrides.operational_review.schedule_change_reason_required' => ['sometimes', 'accepted'],
             'overrides.operational_review.minimum_notice_hours' => ['sometimes', 'integer', 'min:0', 'max:168'],
         ]);
+
+        if (isset($validated['overrides']['personal_location_validation'])) {
+            $this->assertGeofenceCoordinatePair($validated['overrides']['personal_location_validation'], 'overrides.personal_location_validation');
+        }
 
         if ($validated['overrides'] === []) {
             throw ValidationException::withMessages(['overrides' => 'Pilih sedikitnya satu field kebijakan untuk diubah.']);
@@ -500,6 +509,17 @@ final class SchedulingController extends Controller
         $membership = $request->attributes->get('activeMembership');
 
         return $membership;
+    }
+
+    /** @param array<string, mixed> $location */
+    private function assertGeofenceCoordinatePair(array $location, string $field): void
+    {
+        $latitude = $location['latitude'] ?? null;
+        $longitude = $location['longitude'] ?? null;
+
+        if (($latitude === null) !== ($longitude === null)) {
+            throw ValidationException::withMessages([$field => 'Latitude dan longitude harus diisi bersama atau sama-sama dikosongkan.']);
+        }
     }
 
     private function linkedEmployeeId(TenantMembership $membership): ?int

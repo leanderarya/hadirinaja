@@ -158,7 +158,7 @@ final class EffectiveScheduleResolver
             $shiftVersion = null;
             $conflicts = [];
             $provenance = ['source' => 'outlet_filter', 'schedule_rule_id' => null, 'exception_id' => null, 'exception_revision' => null];
-        } elseif ($selectedOutlet !== null && $outletId === null && $status === 'rest') {
+        } elseif ($selectedOutlet !== null && $outletId === null && in_array($status, ['rest', 'unscheduled'], true)) {
             $outletId = (int) $selectedOutlet;
         }
 

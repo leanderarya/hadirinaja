@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\AuthSessionController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\KioskAccessController;
@@ -54,6 +55,22 @@ Route::prefix('/v1/management')
             Route::post('/calendar/exceptions', 'createCalendarException')->name('calendar.exceptions.store');
             Route::post('/holidays', 'createHoliday')->name('holidays.store');
         });
+
+        Route::get('/attendance', [AttendanceController::class, 'managementIndex'])->name('attendance.index');
+        Route::get('/attendance/events/{event}/evidence', [AttendanceController::class, 'evidence'])
+            ->whereNumber('event')->name('attendance.events.evidence');
+    });
+
+Route::prefix('/v1/attendance/me')
+    ->middleware(['auth:sanctum', 'active-tenant', 'no-store'])
+    ->name('api.v1.attendance.personal.')
+    ->controller(AttendanceController::class)
+    ->group(function (): void {
+        Route::get('/', 'personalCurrent')->name('current');
+        Route::post('/check-in', 'personalCheckIn')->name('check-in');
+        Route::post('/check-out', 'personalCheckOut')->name('check-out');
+        Route::get('/operations/{operation}/{key}', 'personalOperationStatus')
+            ->where('operation', 'check_in|check_out')->name('operations.show');
     });
 
 Route::prefix('/v1/kiosk')->middleware('no-store')->name('api.v1.kiosk.')->group(function (): void {
@@ -62,6 +79,15 @@ Route::prefix('/v1/kiosk')->middleware('no-store')->name('api.v1.kiosk.')->group
 
     Route::middleware(['kiosk-device'])->group(function (): void {
         Route::get('/status', [KioskAccessController::class, 'status'])->name('status');
+        Route::get('/attendance/employees', [AttendanceController::class, 'kioskEmployees'])->name('attendance.employees');
+        Route::post('/attendance/next-operation', [AttendanceController::class, 'kioskNextOperation'])
+            ->middleware('throttle:kiosk-pin')->name('attendance.next-operation');
+        Route::post('/attendance/check-in', [AttendanceController::class, 'kioskCheckIn'])
+            ->middleware('throttle:kiosk-pin')->name('attendance.check-in');
+        Route::post('/attendance/check-out', [AttendanceController::class, 'kioskCheckOut'])
+            ->middleware('throttle:kiosk-pin')->name('attendance.check-out');
+        Route::get('/attendance/operations/{operation}/{key}', [AttendanceController::class, 'kioskOperationStatus'])
+            ->where('operation', 'check_in|check_out')->name('attendance.operations.show');
         Route::post('/pin/enroll', [KioskAccessController::class, 'enrollPin'])
             ->middleware('throttle:kiosk-pin')->name('pin.enroll');
         Route::post('/pin/verify', [KioskAccessController::class, 'verifyPin'])

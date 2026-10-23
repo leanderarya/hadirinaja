@@ -111,7 +111,7 @@ final class EmployeePinService
         });
     }
 
-    public function verify(KioskDevice $device, int $employeeId, string $pin): ?Employee
+    public function verify(KioskDevice $device, int $employeeId, string $pin, bool $requireCurrentAssignment = true): ?Employee
     {
         $this->assertPinFormat($pin);
         $key = $this->rateLimitKey($device, $employeeId);
@@ -134,7 +134,8 @@ final class EmployeePinService
         $hash = $credential?->pin_hash ?? (self::$dummyHash ??= Hash::make('invalid-pin-placeholder'));
         $validPin = Hash::check($pin, $hash);
 
-        if (! $employee || ! $credential || ! $validPin || ! $this->isEligibleAtOutlet($employee, $device->outlet)) {
+        if (! $employee || ! $credential || ! $validPin
+            || ($requireCurrentAssignment && ! $this->isEligibleAtOutlet($employee, $device->outlet))) {
             return null;
         }
 

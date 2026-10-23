@@ -10,8 +10,10 @@ final class NoStore
 {
     public function handle(Request $request, Closure $next): Response
     {
-        return $next($request)
-            ->header('Cache-Control', 'no-store, private, max-age=0')
-            ->header('Pragma', 'no-cache');
+        $response = $next($request);
+        $response->headers->set('Cache-Control', 'no-store, private, max-age=0');
+        $response->headers->set('Pragma', 'no-cache');
+
+        return $response;
     }
 }
