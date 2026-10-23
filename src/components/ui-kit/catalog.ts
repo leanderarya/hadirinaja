@@ -76,6 +76,11 @@ export const catalogCategories: CatalogCategory[] = [
       },
       { id: "portal", label: "Portal", importPath: "@/components/portal" },
       {
+        id: "management-sidebar",
+        label: "Management Sidebar",
+        importPath: "@/components/management-sidebar",
+      },
+      {
         id: "social-icons",
         label: "Social Icons",
         importPath: "@/components/*-icon",

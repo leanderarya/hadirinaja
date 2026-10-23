@@ -16,9 +16,11 @@ import { NewsSection } from "@/components/news-section"
 import { CtaSection } from "@/components/cta-section"
 import { SupportSection } from "@/components/support-section"
 import { MetricsSection } from "@/components/metrics-section"
+import { ManagementSidebar } from "@/components/management-sidebar"
 import { Footer } from "@/components/footer"
 import { Portal, PortalBackdrop } from "@/components/portal"
 import { Button } from "@/components/ui/button"
+import { SidebarProvider } from "@/components/ui/sidebar"
 import { UiKitSection } from "@/components/ui-kit/ui-kit-section"
 import { XIcon } from "@/components/x-icon"
 import { YoutubeIcon } from "@/components/youtube-icon"
@@ -100,6 +102,21 @@ export function AppComponentsSection() {
             </Portal>
           ) : null}
         </div>
+      </UiKitSection>
+
+      <UiKitSection
+        id="management-sidebar"
+        importPath="@/components/management-sidebar"
+        title="Management Sidebar"
+      >
+        <SidebarProvider>
+          <div className="flex min-h-[320px] w-full overflow-hidden rounded-xl border">
+            <ManagementSidebar activePage="scheduling" />
+            <div className="flex flex-1 items-center justify-center p-4 text-body text-muted-foreground">
+              Area konten portal
+            </div>
+          </div>
+        </SidebarProvider>
       </UiKitSection>
 
       <UiKitSection

@@ -77,6 +77,21 @@ class HealthApiTest extends TestCase
             'api/v1/management/kiosks/{device}/revoke',
             'api/v1/management/organization',
             'api/v1/management/outlets',
+            'api/v1/management/scheduling/calendar',
+            'api/v1/management/scheduling/calendar/exceptions',
+            'api/v1/management/scheduling/calendar/versions',
+            'api/v1/management/scheduling/context',
+            'api/v1/management/scheduling/exceptions',
+            'api/v1/management/scheduling/holidays',
+            'api/v1/management/scheduling/me/week',
+            'api/v1/management/scheduling/outlets/{outlet}/policy',
+            'api/v1/management/scheduling/policies',
+            'api/v1/management/scheduling/policies/tenant',
+            'api/v1/management/scheduling/resolve',
+            'api/v1/management/scheduling/shifts',
+            'api/v1/management/scheduling/shifts/{template}/versions',
+            'api/v1/management/scheduling/week',
+            'api/v1/management/scheduling/weekly-rules',
         ], $apiRoutes->keys()->sort()->values()->all());
 
         foreach ($apiRoutes->filter(fn ($route, $uri) => str_starts_with($uri, 'api/v1/management/')) as $route) {

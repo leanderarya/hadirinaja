@@ -6,9 +6,12 @@ use App\Enums\TenantRole;
 use App\Models\BusinessUnit;
 use App\Models\Employee;
 use App\Models\Outlet;
+use App\Models\OutletCalendarVersion;
 use App\Models\Tenant;
+use App\Models\TenantAttendancePolicyVersion;
 use App\Models\TenantMembership;
 use App\Models\User;
+use App\Support\SchedulingDefaults;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -28,6 +31,13 @@ final class OrganizationService
             $membership->roles()->create([
                 'tenant_id' => $tenant->getKey(),
                 'role' => TenantRole::Owner->value,
+            ]);
+            TenantAttendancePolicyVersion::query()->create([
+                'tenant_id' => $tenant->getKey(),
+                'effective_from' => $tenant->created_at->toDateString(),
+                'configuration' => SchedulingDefaults::attendancePolicy(),
+                'actor_user_id' => $owner->getKey(),
+                'reason' => 'Kebijakan awal tenant.',
             ]);
 
             return $tenant;
@@ -54,11 +64,24 @@ final class OrganizationService
             throw ValidationException::withMessages(['business_unit' => 'The Business Unit must belong to the actor tenant.']);
         }
 
-        return Outlet::query()->create([
-            'tenant_id' => $actor->tenant_id,
-            'business_unit_id' => $unit->getKey(),
-            'name' => $this->cleanName($name),
-        ]);
+        return DB::transaction(function () use ($actor, $unit, $name): Outlet {
+            $outlet = Outlet::query()->create([
+                'tenant_id' => $actor->tenant_id,
+                'business_unit_id' => $unit->getKey(),
+                'name' => $this->cleanName($name),
+            ]);
+            OutletCalendarVersion::query()->create([
+                'tenant_id' => $actor->tenant_id,
+                'outlet_id' => $outlet->getKey(),
+                'effective_from' => $outlet->created_at->toDateString(),
+                'timezone' => SchedulingDefaults::TIMEZONE,
+                'operating_weekdays' => SchedulingDefaults::operatingWeekdays(),
+                'actor_user_id' => $actor->user_id,
+                'reason' => 'Kalender awal outlet menggunakan zona waktu Asia/Jakarta dan buka setiap hari.',
+            ]);
+
+            return $outlet;
+        });
     }
 
     public function registerEmployee(TenantMembership $actor, string $name): Employee

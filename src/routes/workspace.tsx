@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
 
-import { LogoIcon } from "@/components/logo"
+import { ManagementSidebar } from "@/components/management-sidebar"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -19,20 +19,7 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar"
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import {
   ApiError,
   type AuthSession,
@@ -237,7 +224,7 @@ function WorkspacePage() {
   return (
     <SidebarProvider>
       <div className="flex min-h-svh w-full bg-muted/20">
-        <WorkspaceSidebar />
+        <ManagementSidebar activePage="workspace" />
         <div className="min-w-0 flex-1">
           <header className="flex min-h-14 flex-wrap items-center gap-3 border-b bg-background px-4 py-2 lg:min-h-[60px] lg:px-6">
             <SidebarTrigger className="-ml-1" />
@@ -663,51 +650,6 @@ function WorkspacePage() {
         </div>
       </div>
     </SidebarProvider>
-  )
-}
-
-function WorkspaceSidebar() {
-  return (
-    <Sidebar>
-      <SidebarHeader className="p-4">
-        <div className="flex items-center gap-3">
-          <LogoIcon className="size-8" />
-          <div>
-            <p className="text-label">HadirinAja</p>
-            <p className="text-caption text-muted-foreground">Ruang kerja</p>
-          </div>
-        </div>
-      </SidebarHeader>
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Organisasi</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton isActive render={<a href="#organization" />}>
-                  <span>Ringkasan</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton render={<a href="#organization" />}>
-                  <span>Unit bisnis & outlet</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton render={<a href="#people-devices" />}>
-                  <span>Karyawan & kiosk</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
-      <SidebarFooter className="p-4">
-        <p className="text-caption text-muted-foreground">
-          Akses selalu diperiksa oleh server.
-        </p>
-      </SidebarFooter>
-    </Sidebar>
   )
 }
 
