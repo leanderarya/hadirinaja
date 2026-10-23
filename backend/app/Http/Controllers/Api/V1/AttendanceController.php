@@ -14,6 +14,7 @@ use App\Models\Outlet;
 use App\Models\TenantMembership;
 use App\Services\AttendanceEvidenceStorage;
 use App\Services\AttendanceService;
+use App\Services\EffectiveAttendanceProjectionService;
 use App\Services\EmployeePinService;
 use App\Services\TenantAuthorization;
 use Carbon\CarbonImmutable;
@@ -34,6 +35,7 @@ final class AttendanceController extends Controller
         private readonly EmployeePinService $pins,
         private readonly TenantAuthorization $authorization,
         private readonly AttendanceEvidenceStorage $evidenceStorage,
+        private readonly EffectiveAttendanceProjectionService $projection,
     ) {}
 
     public function personalCurrent(Request $request): JsonResponse
@@ -42,11 +44,19 @@ final class AttendanceController extends Controller
         $membership = $this->activeMembership($request);
         $employee = $this->linkedEmployee($request, $membership);
 
-        return response()->json($this->attendance->current(
+        $result = $this->attendance->current(
             $membership,
             $employee,
             isset($validated['outlet_id']) ? (int) $validated['outlet_id'] : null,
-        ));
+        );
+        $timezone = (string) ($result['schedule']['timezone'] ?? 'Asia/Jakarta');
+        $today = CarbonImmutable::now($timezone)->toDateString();
+        $result['effective_attendance'] = $this->projection->range(
+            (int) $membership->tenant_id, (int) $employee->getKey(),
+            CarbonImmutable::parse($today, $timezone)->subDays(6)->toDateString(), $today,
+        );
+
+        return response()->json($result);
     }
 
     public function personalCheckIn(Request $request): JsonResponse
@@ -209,14 +219,27 @@ final class AttendanceController extends Controller
             ->whereBetween('work_date', [$validated['from'], $validated['to']])
             ->orderByDesc('check_in_at')->limit(500)->get();
 
-        return response()->json([
-            'outlet' => ['id' => (int) $outlet->getKey(), 'name' => $outlet->name],
-            'from' => $validated['from'],
-            'to' => $validated['to'],
-            'sessions' => $sessions->map(fn (AttendanceSession $session): array => [
+        $projectionCache = [];
+        $sessionViews = $sessions->map(function (AttendanceSession $session) use ($membership, &$projectionCache): array {
+            $workDate = $session->work_date->toDateString();
+            $key = (int) $session->employee_id.'|'.$workDate;
+            $day = $projectionCache[$key] ??= $this->projection->project(
+                (int) $membership->tenant_id, (int) $session->employee_id, $workDate,
+            );
+            $effective = collect($day['sessions'])->first(fn (array $row): bool => (int) $row['id'] === (int) $session->getKey());
+
+            if ($effective && (int) ($effective['effective']['outlet_id'] ?? $session->outlet_id) !== (int) $session->outlet_id
+                && ! $this->authorization->canManageOutlet(
+                    $membership,
+                    Outlet::query()->forTenant((int) $membership->tenant_id)->find((int) $effective['effective']['outlet_id']) ?? new Outlet,
+                )) {
+                $effective = null;
+            }
+
+            return [
                 'id' => (int) $session->getKey(),
                 'employee' => ['id' => (int) $session->employee_id, 'name' => $session->employee->name],
-                'work_date' => $session->work_date->toDateString(),
+                'work_date' => $workDate,
                 'status' => $session->status,
                 'check_in_at' => $session->check_in_at->utc()->toIso8601String(),
                 'check_out_at' => $session->check_out_at?->utc()->toIso8601String(),
@@ -228,7 +251,18 @@ final class AttendanceController extends Controller
                     'recorded_at' => $event->recorded_at->utc()->toIso8601String(),
                     'has_evidence' => $event->evidence !== null,
                 ])->values(),
-            ])->values(),
+                'effective_attendance' => $effective,
+                'effective_outcome' => $effective ? $day['outcome'] : null,
+                'review' => $effective ? $day['review'] : null,
+                'finalization' => $effective ? $day['finalization'] : null,
+            ];
+        })->values();
+
+        return response()->json([
+            'outlet' => ['id' => (int) $outlet->getKey(), 'name' => $outlet->name],
+            'from' => $validated['from'],
+            'to' => $validated['to'],
+            'sessions' => $sessionViews,
         ]);
     }
 

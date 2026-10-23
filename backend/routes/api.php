@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\ApprovalController;
 use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\AuthSessionController;
 use App\Http\Controllers\Api\V1\HealthController;
@@ -59,6 +60,15 @@ Route::prefix('/v1/management')
         Route::get('/attendance', [AttendanceController::class, 'managementIndex'])->name('attendance.index');
         Route::get('/attendance/events/{event}/evidence', [AttendanceController::class, 'evidence'])
             ->whereNumber('event')->name('attendance.events.evidence');
+        Route::get('/approvals', [ApprovalController::class, 'queue'])->name('approvals.index');
+        Route::get('/approvals/{approvalRequest}', [ApprovalController::class, 'show'])->whereNumber('approvalRequest')->name('approvals.show');
+        Route::post('/approvals/{approvalRequest}/decision', [ApprovalController::class, 'decide'])
+            ->whereNumber('approvalRequest')->name('approvals.decide');
+        Route::post('/attendance/sessions/{session}/corrections', [ApprovalController::class, 'administrativeCorrection'])
+            ->whereNumber('session')->name('attendance.corrections.store');
+        Route::post('/attendance/reviews/discover', [ApprovalController::class, 'discoverReviews'])->name('attendance.reviews.discover');
+        Route::get('/attendance/effective', [ApprovalController::class, 'managementProjection'])->name('attendance.effective');
+        Route::post('/attendance/finalizations', [ApprovalController::class, 'finalize'])->name('attendance.finalizations.store');
     });
 
 Route::prefix('/v1/attendance/me')
@@ -71,6 +81,17 @@ Route::prefix('/v1/attendance/me')
         Route::post('/check-out', 'personalCheckOut')->name('check-out');
         Route::get('/operations/{operation}/{key}', 'personalOperationStatus')
             ->where('operation', 'check_in|check_out')->name('operations.show');
+    });
+
+Route::prefix('/v1/attendance/me')
+    ->middleware(['auth:sanctum', 'active-tenant', 'no-store'])
+    ->name('api.v1.attendance.personal.approvals.')
+    ->controller(ApprovalController::class)
+    ->group(function (): void {
+        Route::get('/requests', 'ownRequests')->name('requests.index');
+        Route::post('/requests', 'submit')->name('requests.store');
+        Route::post('/requests/{approvalRequest}/cancel', 'cancel')->whereNumber('approvalRequest')->name('requests.cancel');
+        Route::get('/effective', 'ownProjection')->name('effective');
     });
 
 Route::prefix('/v1/kiosk')->middleware('no-store')->name('api.v1.kiosk.')->group(function (): void {

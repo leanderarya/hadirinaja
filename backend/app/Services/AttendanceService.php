@@ -441,7 +441,16 @@ final class AttendanceService
         $session = AttendanceSession::query()->forTenant($tenantId)
             ->whereKey($owner->attendance_session_id)->lockForUpdate()->first();
 
-        if (! $session || $session->status !== 'active' || (int) $session->employee_id !== $employeeId) {
+        if (! $session || (int) $session->employee_id !== $employeeId) {
+            throw new \LogicException('The active-session ownership row is inconsistent.');
+        }
+        if ($session->status !== 'active') {
+            $stillOwned = DB::table('attendance_active_session_owners')->where('tenant_id', $tenantId)
+                ->where('employee_id', $employeeId)->where('attendance_session_id', $session->getKey())->lockForUpdate()->exists();
+            if (! $stillOwned) {
+                return $this->reject($record, 409, 'no_active_attendance', 'Sesi ini telah ditutup atau diselesaikan sebelum checkout diterima.');
+            }
+
             throw new \LogicException('The active-session ownership row is inconsistent.');
         }
 

@@ -21,7 +21,7 @@ export const Route = createFileRoute("/attendance")({
 
 type ReviewableSession = {
   id: number
-  status: "active" | "closed"
+  status: "active" | "closed" | "administratively_resolved"
   work_date: string
   timezone: string
   check_in_at: string
@@ -380,10 +380,17 @@ function AttendancePage() {
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-3xl flex-col gap-5 px-4 py-8 sm:px-6">
       <header className="flex flex-col gap-2">
-        <p className="text-label text-muted-foreground">
-          HadirinAja · Karyawan
-        </p>
-        <h1 className="text-title">Kehadiran saya</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-2">
+            <p className="text-label text-muted-foreground">
+              HadirinAja · Karyawan
+            </p>
+            <h1 className="text-title">Kehadiran saya</h1>
+          </div>
+          <Button render={<a href="/requests" />} variant="outline">
+            Permintaan saya
+          </Button>
+        </div>
         <p className="text-body text-muted-foreground">
           Waktu pencatatan ditentukan server. Lokasi browser dapat ditinjau dan
           bukan bukti lokasi yang tahan manipulasi.
@@ -549,7 +556,8 @@ function AttendancePage() {
             <CardHeader>
               <CardTitle>Riwayat terbaru</CardTitle>
               <CardDescription>
-                Catatan kehadiran pribadi, tanpa alur persetujuan.
+                Catatan asli tetap tersedia; hasil koreksi dan review tampil di
+                Permintaan saya.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -576,7 +584,11 @@ function AttendancePage() {
                           item.status === "active" ? "default" : "secondary"
                         }
                       >
-                        {item.status === "active" ? "Aktif" : "Selesai"}
+                        {item.status === "active"
+                          ? "Aktif"
+                          : item.status === "administratively_resolved"
+                            ? "Diselesaikan administratif"
+                            : "Selesai"}
                       </Badge>
                     </li>
                   ))}
