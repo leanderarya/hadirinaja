@@ -10,12 +10,13 @@ class HealthApiTest extends TestCase
 {
     public function test_health_endpoint_reports_database_available_when_query_succeeds(): void
     {
+        config(['session.driver' => 'array']);
         DB::shouldReceive('selectOne')
             ->once()
             ->with('SELECT 1')
             ->andReturn((object) ['1' => 1]);
 
-        $this->getJson('/api/v1/health')
+        $this->withHeader('Origin', 'http://health-check.invalid')->getJson('/api/v1/health')
             ->assertOk()
             ->assertExactJson([
                 'status' => 'healthy',
@@ -25,12 +26,13 @@ class HealthApiTest extends TestCase
 
     public function test_health_endpoint_returns_safe_unavailable_response_when_query_fails(): void
     {
+        config(['session.driver' => 'array']);
         DB::shouldReceive('selectOne')
             ->once()
             ->with('SELECT 1')
             ->andThrow(new \RuntimeException('database driver details'));
 
-        $this->getJson('/api/v1/health')
+        $this->withHeader('Origin', 'http://health-check.invalid')->getJson('/api/v1/health')
             ->assertServiceUnavailable()
             ->assertExactJson([
                 'status' => 'unhealthy',
@@ -49,13 +51,44 @@ class HealthApiTest extends TestCase
             ]);
     }
 
-    public function test_no_public_domain_management_routes_are_registered(): void
+    public function test_only_approved_authentication_and_kiosk_routes_are_public(): void
     {
         $apiRoutes = collect(Route::getRoutes()->getRoutes())
             ->filter(fn ($route) => str_starts_with($route->uri(), 'api/'))
-            ->map(fn ($route) => $route->uri())
-            ->unique()->sort()->values()->all();
+            ->keyBy(fn ($route) => $route->uri());
 
-        $this->assertSame(['api/v1/health'], $apiRoutes);
+        $this->assertSame([
+            'api/v1/auth/login',
+            'api/v1/auth/logout',
+            'api/v1/auth/me',
+            'api/v1/auth/tenant',
+            'api/v1/auth/tenants',
+            'api/v1/health',
+            'api/v1/kiosk/pair',
+            'api/v1/kiosk/pin/enroll',
+            'api/v1/kiosk/pin/verify',
+            'api/v1/kiosk/status',
+            'api/v1/management/business-units',
+            'api/v1/management/employees',
+            'api/v1/management/employees/{employee}',
+            'api/v1/management/employees/{employee}/pin-enrollment',
+            'api/v1/management/kiosks',
+            'api/v1/management/kiosks/pairing-codes',
+            'api/v1/management/kiosks/{device}/revoke',
+            'api/v1/management/organization',
+            'api/v1/management/outlets',
+        ], $apiRoutes->keys()->sort()->values()->all());
+
+        foreach ($apiRoutes->filter(fn ($route, $uri) => str_starts_with($uri, 'api/v1/management/')) as $route) {
+            $this->assertContains('auth:sanctum', $route->middleware());
+            $this->assertContains('active-tenant', $route->middleware());
+        }
+
+        foreach (['api/v1/kiosk/status', 'api/v1/kiosk/pin/enroll', 'api/v1/kiosk/pin/verify'] as $uri) {
+            $this->assertContains('kiosk-device', $apiRoutes->get($uri)->middleware());
+        }
+
+        $this->assertContains('throttle:auth-login', $apiRoutes->get('api/v1/auth/login')->middleware());
+        $this->assertContains('throttle:kiosk-pair', $apiRoutes->get('api/v1/kiosk/pair')->middleware());
     }
 }

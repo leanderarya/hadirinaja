@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Support\IdentityNormalizer;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -11,8 +12,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 
 #[Fillable(['name', 'email', 'phone', 'password'])]
 #[Hidden(['password', 'remember_token'])]
@@ -24,26 +25,20 @@ class User extends Authenticatable
     protected function email(): Attribute
     {
         return Attribute::make(
-            set: static fn (string $value): string => Str::lower(trim($value)),
+            set: static fn (string $value): string => IdentityNormalizer::email($value),
         );
     }
 
     protected function phone(): Attribute
     {
         return Attribute::make(set: static function (?string $value): ?string {
-            if ($value === null || trim($value) === '') {
-                return null;
-            }
-
-            $phone = preg_replace('/[\s().-]+/', '', trim($value));
-
-            if (! is_string($phone) || preg_match('/^\+[1-9]\d{7,14}$/D', $phone) !== 1) {
+            try {
+                return IdentityNormalizer::phone($value);
+            } catch (InvalidArgumentException) {
                 throw ValidationException::withMessages([
                     'phone' => 'Phone numbers must use canonical E.164 format.',
                 ]);
             }
-
-            return $phone;
         });
     }
 

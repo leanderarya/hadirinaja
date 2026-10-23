@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Middleware\EnsureActiveTenant;
+use App\Http\Middleware\EnsureKioskDevice;
+use App\Http\Middleware\NoStore;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -11,7 +14,12 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Keep Laravel's default web and API middleware groups registered.
+        $middleware->statefulApi();
+        $middleware->alias([
+            'active-tenant' => EnsureActiveTenant::class,
+            'kiosk-device' => EnsureKioskDevice::class,
+            'no-store' => NoStore::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

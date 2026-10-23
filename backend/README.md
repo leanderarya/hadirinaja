@@ -76,7 +76,7 @@ Verified locally: Laravel 13.38.0, Composer 2.10.2 and backend tests on PHP 8.3.
 
 The browser client in `src/lib/api.ts` reads the public `VITE_API_BASE_URL`. Its local default is `/api/v1`, forwarded by Vite to `http://127.0.0.1:8000`. For split-origin deployment, set the frontend build variable to an absolute API base such as `https://api.example.com/api/v1`. A `VITE_` variable is included in the browser bundle; do not place credentials or server-only secrets there.
 
-`CORS_ALLOWED_ORIGINS` is a comma-separated allowlist of exact frontend origins. It defaults to `http://localhost:3000`; production must replace it with the deployed frontend origin. Wildcard origins and credentialed CORS are disabled in S0-B.
+`CORS_ALLOWED_ORIGINS` is a comma-separated allowlist of exact frontend origins. It defaults to `http://localhost:3000`; production must replace it with the deployed frontend origin. Credentialed CORS is enabled for this allowlist only; wildcard origins are not used. The Vite development server forwards both `/api/*` and `/sanctum/*` to Laravel.
 
 ## S1 organization and identity foundation
 
@@ -84,11 +84,40 @@ S1 stores a tenant-owned organization as `Tenant → Business Unit → Outlet`. 
 
 Owner, Supervisor, and Employee roles are assigned per membership. Owners manage their tenant. Supervisors can manage only explicitly scoped outlets. Employee links are explicit, one-to-one within a tenant, and do not infer identity from names or email. Primary and temporary outlet assignments keep effective-time history. Primary changes lock the employee row, close the previous interval, and reject overlapping primary history. An open-ended primary interval uses `9999-12-31 23:59:59` as its exclusive end sentinel.
 
-S1 organization and identity operations are application services only. No public tenant, outlet, employee, membership, or role-management routes are registered.
+S1 organization and identity operations remain application services; S2 exposes only the small authenticated management routes listed below. No public tenant, outlet, employee, membership, or role-management routes are registered.
 
-## Authentication boundary
+## Authentication and session configuration
 
-S1 does not install Sanctum and has no login, token issuance, kiosk, or protected management routes. In S2, resolve the authenticated global User, validate an active membership for the selected tenant, and pass that membership as the actor to application services. A client-supplied tenant ID alone never authorizes access. Supervisor outlet access comes only from stored outlet scopes; Employee access comes only from the explicit membership-to-employee link. For future Sanctum sessions, configure the exact stateful frontend domains, secure cookie domain and attributes, CSRF initialization, credentialed CORS, and HTTPS together. Personal sessions and kiosk device identity must remain separate. Production domains and cookie/CSRF configuration are unresolved.
+S2 uses Sanctum's first-party SPA session flow with Laravel's `web` guard. Browser mutations initialize `/sanctum/csrf-cookie` and send `X-XSRF-TOKEN`; Vite proxies that endpoint in local development. Session IDs are regenerated on login and tenant selection. Logout invalidates the session and rotates the CSRF token. Session and rate-limit state use the database driver so they work without Redis or a continuously running worker.
+
+Set these values together for a future first-party deployment. The domains below are examples; replace them with the actual HTTPS frontend origin and parent cookie domain:
+
+```dotenv
+APP_URL=https://api.example.com
+CORS_ALLOWED_ORIGINS=https://app.example.com
+SANCTUM_STATEFUL_DOMAINS=app.example.com
+SESSION_DOMAIN=.example.com
+SESSION_SECURE_COOKIE=true
+SESSION_SAME_SITE=lax
+SESSION_DRIVER=database
+CACHE_STORE=database
+```
+
+The frontend's public `VITE_API_BASE_URL` may point to `https://api.example.com/api/v1`. Do not put credentials in `VITE_` variables. Cross-subdomain cookies require HTTPS and a shared registrable domain. Production domain, certificate, hosting configuration, and browser behavior have not been deployed or verified.
+
+Run `php artisan hadirinaja:bootstrap-owner` from `backend/` once from a trusted interactive server session to create the first Owner and Tenant. It confirms before writing, accepts the password only through hidden prompts, validates the identity and password, and refuses to run when a tenant already exists. Do not pass passwords as command arguments. The command creates no default account during migrations or startup.
+
+## S2 API inventory
+
+Public application routes are limited to `GET /api/v1/health`, `POST /api/v1/auth/login`, and `POST /api/v1/kiosk/pair`. Login and pairing have independent IP and identity/code throttles. `GET /sanctum/csrf-cookie` is Sanctum's CSRF bootstrap endpoint.
+
+Personal-session routes require Sanctum authentication: `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`, `GET /api/v1/auth/tenants`, and `POST /api/v1/auth/tenant`. Tenant selection is bound to the authenticated User's active membership; protected management routes re-read membership status and roles on every request.
+
+Management routes require an authenticated session and active tenant membership: `GET /api/v1/management/organization`, `GET /api/v1/management/employees`, `GET /api/v1/management/employees/{id}`, `POST /api/v1/management/business-units`, `POST /api/v1/management/outlets`, `GET /api/v1/management/kiosks`, `POST /api/v1/management/kiosks/pairing-codes`, `POST /api/v1/management/kiosks/{id}/revoke`, and `POST /api/v1/management/employees/{id}/pin-enrollment`. Owner-only operations use existing S1 authorization services; employee and supervisor reads are outlet- or identity-scoped. Tenant and role authority are never accepted from request data.
+
+Kiosk routes are separate from personal sessions. Pairing codes are single-use, expire after five minutes, and are stored as HMAC hashes. A paired device receives a random HttpOnly cookie scoped to `/api/v1/kiosk`; middleware resolves and checks revocation on every kiosk request. PIN enrollment codes expire after 15 minutes and are also stored as hashes. Employees enter and confirm their PIN on the paired kiosk; only a Laravel password hash is stored. PIN verification is restricted to the paired device's tenant and outlet, an active assignment, and a rate limit of five failures per device/employee in fifteen minutes. The Owner shares the one-time activation code with the intended employee; delivery remains an operational responsibility. PIN verification returns a limited identity result only; it does not create an employee session or record attendance.
+
+Management and kiosk responses use `Cache-Control: private, no-store`. Personal sessions and kiosk cookies have distinct names and routes. Revoking a kiosk immediately invalidates its cookie at the next protected request. Login, pairing, and PIN credentials are not written to application logs by these flows.
 
 ## Hostinger Business considerations
 

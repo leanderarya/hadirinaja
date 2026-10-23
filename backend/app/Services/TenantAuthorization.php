@@ -147,6 +147,12 @@ final class TenantAuthorization
     /** @return Collection<int, BusinessUnit> */
     public function businessUnitsFor(User $user, int $tenantId): Collection
     {
+        $membership = $this->resolveMembership($user, $tenantId);
+
+        if ($this->hasTenantRole($membership, TenantRole::Owner)) {
+            return BusinessUnit::query()->forTenant($tenantId)->orderBy('id')->get();
+        }
+
         $unitIds = $this->outletsFor($user, $tenantId)->pluck('business_unit_id')->unique()->values();
 
         return BusinessUnit::query()->forTenant($tenantId)
