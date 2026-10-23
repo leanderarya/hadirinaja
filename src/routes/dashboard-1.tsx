@@ -74,7 +74,7 @@ const statsUserData = [
 ]
 
 function DashboardPage() {
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen] = useState(true)
   const [bannerOpen, setBannerOpen] = useState(true)
 
   // Interactive Chart States

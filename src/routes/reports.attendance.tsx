@@ -391,7 +391,9 @@ function AttendanceReportPage() {
               <CardTitle>Filter laporan</CardTitle>
               <CardDescription>
                 Work date mengikuti label tanggal lokal Outlet. Maksimal 31
-                hari.
+                hari dan 5.000 employee-workdays per laporan. CSV memuat
+                maksimal 500 baris setelah filter; ekspor yang melewati batas
+                ditolak, tidak dipotong diam-diam.
               </CardDescription>
             </CardHeader>
             <CardContent>

@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['tenant_id', 'employee_id', 'outlet_id', 'assignment_type', 'effective_from', 'effective_until'])]
+#[Fillable(['tenant_id', 'employee_id', 'outlet_id', 'assignment_type', 'effective_from', 'effective_until', 'created_by_membership_id'])]
 class EmployeeOutletAssignment extends Model
 {
     use BelongsToTenant;

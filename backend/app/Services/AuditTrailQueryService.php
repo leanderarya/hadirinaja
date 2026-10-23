@@ -180,10 +180,12 @@ final class AuditTrailQueryService
         $query = DB::table('employee_outlet_assignments as a')
             ->join('employees as emp', fn (JoinClause $join) => $join->on('emp.id', '=', 'a.employee_id')->on('emp.tenant_id', '=', 'a.tenant_id'))
             ->join('outlets as o', fn (JoinClause $join) => $join->on('o.id', '=', 'a.outlet_id')->on('o.tenant_id', '=', 'a.tenant_id'))
+            ->leftJoin('tenant_memberships as actor_membership', fn (JoinClause $join) => $join->on('actor_membership.id', '=', 'a.created_by_membership_id')->on('actor_membership.tenant_id', '=', 'a.tenant_id'))
+            ->leftJoin('users as actor_user', 'actor_user.id', '=', 'actor_membership.user_id')
             ->where('a.tenant_id', $scope->tenantId)->whereBetween('a.created_at', $this->utcRange($filters))
             ->whereIn('a.outlet_id', $filters['outlet_ids'])
             ->when($filters['employee_id'] !== null, fn (Builder $q) => $q->where('a.employee_id', $filters['employee_id']))
-            ->selectRaw("'employee_assignment' AS source_type, a.id AS source_id, a.tenant_id, a.created_at AS occurred_at, NULL AS actor_user_id, NULL AS actor_name, emp.id AS employee_id, emp.name AS employee_name, o.id AS outlet_id, o.name AS outlet_name, CONCAT('employee.assignment.', a.assignment_type) AS action, CONCAT('Penugasan ', a.assignment_type, ' · berlaku ', a.effective_from, ' s/d ', a.effective_until) AS summary, NULL AS reason, 'employee_outlet_assignment' AS resource_type, a.id AS resource_id");
+            ->selectRaw("'employee_assignment' AS source_type, a.id AS source_id, a.tenant_id, a.created_at AS occurred_at, actor_user.id AS actor_user_id, actor_user.name AS actor_name, emp.id AS employee_id, emp.name AS employee_name, o.id AS outlet_id, o.name AS outlet_name, CONCAT('employee.assignment.', a.assignment_type) AS action, CONCAT('Penugasan ', a.assignment_type, ' · berlaku ', a.effective_from, ' s/d ', a.effective_until) AS summary, NULL AS reason, 'employee_outlet_assignment' AS resource_type, a.id AS resource_id");
 
         return $query;
     }

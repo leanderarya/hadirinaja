@@ -1,5 +1,4 @@
 import { cn } from "@/lib/utils";
-import { Link } from "@tanstack/react-router";
 import { LinkedinIcon } from "@/components/linkedin-icon";
 import { XIcon } from "@/components/x-icon";
 import { YoutubeIcon } from "@/components/youtube-icon";
@@ -90,13 +89,14 @@ export function Footer() {
 					</p>
 					<p className="text-muted-foreground text-sm">
 						Crafted for developers who{" "}
-						<Link
+						<a
 							className="font-medium text-primary hover:underline"
 							href="#"
 							target="_blank"
+							rel="noreferrer"
 						>
 							ship fast.
-						</Link>
+						</a>
 					</p>
 				</div>
 
@@ -139,7 +139,7 @@ export function Footer() {
 					</span>
 					<div className="flex gap-1">
 						{socialLinks.map(({ icon, href, label }) => (
-							<Button className="text-muted-foreground hover:text-foreground" key={label} size="icon-sm" variant="ghost" render={<a aria-label={label} href={href} target="_blank" />} nativeButton={false}>{icon}</Button>
+							<Button className="text-muted-foreground hover:text-foreground" key={label} size="icon-sm" variant="ghost" render={<a aria-label={label} href={href} rel="noopener noreferrer" target="_blank" />} nativeButton={false}>{icon}</Button>
 						))}
 					</div>
 				</div>

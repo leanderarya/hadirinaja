@@ -137,6 +137,87 @@ class ReportingTest extends TestCase
         $this->assertLessThanOrEqual(3, $sessionReads, 'Employee-workday count must not add one attendance session read per employee.');
     }
 
+    public function test_employee_assignment_audit_records_actor_and_keeps_unknown_history_unrecorded(): void
+    {
+        $today = CarbonImmutable::today('UTC');
+        Carbon::setTestNow($today->setTime(12, 0));
+        [$ownerUser, $tenant, $owner] = $this->tenantWithOwner('Tenant provenance penugasan');
+        [, $outlet] = $this->unitWithOutlet($owner, 'Unit provenance', 'Outlet provenance');
+        $assigned = app(OrganizationService::class)->registerEmployee($owner, 'Karyawan dengan aktor');
+        $assignment = app(EmployeeOutletAssignmentService::class)->assignPrimaryOutlet(
+            $owner, $assigned, $outlet, $today->subDay(),
+        );
+
+        $legacyEmployee = app(OrganizationService::class)->registerEmployee($owner, 'Karyawan tanpa provenance');
+        DB::table('employee_outlet_assignments')->insert([
+            'tenant_id' => $tenant->getKey(),
+            'employee_id' => $legacyEmployee->getKey(),
+            'outlet_id' => $outlet->getKey(),
+            'assignment_type' => 'primary',
+            'effective_from' => $today->subDay()->format('Y-m-d H:i:s'),
+            'effective_until' => '9999-12-31 23:59:59',
+            'created_by_membership_id' => null,
+            'created_at' => now('UTC'),
+            'updated_at' => now('UTC'),
+        ]);
+
+        $this->loginAs($ownerUser);
+        $entries = $this->browserRequest()->getJson('/api/v1/management/reports/audit?'.http_build_query([
+            'from' => $today->toDateString(),
+            'to' => $today->toDateString(),
+            'source' => 'employee_assignment',
+        ]))->assertOk()->json('data');
+
+        $created = collect($entries)->firstWhere('source_id', $assignment->getKey());
+        $legacy = collect($entries)->first(fn (array $entry): bool => $entry['employee_id'] === $legacyEmployee->getKey());
+        $this->assertSame($ownerUser->getKey(), $created['actor_user_id']);
+        $this->assertSame($ownerUser->name, $created['actor_name']);
+        $this->assertNull($legacy['actor_user_id']);
+        $this->assertNull($legacy['actor_name']);
+    }
+
+    public function test_csv_row_limit_applies_after_active_status_filter_and_never_truncates(): void
+    {
+        $today = CarbonImmutable::today('UTC');
+        Carbon::setTestNow($today->setTime(12, 0));
+        $from = $today;
+        $to = $today->addDays(30);
+        [$ownerUser, $tenant, $owner] = $this->tenantWithOwner('Tenant CSV row limit');
+        [, $outlet] = $this->unitWithOutlet($owner, 'Unit batas', 'Outlet batas');
+        $shift = app(ShiftTemplateService::class)->create(
+            $owner, 'Shift CSV row limit', '08:00:00', '16:00:00', false, $from->toDateString(), 'Fixture batas CSV',
+        )->versions->firstOrFail();
+
+        for ($index = 1; $index <= 17; $index++) {
+            $employee = app(OrganizationService::class)->registerEmployee($owner, 'Karyawan batas '.$index);
+            app(EmployeeOutletAssignmentService::class)->assignPrimaryOutlet($owner, $employee, $outlet, $from->subDay());
+            for ($weekday = 1; $weekday <= 7; $weekday++) {
+                app(EmployeeScheduleService::class)->createWeeklyRule(
+                    $owner, (int) $employee->getKey(), (int) $outlet->getKey(), $weekday,
+                    (int) $shift->getKey(), $from->toDateString(), null, 'Fixture batas CSV',
+                );
+            }
+        }
+
+        $this->loginAs($ownerUser);
+        $this->browserRequest()->get($this->reportUrl('attendance.csv', $from->toDateString(), [
+            'to' => $to->toDateString(),
+        ]))->assertUnprocessable()->assertJsonValidationErrors('export');
+
+        $filtered = $this->browserRequest()->get($this->reportUrl('attendance.csv', $from->toDateString(), [
+            'to' => $to->toDateString(),
+            'status' => 'present',
+        ]))->assertOk()->streamedContent();
+        $this->assertStringContainsString('Status hasil efektif', $filtered);
+        $this->assertDatabaseHas('report_export_events', [
+            'tenant_id' => $tenant->getKey(),
+            'report_type' => 'attendance_detail_csv',
+            'row_count' => 0,
+        ]);
+        $event = DB::table('report_export_events')->where('tenant_id', $tenant->getKey())->first();
+        $this->assertSame('present', json_decode((string) $event->filters, true, flags: JSON_THROW_ON_ERROR)['status']);
+    }
+
     public function test_corrected_projection_reconciles_dashboard_detail_csv_and_audit_without_changing_source_events(): void
     {
         $today = CarbonImmutable::today('UTC');

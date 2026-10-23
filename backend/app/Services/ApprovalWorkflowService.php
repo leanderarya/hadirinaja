@@ -766,10 +766,14 @@ final class ApprovalWorkflowService
 
         $proposed = $correction->proposed_values;
         $missingCheckoutResolution = ($proposed['check_out_at'] ?? null) !== null && $session->check_out_at === null;
+        $hasPhysicalCheckout = $session->status === 'closed'
+            && AttendanceEvent::query()->forTenant($tenantId)
+                ->where('attendance_session_id', $session->getKey())->where('event_type', 'check_out')
+                ->lockForUpdate()->first() !== null;
         if (($correction->original_values['recorded']['recording_status'] ?? $correction->original_values['recording_status'] ?? null) === 'active'
             && ($correction->original_values['recorded']['check_out_at'] ?? $correction->original_values['check_out_at'] ?? null) === null
             && $session->status === 'closed'
-            && AttendanceEvent::query()->forTenant($tenantId)->where('attendance_session_id', $session->getKey())->where('event_type', 'check_out')->exists()) {
+            && $hasPhysicalCheckout) {
             throw ValidationException::withMessages(['correction' => 'Checkout fisik tercatat sebelum keputusan koreksi. Checkout tersebut menjadi fakta yang berlaku.']);
         }
         if ($missingCheckoutResolution && $session->status === 'active') {
@@ -779,8 +783,6 @@ final class ApprovalWorkflowService
             return;
         }
         if ($missingCheckoutResolution && $session->status === 'closed') {
-            $hasPhysicalCheckout = AttendanceEvent::query()->forTenant($tenantId)
-                ->where('attendance_session_id', $session->getKey())->where('event_type', 'check_out')->exists();
             if ($hasPhysicalCheckout) {
                 throw ValidationException::withMessages(['correction' => 'Checkout fisik tercatat sebelum keputusan koreksi. Permintaan tidak dapat mengganti fakta tersebut.']);
             }

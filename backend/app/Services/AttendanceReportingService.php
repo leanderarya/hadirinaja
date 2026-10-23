@@ -16,6 +16,8 @@ final class AttendanceReportingService
 {
     private const MAX_ROWS = 5000;
 
+    private const MAX_EXPORT_ROWS = 500;
+
     public function __construct(
         private readonly EffectiveAttendanceProjectionService $projection,
         private readonly ReportingAccessService $access,
@@ -141,14 +143,17 @@ final class AttendanceReportingService
     /** @param array<string, mixed> $filters @return list<array<string, mixed>> */
     public function exportRows(ReportingScope $scope, array $filters): array
     {
-        $pairs = $this->candidatePairs($scope, $filters, 501);
-        if (count($pairs) > 500) {
-            throw ValidationException::withMessages(['export' => 'Ekspor dibatasi maksimal 500 employee-workdays. Persempit rentang atau filter.']);
+        $pairs = $this->candidatePairs($scope, $filters, self::MAX_ROWS + 1);
+        if (count($pairs) > self::MAX_ROWS) {
+            throw ValidationException::withMessages(['export' => 'Laporan dibatasi maksimal 5.000 employee-workdays. Persempit rentang atau filter.']);
         }
 
         $rows = $this->shapeRows($scope, $filters, $pairs);
         if ($filters['status'] !== null) {
             $rows = array_values(array_filter($rows, fn (array $row): bool => $row['outcome'] === $filters['status']));
+        }
+        if (count($rows) > self::MAX_EXPORT_ROWS) {
+            throw ValidationException::withMessages(['export' => 'Ekspor dibatasi maksimal 500 employee-workdays. Persempit rentang atau filter.']);
         }
 
         return $rows;

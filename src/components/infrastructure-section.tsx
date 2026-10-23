@@ -384,7 +384,6 @@ export function InfrastructureSection() {
               {/* Bars */}
               <div className="flex flex-1 items-end justify-between pl-6 h-full">
                 {billingData.map((data, idx) => {
-                  const totalVal = data.dataTransfer + data.objectStorage
                   const isHovered = hoveredBar === idx
 
                   return (

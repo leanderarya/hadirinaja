@@ -3,10 +3,8 @@ import {
   Home01Icon,
   CreditCardIcon,
   Activity01Icon,
-  ContactIcon,
   Database01Icon,
   Invoice01Icon,
-  PenTool01Icon,
   Delete01Icon,
   HelpCircleIcon,
   Settings01Icon,
@@ -14,14 +12,12 @@ import {
   ArrowDown01Icon,
   ArrowUp01Icon,
   ArrowRight01Icon,
-  MoreHorizontalCircle01Icon,
   UserGroupIcon,
   Package01Icon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { cn } from "@/lib/utils"
-import { Logo } from "@/components/logo"
 import {
   Sidebar,
   SidebarContent,
@@ -38,14 +34,13 @@ import {
 } from "@/components/ui/sidebar"
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from "@/components/ui/breadcrumb"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Checkbox } from "@/components/ui/checkbox"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Bar, BarChart, CartesianGrid, XAxis, Tooltip, ResponsiveContainer } from "recharts"
+import { Bar, BarChart, XAxis } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 
 export const Route = createFileRoute("/dashboard-3")({
@@ -302,10 +297,10 @@ function DashboardPage() {
                 <div className="flex items-center justify-between py-4">
                   <Input placeholder="Filter emails..." className="max-w-sm h-9 bg-transparent" autoComplete="off" name="email-filter" />
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm" className="h-9">
-                        Columns <HugeiconsIcon icon={ArrowDown01Icon} className="ml-2 size-4" />
-                      </Button>
+                    <DropdownMenuTrigger
+                      render={<Button variant="outline" size="sm" className="h-9" />}
+                    >
+                      Columns <HugeiconsIcon icon={ArrowDown01Icon} className="ml-2 size-4" />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem>Status</DropdownMenuItem>

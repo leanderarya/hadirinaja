@@ -69,6 +69,7 @@ final class EmployeeOutletAssignmentService
                 'assignment_type' => EmployeeOutletAssignmentType::Primary->value,
                 'effective_from' => $effectiveFrom,
                 'effective_until' => self::OPEN_ENDED_AT,
+                'created_by_membership_id' => $actor->getKey(),
             ]);
 
             return $assignment;
@@ -101,6 +102,7 @@ final class EmployeeOutletAssignmentService
                 'assignment_type' => EmployeeOutletAssignmentType::Temporary->value,
                 'effective_from' => $effectiveFrom,
                 'effective_until' => $effectiveUntil,
+                'created_by_membership_id' => $actor->getKey(),
             ]);
         });
     }
