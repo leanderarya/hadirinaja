@@ -25,6 +25,8 @@
 
 Existing API prefix: `/api/v1/management/scheduling/planner/outlets/{outlet}/weeks/{weekStart}`. See [`routes/api.php`](../../backend/routes/api.php), [`WeeklyPlannerController`](../../backend/app/Http/Controllers/Api/V1/WeeklyPlannerController.php) and [`WeeklyPlannerService`](../../backend/app/Services/WeeklyPlannerService.php).
 
+For the isolated P0 implementation, both agents use the [shared Save Changes contract](p0-save-changes-contract.md): read-only candidate preview through the existing `POST /validate`, then idempotent `POST /save-changes` for one atomic replacement. The contract does not change existing draft or first-publication requests.
+
 | Requirement | Existing capability | Status and minimum change |
 |---|---|---|
 | Read outlet/week and editing context | `GET` week; scheduling `GET /context`, `/shifts` and `/calendar`; [`-scheduling-page.tsx`](../../src/routes/-scheduling-page.tsx), [`-weekly-planner.tsx`](../../src/routes/-weekly-planner.tsx), [`weekly-planner.ts`](../../src/lib/weekly-planner.ts). | PARTIAL: preserve scoped read and week handling. Add a shared view-independent candidate state and explicit start choice. |

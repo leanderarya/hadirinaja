@@ -38,7 +38,12 @@ export type PlannerWeek = {
   draft: PlannerRevision | null
   published: PlannerRevision | null
   staffing_report?: StaffingReport
-  outlet: { id: number; name: string; weekly_planner_start_on: string | null }
+  outlet: {
+    id: number
+    name: string
+    timezone?: string | null
+    weekly_planner_start_on: string | null
+  }
   employees: Array<{ id: number; name: string }>
   published_weeks: Array<{ week_start: string; published_revision_id: number }>
 }
@@ -99,4 +104,36 @@ export function replacePlannerEntry(
     ),
     entry,
   ]
+}
+
+export function plannerEntryKey(entry: PlannerEntry) {
+  return `${entry.work_date}:${entry.employee_id}`
+}
+
+export function plannerRequestEntries(entries: PlannerEntry[]) {
+  return entries
+    .map((entry) => ({
+      employee_id: entry.employee_id,
+      work_date: entry.work_date,
+      status: entry.status,
+      shift_template_version_id:
+        entry.status === "work"
+          ? (entry.shift_template_version_id ?? null)
+          : null,
+    }))
+    .sort(
+      (left, right) =>
+        left.work_date.localeCompare(right.work_date) ||
+        left.employee_id - right.employee_id
+    )
+}
+
+export function samePlannerEntries(
+  left: PlannerEntry[],
+  right: PlannerEntry[]
+) {
+  return (
+    JSON.stringify(plannerRequestEntries(left)) ===
+    JSON.stringify(plannerRequestEntries(right))
+  )
 }

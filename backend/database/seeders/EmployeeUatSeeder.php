@@ -98,7 +98,7 @@ final class EmployeeUatSeeder extends Seeder
             }
 
             $policy = [
-                'attendance_mode' => 'hybrid',
+                'attendance_mode' => 'personal',
                 'personal_location_validation' => [
                     'required' => false,
                     'radius_meters' => 100,
@@ -193,16 +193,6 @@ final class EmployeeUatSeeder extends Seeder
                 'Synthetic Employee UAT rejection.',
                 'd0000000-0000-4000-8001-000000000002',
             );
-
-            foreach ([$checkIn, $checkOut] as $fixture) {
-                $assignments->assignTemporaryOutlet(
-                    $owner,
-                    $fixture['employee'],
-                    $secondaryOutlet,
-                    CarbonImmutable::now('UTC')->subHour(),
-                    CarbonImmutable::now('UTC')->addDays(21),
-                );
-            }
 
             $attendance = app(AttendanceService::class)->checkIn(
                 AttendanceActor::personal($checkOut['membership']),

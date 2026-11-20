@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest"
 import {
   plannerDates,
+  plannerEntryKey,
+  plannerRequestEntries,
   replacePlannerEntry,
+  samePlannerEntries,
   shiftPlannerDate,
   staffingOptions,
 } from "./weekly-planner"
@@ -41,6 +44,38 @@ describe("weekly planner helpers", () => {
       },
     ])
     expect(original[0].status).toBe("rest")
+  })
+  it("serializes complete entries in a stable order and keeps non-work shifts null", () => {
+    const entries = [
+      {
+        employee_id: 2,
+        work_date: "2026-11-03",
+        status: "rest" as const,
+      },
+      {
+        employee_id: 1,
+        work_date: "2026-11-02",
+        status: "work" as const,
+        shift_template_version_id: 3,
+      },
+    ]
+
+    expect(plannerEntryKey(entries[0])).toBe("2026-11-03:2")
+    expect(plannerRequestEntries(entries)).toEqual([
+      {
+        employee_id: 1,
+        work_date: "2026-11-02",
+        status: "work",
+        shift_template_version_id: 3,
+      },
+      {
+        employee_id: 2,
+        work_date: "2026-11-03",
+        status: "rest",
+        shift_template_version_id: null,
+      },
+    ])
+    expect(samePlannerEntries(entries, [...entries].reverse())).toBe(true)
   })
   it("does not guess mappings from template names or use future versions", () => {
     const version = {

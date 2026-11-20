@@ -1,13 +1,36 @@
-import { WeeklyPlannerBoard } from "@/components/weekly-planner-board"
 import { useState } from "react"
 import {
   OperationalSummary,
+  type ScheduleDaySummary,
   ScheduleMatrix,
   WorkWeekControl,
-  type ScheduleDaySummary,
 } from "@/components/r2c/operational-blocks"
 import { ContextDrawer } from "@/components/r2c/screen-blocks"
 import { UiKitSection } from "@/components/ui-kit/ui-kit-section"
+import { WeeklyPlannerBoard } from "@/components/weekly-planner-board"
+import type { StaffingReport } from "@/lib/weekly-planner"
+
+const plannerReport: StaffingReport = {
+  enabled: true,
+  days: [
+    {
+      work_date: "2026-11-02",
+      targets: { morning: 2, middle: 0, evening: 0 },
+      counts: { morning: 1, middle: 0, evening: 0 },
+    },
+  ],
+  deficits: [
+    {
+      work_date: "2026-11-02",
+      role: "morning",
+      required: 2,
+      assigned: 1,
+      missing: 1,
+    },
+  ],
+  conflicts: [],
+  checksum: null,
+}
 
 const days: ScheduleDaySummary[] = [
   "2026-10-26",
@@ -41,8 +64,28 @@ export function R2cOperationsSection() {
     [open, setOpen] = useState(false)
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <UiKitSection id="weekly-planner-board" title="Weekly planner · empty roster" importPath="@/components/weekly-planner-board" description="Komponen nyata dengan data kosong; tanpa akun atau jadwal rekaan.">
-        <WeeklyPlannerBoard weekStart="2026-11-02" entries={[]} employees={[]} shiftLabels={{}} />
+      <UiKitSection
+        id="weekly-planner-board"
+        title="Schedule · day editor and weekly overview"
+        importPath="@/components/weekly-planner-board"
+        description="Editor harian menjadi tempat mengubah penugasan. Ikhtisar mingguan memakai tanggal sebagai satu-satunya jalan ke editor dan tetap menampilkan kekurangan kebutuhan shift."
+      >
+        <WeeklyPlannerBoard
+          weekStart="2026-11-02"
+          entries={[
+            {
+              employee_id: 1,
+              work_date: "2026-11-02",
+              status: "work",
+              shift_template_version_id: 1,
+            },
+          ]}
+          employees={[{ id: 1, name: "Karyawan demo" }]}
+          report={plannerReport}
+          staffing={{ morning: 1, middle: 2, evening: 3 }}
+          shiftLabels={{ 1: "Pagi · 08:00–16:00" }}
+          onEdit={() => setOpen(true)}
+        />
       </UiKitSection>
       <UiKitSection
         id="r2c-work-week"
@@ -79,7 +122,7 @@ export function R2cOperationsSection() {
       <ContextDrawer
         open={open}
         onOpenChange={setOpen}
-        title="Rincian sintetis"
+        title="Rincian penugasan demo"
         description="Demo komponen tanpa API."
       >
         <p className="text-body">

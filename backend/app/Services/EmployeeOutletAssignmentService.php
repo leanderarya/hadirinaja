@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\EmployeeOutletAssignmentType;
+use App\Models\AttendanceSession;
 use App\Models\Employee;
 use App\Models\EmployeeOutletAssignment;
 use App\Models\Outlet;
@@ -12,6 +13,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use LogicException;
 
 final class EmployeeOutletAssignmentService
 {
@@ -58,8 +60,18 @@ final class EmployeeOutletAssignmentService
                 ]);
             }
 
-            if ($overlapping->isNotEmpty()) {
-                $overlapping->first()->forceFill(['effective_until' => $effectiveFrom])->save();
+            $replacedAssignment = $overlapping->first();
+            $this->assertNoCrossOutletOverlap(
+                $employee,
+                $outlet,
+                $effectiveFrom,
+                self::OPEN_ENDED_AT,
+                $replacedAssignment?->getKey(),
+            );
+            $this->assertNoActiveSessionTransfer($employee, $outlet);
+
+            if ($replacedAssignment) {
+                $replacedAssignment->forceFill(['effective_until' => $effectiveFrom])->save();
             }
 
             $assignment = EmployeeOutletAssignment::query()->create([
@@ -94,6 +106,8 @@ final class EmployeeOutletAssignmentService
             $employee = $this->lockEmployee($employee);
             $outlet = $this->tenantOutlet($employee, $outlet);
             $this->authorizeAssignment($actor, $employee, $outlet);
+            $this->assertNoCrossOutletOverlap($employee, $outlet, $effectiveFrom, $effectiveUntil);
+            $this->assertNoActiveSessionTransfer($employee, $outlet);
 
             return EmployeeOutletAssignment::query()->create([
                 'tenant_id' => $employee->tenant_id,
@@ -140,6 +154,57 @@ final class EmployeeOutletAssignmentService
         if (! $this->authorization->canManageOutlet($actor, $outlet)
             || ! $this->authorization->canManageEmployee($actor, $employee)) {
             throw new AuthorizationException('The actor cannot manage this Employee and outlet.');
+        }
+    }
+
+    private function assertNoCrossOutletOverlap(
+        Employee $employee,
+        Outlet $outlet,
+        DateTimeInterface $effectiveFrom,
+        DateTimeInterface|string $effectiveUntil,
+        ?int $replacedAssignmentId = null,
+    ): void {
+        $conflict = EmployeeOutletAssignment::query()->forTenant((int) $employee->tenant_id)
+            ->where('employee_id', $employee->getKey())
+            ->where('outlet_id', '<>', $outlet->getKey())
+            ->where('effective_from', '<', $effectiveUntil)
+            ->where('effective_until', '>', $effectiveFrom)
+            ->when($replacedAssignmentId !== null, fn ($query) => $query->whereKeyNot($replacedAssignmentId))
+            ->lockForUpdate()
+            ->exists();
+
+        if ($conflict) {
+            throw ValidationException::withMessages([
+                'effective_from' => 'An Employee cannot have overlapping assignments at different Outlets.',
+            ]);
+        }
+    }
+
+    private function assertNoActiveSessionTransfer(Employee $employee, Outlet $outlet): void
+    {
+        $owner = DB::table('attendance_active_session_owners')
+            ->where('tenant_id', $employee->tenant_id)
+            ->where('employee_id', $employee->getKey())
+            ->lockForUpdate()
+            ->first();
+
+        if (! $owner) {
+            return;
+        }
+
+        $session = AttendanceSession::query()->forTenant((int) $employee->tenant_id)
+            ->whereKey($owner->attendance_session_id)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $session || $session->status !== 'active' || (int) $session->employee_id !== (int) $employee->getKey()) {
+            throw new LogicException('The active-session ownership row is inconsistent.');
+        }
+
+        if ((int) $session->outlet_id !== (int) $outlet->getKey()) {
+            throw ValidationException::withMessages([
+                'outlet' => 'An Employee cannot transfer Outlets while an attendance session is active.',
+            ]);
         }
     }
 }

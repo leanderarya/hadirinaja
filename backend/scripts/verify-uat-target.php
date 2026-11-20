@@ -105,7 +105,7 @@ try {
             ->where('tenant_id', $db->table('tenants')->where('name', 'HadirinAja Employee UAT')->value('id'))
             ->where('id', $foreignRequestId)->exists();
 
-        if (min($assignmentOutletCounts) < 2 || $publishedWeeks < 1 || $activeSessions !== 1
+        if ($assignmentOutletCounts !== [1, 1] || $publishedWeeks < 1 || $activeSessions !== 1
             || $activeOwners !== 1 || $evidenceTombstones !== 1
             || $requestStatuses !== ['approved', 'pending', 'rejected'] || $foreignRequestId === null
             || $foreignRequestVisible

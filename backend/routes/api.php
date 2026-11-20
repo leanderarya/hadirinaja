@@ -2,10 +2,10 @@
 
 use App\Http\Controllers\Api\V1\AccessManagementController;
 use App\Http\Controllers\Api\V1\ApprovalController;
-use App\Http\Controllers\Api\V1\CorrectionEvidenceController;
 use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\AttendanceEvidenceLegalHoldController;
 use App\Http\Controllers\Api\V1\AuthSessionController;
+use App\Http\Controllers\Api\V1\CorrectionEvidenceController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\KioskAccessController;
 use App\Http\Controllers\Api\V1\ManagementController;
@@ -117,6 +117,7 @@ Route::prefix('/v1/management')
                 Route::put('/draft', 'save');
                 Route::post('/copy', 'copy');
                 Route::post('/validate', 'validate');
+                Route::post('/save-changes', 'saveChanges');
                 Route::post('/publish', 'publish');
             });
 

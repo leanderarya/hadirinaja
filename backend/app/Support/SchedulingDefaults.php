@@ -6,6 +6,8 @@ final class SchedulingDefaults
 {
     public const TIMEZONE = 'Asia/Jakarta';
 
+    public const MIN_GEOFENCE_METERS = 25;
+
     /** @return list<int> */
     public static function operatingWeekdays(): array
     {

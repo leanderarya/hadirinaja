@@ -28,6 +28,7 @@ run_date="$(date +%Y%m%d)"
 database_name="hadirinaja_p2d_${run_date}_${run_suffix}"
 database_user="p2d_runner_${run_suffix}"
 database_password="$(php -r 'echo bin2hex(random_bytes(24));')"
+test_app_key="base64:$(php -r 'echo base64_encode(random_bytes(32));')"
 run_user="$(id -un)"
 mysql_basedir="$("$brew_command" --prefix mysql)"
 mysql_port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
@@ -147,7 +148,9 @@ export DB_PORT="$mysql_port"
 export DB_DATABASE="$database_name"
 export DB_USERNAME="$database_user"
 export DB_PASSWORD="$database_password"
+export APP_KEY="$test_app_key"
 export DB_URL=
+export DB_SOCKET=
 export HADIRINAJA_TEST_DISPOSABLE_DATABASE="$database_name"
 export HADIRINAJA_TEST_DISPOSABLE_PORT="$mysql_port"
 export HADIRINAJA_TEST_DISPOSABLE_DATADIR="$data_dir"
@@ -226,6 +229,7 @@ values = {
     "DB_HOST": "127.0.0.1",
     "DB_PORT": port,
     "DB_DATABASE": database,
+    "APP_KEY": os.environ["APP_KEY"],
     "DB_URL": "",
     "DB_TIMEZONE": "+00:00",
     "HADIRINAJA_TEST_DISPOSABLE_DATABASE": database,
@@ -246,7 +250,7 @@ tree.write(destination, encoding="utf-8", xml_declaration=True)
 PY
 
 printf 'Migrating only the new target database %s.\n' "$database_name"
-php artisan migrate:fresh --force --no-interaction
+php artisan migrate --force --no-interaction
 
 printf 'Running backend regressions: %s\n' "$*"
 vendor/bin/phpunit --configuration "$phpunit_config" --cache-directory "$run_root/phpunit-cache" --do-not-cache-result "$@"

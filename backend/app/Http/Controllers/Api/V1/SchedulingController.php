@@ -241,7 +241,11 @@ final class SchedulingController extends Controller
         $validated = $request->validate([
             'effective_from' => ['required', 'date_format:Y-m-d'],
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
-            'configuration' => ['required', 'array:late_tolerance_minutes,check_in_window,attendance_mode,personal_location_validation,retroactive_request_limit_days,operational_review'],
+            'revise_existing' => ['sometimes', 'boolean'],
+            'configuration' => ['required', 'array:late_tolerance_minutes,check_in_window,attendance_mode,personal_location_validation,retroactive_request_limit_days,operational_review,require_personal_photo,planner_weekend_starts_on,planner_shift_profile'],
+            'configuration.require_personal_photo' => ['sometimes', 'boolean:strict'],
+            'configuration.planner_weekend_starts_on' => ['sometimes', 'integer:strict', Rule::in([5, 6])],
+            'configuration.planner_shift_profile' => ['sometimes', Rule::in(['standard', 'cepat_kopi'])],
             'configuration.late_tolerance_minutes' => ['required', 'integer', 'min:0', 'max:180'],
             'configuration.check_in_window' => ['required', 'array:early_minutes,late_minutes'],
             'configuration.check_in_window.early_minutes' => ['required', 'integer', 'min:0', 'max:360'],
@@ -249,7 +253,7 @@ final class SchedulingController extends Controller
             'configuration.attendance_mode' => ['required', Rule::in(['kiosk', 'personal', 'hybrid'])],
             'configuration.personal_location_validation' => ['required', 'array:required,radius_meters,latitude,longitude'],
             'configuration.personal_location_validation.required' => ['required', 'accepted'],
-            'configuration.personal_location_validation.radius_meters' => ['required', 'integer', 'min:50', 'max:5000'],
+            'configuration.personal_location_validation.radius_meters' => ['required', 'integer', 'min:'.SchedulingDefaults::MIN_GEOFENCE_METERS, 'max:5000'],
             'configuration.personal_location_validation.latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'configuration.personal_location_validation.longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'configuration.retroactive_request_limit_days' => ['required', 'integer', 'min:0', 'max:30'],
@@ -257,10 +261,23 @@ final class SchedulingController extends Controller
             'configuration.operational_review.schedule_change_reason_required' => ['required', 'accepted'],
             'configuration.operational_review.minimum_notice_hours' => ['required', 'integer', 'min:0', 'max:168'],
         ]);
-        $this->assertGeofenceCoordinatePair($validated['configuration']['personal_location_validation'], 'configuration.personal_location_validation');
-        $version = $this->policies->createTenantVersion($this->activeMembership($request), $validated['effective_from'], $validated['configuration'], $validated['reason']);
+        $actor = $this->activeMembership($request);
+        $previous = $this->policies->effective((int) $actor->tenant_id, null, $validated['effective_from'])['configuration'] ?? [];
+        foreach (['require_personal_photo', 'planner_weekend_starts_on', 'planner_shift_profile'] as $key) {
+            if (! array_key_exists($key, $validated['configuration']) && array_key_exists($key, $previous)) {
+                $validated['configuration'][$key] = $previous[$key];
+            }
+        }
+        $this->assertGeofenceCoordinatePair(
+            $validated['configuration']['personal_location_validation'],
+            'configuration.personal_location_validation',
+            $validated['configuration']['attendance_mode'],
+        );
+        $version = ($validated['revise_existing'] ?? false)
+            ? $this->policies->reviseTenantVersion($actor, $validated['effective_from'], $validated['configuration'], $validated['reason'])
+            : $this->policies->createTenantVersion($actor, $validated['effective_from'], $validated['configuration'], $validated['reason']);
 
-        return response()->json(['version' => ['id' => (int) $version->getKey(), 'effective_from' => $version->effective_from->toDateString()]], 201);
+        return response()->json(['version' => ['id' => (int) $version->getKey(), 'effective_from' => $version->effective_from->toDateString(), 'revised' => (bool) ($validated['revise_existing'] ?? false)]], 201);
     }
 
     public function createOutletPolicy(Request $request, int $outlet): JsonResponse
@@ -269,6 +286,7 @@ final class SchedulingController extends Controller
         $validated = $request->validate([
             'effective_from' => ['required', 'date_format:Y-m-d'],
             'reason' => ['required', 'string', 'min:3', 'max:1000'],
+            'revise_existing' => ['sometimes', 'boolean'],
             'overrides' => ['required', 'array:late_tolerance_minutes,check_in_window,attendance_mode,personal_location_validation,retroactive_request_limit_days,operational_review'],
             'overrides.late_tolerance_minutes' => ['sometimes', 'integer', 'min:0', 'max:180'],
             'overrides.check_in_window' => ['sometimes', 'array:early_minutes,late_minutes'],
@@ -277,7 +295,7 @@ final class SchedulingController extends Controller
             'overrides.attendance_mode' => ['sometimes', Rule::in(['kiosk', 'personal', 'hybrid'])],
             'overrides.personal_location_validation' => ['sometimes', 'array:required,radius_meters,latitude,longitude'],
             'overrides.personal_location_validation.required' => ['sometimes', 'accepted'],
-            'overrides.personal_location_validation.radius_meters' => ['sometimes', 'integer', 'min:50', 'max:5000'],
+            'overrides.personal_location_validation.radius_meters' => ['sometimes', 'integer', 'min:'.SchedulingDefaults::MIN_GEOFENCE_METERS, 'max:5000'],
             'overrides.personal_location_validation.latitude' => ['sometimes', 'nullable', 'numeric', 'between:-90,90'],
             'overrides.personal_location_validation.longitude' => ['sometimes', 'nullable', 'numeric', 'between:-180,180'],
             'overrides.retroactive_request_limit_days' => ['sometimes', 'integer', 'min:0', 'max:30'],
@@ -287,17 +305,31 @@ final class SchedulingController extends Controller
         ]);
 
         if (isset($validated['overrides']['personal_location_validation'])) {
-            $this->assertGeofenceCoordinatePair($validated['overrides']['personal_location_validation'], 'overrides.personal_location_validation');
+            $this->assertGeofenceCoordinatePair(
+                $validated['overrides']['personal_location_validation'],
+                'overrides.personal_location_validation',
+                $this->resolvedModeForOutlet(
+                    $this->activeMembership($request),
+                    $this->outletReference($outlet),
+                    $validated['overrides'],
+                    $validated['effective_from'],
+                ),
+            );
         }
 
         if ($validated['overrides'] === []) {
             throw ValidationException::withMessages(['overrides' => 'Pilih sedikitnya satu field kebijakan untuk diubah.']);
         }
 
-        $version = $this->policies->createOutletVersion(
-            $this->activeMembership($request), $this->outletReference($outlet),
-            $validated['effective_from'], $validated['overrides'], $validated['reason'],
-        );
+        $version = ($validated['revise_existing'] ?? false)
+            ? $this->policies->reviseOutletVersion(
+                $this->activeMembership($request), $this->outletReference($outlet),
+                $validated['effective_from'], $validated['overrides'], $validated['reason'],
+            )
+            : $this->policies->createOutletVersion(
+                $this->activeMembership($request), $this->outletReference($outlet),
+                $validated['effective_from'], $validated['overrides'], $validated['reason'],
+            );
 
         return response()->json(['version' => ['id' => (int) $version->getKey(), 'effective_from' => $version->effective_from->toDateString()]], 201);
     }
@@ -512,8 +544,13 @@ final class SchedulingController extends Controller
         return $membership;
     }
 
-    /** @param array<string, mixed> $location */
-    private function assertGeofenceCoordinatePair(array $location, string $field): void
+    /**
+     * Personal attendance needs a complete Outlet point; kiosk-only policies may omit it.
+     *
+     * @param  array<string, mixed>  $location
+     * @param  string|null  $attendanceMode  the effective mode for this policy scope
+     */
+    private function assertGeofenceCoordinatePair(array $location, string $field, ?string $attendanceMode = null): void
     {
         $latitude = $location['latitude'] ?? null;
         $longitude = $location['longitude'] ?? null;
@@ -521,6 +558,33 @@ final class SchedulingController extends Controller
         if (($latitude === null) !== ($longitude === null)) {
             throw ValidationException::withMessages([$field => 'Latitude dan longitude harus diisi bersama atau sama-sama dikosongkan.']);
         }
+
+        $requiresPersonalLocation = $attendanceMode === null || in_array($attendanceMode, ['personal', 'hybrid'], true);
+
+        if ($latitude === null && ($location['required'] ?? false) && $requiresPersonalLocation) {
+            throw ValidationException::withMessages([
+                $field.'.latitude' => 'Isi titik lokasi Outlet di peta agar karyawan dapat presensi dari perangkat pribadi.',
+                $field.'.longitude' => 'Isi titik lokasi Outlet di peta agar karyawan dapat presensi dari perangkat pribadi.',
+            ]);
+        }
+    }
+
+    /**
+     * Resolve the attendance mode a partial override leaves in effect, so geofence
+     * requirements follow inheritance instead of overriding it.
+     */
+    private function resolvedModeForOutlet(TenantMembership $membership, Outlet $outlet, array $overrides, string $date): ?string
+    {
+        $effective = $this->policies->effective((int) $membership->tenant_id, (int) $outlet->getKey(), $date)['configuration'] ?? null;
+
+        if (! is_array($effective)) {
+            return $overrides['attendance_mode'] ?? null;
+        }
+
+        $merged = array_replace_recursive($effective, $overrides);
+        $mode = $merged['attendance_mode'] ?? null;
+
+        return is_string($mode) ? $mode : null;
     }
 
     private function linkedEmployeeId(TenantMembership $membership): ?int

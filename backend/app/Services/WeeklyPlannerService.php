@@ -25,6 +25,7 @@ final class WeeklyPlannerService
         private readonly SchedulingChangeRecorder $audit,
         private readonly PlannerStaffingService $staffing,
         private readonly PlannerNotificationService $notifications,
+        private readonly AttendancePolicyService $policies,
     ) {}
 
     public function read(TenantMembership $actor, int $outletId, string $start): array
@@ -41,8 +42,14 @@ final class WeeklyPlannerService
             ->where('effective_from', '<', $until)->where('effective_until', '>', $from))->orderBy('name')->get(['id', 'name']);
 
         return $result + [
-            'outlet' => ['id' => $outlet->id, 'name' => $outlet->name, 'weekly_planner_start_on' => $outlet->weekly_planner_start_on],
+            'outlet' => [
+                'id' => $outlet->id,
+                'name' => $outlet->name,
+                'timezone' => $timezone,
+                'weekly_planner_start_on' => $outlet->weekly_planner_start_on,
+            ],
             'week_start' => $start, 'employees' => $employees->toArray(),
+            'planner_settings' => $this->plannerSettings($actor->tenant_id, $start),
             'published_weeks' => $this->publishedWeeks($actor->tenant_id, $outletId, $start),
         ];
     }
@@ -73,7 +80,9 @@ final class WeeklyPlannerService
             }
             $sourceRevision = $week->draft_revision_id ?? $week->published_revision_id;
             $inherited = $sourceRevision ? DB::table('schedule_revisions')->where('id', $sourceRevision)->value('staffing') : null;
-            $configuration = array_key_exists('staffing', $data) ? $this->staffing->normalize($actor->tenant_id, $data['staffing']) : ($inherited ? json_decode($inherited, true, flags: JSON_THROW_ON_ERROR) : null);
+            $configuration = array_key_exists('staffing', $data)
+                ? $this->staffing->normalize($actor->tenant_id, $data['staffing'], $this->plannerSettings($actor->tenant_id, $start))
+                : ($inherited ? json_decode($inherited, true, flags: JSON_THROW_ON_ERROR) : null);
             $revisionId = $week->draft_revision_id;
             if (! $revisionId) {
                 $revisionId = DB::table('schedule_revisions')->insertGetId([
@@ -104,6 +113,120 @@ final class WeeklyPlannerService
             $rows = $this->publicationRows($actor, $outlet, $week);
 
             return ['valid' => true, 'version' => $week->lock_version, 'entry_count' => count($rows), 'staffing_report' => $this->staffingReport($week)];
+        });
+    }
+
+    public function validateCandidate(TenantMembership $actor, int $outletId, string $start, array $input): array
+    {
+        $data = Validator::make($input, [
+            'expected_version' => ['required', 'integer', 'min:1'],
+            'expected_published_revision_id' => ['required', 'integer', 'min:1'],
+            'entries' => ['present', 'array', 'max:3500'],
+            'entries.*' => ['required', 'array:employee_id,work_date,status,shift_template_version_id'],
+            'entries.*.employee_id' => ['required', 'integer', 'min:1'],
+            'entries.*.work_date' => ['required', 'date_format:Y-m-d'],
+            'entries.*.status' => ['required', Rule::in(['work', 'rest', 'unscheduled'])],
+            'entries.*.shift_template_version_id' => ['nullable', 'integer', 'min:1'],
+        ])->validate();
+
+        return DB::transaction(function () use ($actor, $outletId, $start, $data): array {
+            [$outlet, $week] = $this->lock($actor, $outletId, $start);
+            $revision = $this->directEditBase($outlet, $week, $start, $data);
+            $entries = $this->draftRows($actor->tenant_id, $outlet->id, $start, $data['entries']);
+            $staffing = $this->candidateStaffingReport($actor, $week, $revision, $entries);
+            $snapshots = $this->publicationRows(
+                $actor,
+                $outlet,
+                $week,
+                candidateEntries: $this->candidateEntries($entries),
+                candidateStaffingReport: $staffing,
+            );
+            $staffing['checksum'] = $this->candidateChecksum($actor, $outlet, $week, $entries, $revision, $staffing, $snapshots);
+
+            return [
+                'valid' => true,
+                'version' => $week->lock_version,
+                'entry_count' => count($entries),
+                'staffing_report' => $staffing,
+            ];
+        });
+    }
+
+    public function saveChanges(TenantMembership $actor, int $outletId, string $start, array $input, string $key): array
+    {
+        if (isset($input['reason']) && is_string($input['reason'])) {
+            $input['reason'] = trim($input['reason']);
+        }
+        $data = Validator::make($input, [
+            'expected_version' => ['required', 'integer', 'min:1'],
+            'expected_published_revision_id' => ['required', 'integer', 'min:1'],
+            'reason' => ['required', 'string', 'min:3', 'max:1000'],
+            'entries' => ['present', 'array', 'max:3500'],
+            'entries.*' => ['required', 'array:employee_id,work_date,status,shift_template_version_id'],
+            'entries.*.employee_id' => ['required', 'integer', 'min:1'],
+            'entries.*.work_date' => ['required', 'date_format:Y-m-d'],
+            'entries.*.status' => ['required', Rule::in(['work', 'rest', 'unscheduled'])],
+            'entries.*.shift_template_version_id' => ['nullable', 'integer', 'min:1'],
+            'warnings_checksum' => ['sometimes', 'nullable', 'string', 'size:64'],
+        ])->validate();
+
+        return $this->mutate($actor, $outletId, $start, $data, $key, 'save_changes', function ($outlet, $week) use ($actor, $start, $data): array {
+            $revision = $this->directEditBase($outlet, $week, $start, $data);
+            $entries = $this->draftRows($actor->tenant_id, $outlet->id, $start, $data['entries']);
+            $staffing = $this->candidateStaffingReport($actor, $week, $revision, $entries);
+            $snapshots = $this->publicationRows(
+                $actor,
+                $outlet,
+                $week,
+                candidateEntries: $this->candidateEntries($entries),
+                candidateStaffingReport: $staffing,
+            );
+            $staffing['checksum'] = $this->candidateChecksum($actor, $outlet, $week, $entries, $revision, $staffing, $snapshots);
+            abort_if($staffing['deficits'] !== [] && (! isset($data['warnings_checksum'])
+                || ! hash_equals($staffing['checksum'], $data['warnings_checksum'])), 409, 'Tinjau dan akui peringatan kekurangan staf pada versi terbaru.');
+
+            $revisionId = DB::table('schedule_revisions')->insertGetId([
+                'tenant_id' => $actor->tenant_id,
+                'week_id' => $week->id,
+                'revision' => (int) DB::table('schedule_revisions')->where('week_id', $week->id)->max('revision') + 1,
+                'base_published_revision_id' => $week->published_revision_id,
+                'actor_membership_id' => $actor->id,
+                'staffing' => $revision->staffing,
+            ]);
+            foreach ($entries as $entry) {
+                $candidateId = $this->candidateEntryId($entry);
+                DB::table('schedule_entries')->insert([
+                    'tenant_id' => $actor->tenant_id,
+                    'revision_id' => $revisionId,
+                    'employee_id' => $entry['employee_id'],
+                    'work_date' => $entry['work_date'],
+                    'status' => $entry['status'],
+                    'shift_template_version_id' => $entry['shift_template_version_id'],
+                    'schedule_snapshot' => json_encode($snapshots[$candidateId], JSON_THROW_ON_ERROR),
+                ]);
+            }
+            $published = DB::table('schedule_revisions')->where('id', $revisionId)->whereNull('published_at')->update([
+                'published_at' => CarbonImmutable::now('UTC'),
+                'publication_warnings' => json_encode($staffing['deficits'], JSON_THROW_ON_ERROR),
+            ]);
+            abort_unless($published === 1, 409, 'Revisi sudah dipublikasikan.');
+            $updated = DB::table('schedule_weeks')->where('tenant_id', $actor->tenant_id)->where('id', $week->id)
+                ->where('lock_version', $week->lock_version)->where('published_revision_id', $week->published_revision_id)
+                ->whereNull('draft_revision_id')->update([
+                    'published_revision_id' => $revisionId,
+                    'lock_version' => $week->lock_version + 1,
+                ]);
+            abort_unless($updated === 1, 409, 'Minggu roster berubah selama penyimpanan.');
+
+            $this->notifications->published($actor->tenant_id, $week, $revisionId, 'assignment_changed');
+            $this->record($actor, $week->id, 'changes_saved', $data['reason'], [
+                'revision_id' => $revisionId,
+                'previous_revision_id' => $week->published_revision_id,
+                'understaffing' => $staffing['deficits'],
+                'warnings_checksum' => $staffing['checksum'],
+            ]);
+
+            return $this->result(DB::table('schedule_weeks')->where('id', $week->id)->first());
         });
     }
 
@@ -247,7 +370,35 @@ final class WeeklyPlannerService
         $entries = $revisionId ? DB::table('schedule_entries')->where('revision_id', $revisionId)->orderBy('employee_id')->orderBy('work_date')
             ->get(['employee_id', 'work_date', 'status', 'shift_template_version_id'])->map(fn ($entry) => (array) $entry)->all() : [];
 
-        return $this->staffing->report($configuration ? json_decode($configuration, true, flags: JSON_THROW_ON_ERROR) : null, $entries, $week->week_start, $week->lock_version, $revisionId);
+        return $this->staffing->report($configuration ? json_decode($configuration, true, flags: JSON_THROW_ON_ERROR) : null, $entries, $week->week_start, $week->lock_version, $revisionId,
+            $week->tenant_id, $this->plannerSettings($week->tenant_id, $week->week_start));
+    }
+
+    private function candidateStaffingReport(TenantMembership $actor, object $week, object $revision, array $entries): array
+    {
+        $configuration = $revision->staffing ? json_decode($revision->staffing, true, flags: JSON_THROW_ON_ERROR) : null;
+
+        return $this->staffing->report(
+            $configuration,
+            $entries,
+            $week->week_start,
+            (int) $week->lock_version,
+            (int) $revision->id,
+            (int) $actor->tenant_id,
+            $this->plannerSettings((int) $actor->tenant_id, $week->week_start),
+        );
+    }
+
+    private function plannerSettings(int $tenantId, string $weekStart): array
+    {
+        return $this->staffing->settings($this->effectivePlannerPolicy($tenantId, $weekStart)['configuration'] ?? []);
+    }
+
+    private function effectivePlannerPolicy(int $tenantId, string $weekStart): array
+    {
+        $weekEnd = CarbonImmutable::parse($weekStart)->addDays(6)->toDateString();
+
+        return $this->policies->effective($tenantId, null, $weekEnd);
     }
 
     private function mutate(TenantMembership $actor, int $outletId, string $start, array $data, string $key, string $operation, callable $write): array
@@ -268,6 +419,10 @@ final class WeeklyPlannerService
                 'tenant_id' => $actor->tenant_id, 'actor_membership_id' => $actor->id, 'idempotency_key' => $key,
                 'request_hash' => $hash, 'response' => json_encode($result, JSON_THROW_ON_ERROR),
             ]);
+
+            if ($operation === 'save_changes') {
+                return json_decode($query->value('response'), true, flags: JSON_THROW_ON_ERROR);
+            }
 
             return $result;
         }, attempts: 3);
@@ -364,14 +519,31 @@ final class WeeklyPlannerService
         return array_values($rows);
     }
 
-    private function publicationRows(TenantMembership $actor, Outlet $outlet, ?object $week, bool $checkConflicts = true): array
-    {
-        abort_unless($week?->draft_revision_id, 409, 'Draf belum tersedia.');
-        $revision = DB::table('schedule_revisions')->where('id', $week->draft_revision_id)->whereNull('published_at')->first();
-        abort_unless($revision && $revision->base_published_revision_id == $week->published_revision_id, 409, 'Draf memakai revisi dasar lama.');
-        $entries = DB::table('schedule_entries')->where('revision_id', $revision->id)->get();
+    private function publicationRows(
+        TenantMembership $actor,
+        Outlet $outlet,
+        ?object $week,
+        bool $checkConflicts = true,
+        ?array $candidateEntries = null,
+        ?array $candidateStaffingReport = null,
+    ): array {
+        if ($candidateEntries === null) {
+            abort_unless($week?->draft_revision_id, 409, 'Draf belum tersedia.');
+            $revision = DB::table('schedule_revisions')->where('id', $week->draft_revision_id)->whereNull('published_at')->first();
+            abort_unless($revision && $revision->base_published_revision_id == $week->published_revision_id, 409, 'Draf memakai revisi dasar lama.');
+            $entries = DB::table('schedule_entries')->where('revision_id', $revision->id)->get();
+        } else {
+            abort_unless($week?->published_revision_id, 409, 'Revisi published belum tersedia.');
+            abort_unless(DB::table('schedule_revisions')->where('tenant_id', $actor->tenant_id)->where('week_id', $week->id)
+                ->where('id', $week->published_revision_id)->whereNotNull('published_at')->exists(), 409, 'Revisi published tidak tersedia.');
+            $entries = collect($candidateEntries);
+        }
         $prior = DB::table('schedule_entries')->where('revision_id', $week->published_revision_id)->get()->keyBy(fn ($row) => $row->employee_id.'|'.$row->work_date);
+        if ($candidateEntries !== null) {
+            $this->assertCandidateAttendanceSafe($actor->tenant_id, $entries, $prior);
+        }
         $now = CarbonImmutable::now('UTC');
+        $settings = $this->plannerSettings($actor->tenant_id, $week->week_start);
         $rows = [];
         foreach ($entries as $entry) {
             $timezone = $this->timezone($actor->tenant_id, $outlet->id, $entry->work_date);
@@ -400,8 +572,14 @@ final class WeeklyPlannerService
                 if (! $shift || $shift->effective_from->toDateString() > $entry->work_date) {
                     throw ValidationException::withMessages(['entries' => 'Versi shift belum berlaku.']);
                 }
-                if (CarbonImmutable::parse($entry->work_date)->isoWeekday() >= 6 && $shift->start_time === '11:00:00' && $shift->end_time === '19:00:00') {
-                    throw ValidationException::withMessages(['entries' => 'Shift tengah tidak diperbolehkan pada akhir pekan.']);
+                $times = [$shift->start_time, $shift->end_time];
+                if ($this->staffing->isWeekend($entry->work_date, $settings)
+                    && ($settings['custom']
+                        ? ($shift->crosses_midnight || ! in_array($times, [$settings['weekday_shifts']['morning'], $settings['weekend_evening']], true))
+                        : $times === $settings['weekday_shifts']['middle'])) {
+                    throw ValidationException::withMessages(['entries' => $settings['custom']
+                        ? 'Gunakan shift pagi atau sore akhir pekan pada Jumat sampai Minggu.'
+                        : 'Shift tengah tidak diperbolehkan pada akhir pekan.']);
                 }
                 $endDate = $shift->crosses_midnight ? CarbonImmutable::parse($entry->work_date)->addDay()->toDateString() : $entry->work_date;
                 $start = $this->localTime->instant($entry->work_date, $shift->start_time, $timezone);
@@ -427,7 +605,7 @@ final class WeeklyPlannerService
                 abort_unless($entries->contains(fn ($entry) => $entry->employee_id === $old->employee_id && $entry->work_date === $old->work_date), 409, 'Entri historis tidak boleh dihapus.');
             }
         }
-        $staffing = $this->staffingReport($week);
+        $staffing = $candidateStaffingReport ?? $this->staffingReport($week);
         if (! $staffing['enabled']) {
             throw ValidationException::withMessages(['staffing' => 'Konfigurasikan shift pagi, tengah, dan sore sebelum publikasi.']);
         }
@@ -439,6 +617,94 @@ final class WeeklyPlannerService
         }
 
         return $rows;
+    }
+
+    private function directEditBase(Outlet $outlet, ?object $week, string $start, array $data): object
+    {
+        $this->version($week, (int) $data['expected_version']);
+        abort_unless($week && $week->published_revision_id == $data['expected_published_revision_id'], 409, 'Revisi dasar berubah.');
+        abort_unless($week->draft_revision_id === null, 409, 'Selesaikan draf roster sebelum menyimpan perubahan langsung.');
+        abort_unless($outlet->weekly_planner_start_on !== null && $start >= $outlet->weekly_planner_start_on, 409, 'Cutover planner belum aktif untuk minggu ini.');
+
+        $revision = DB::table('schedule_revisions')->where('tenant_id', $week->tenant_id)->where('week_id', $week->id)
+            ->where('id', $week->published_revision_id)->whereNotNull('published_at')->first();
+        abort_unless($revision, 409, 'Revisi published tidak tersedia.');
+
+        return $revision;
+    }
+
+    private function candidateEntries(array $entries): array
+    {
+        return array_map(fn (array $entry) => (object) ($entry + ['id' => $this->candidateEntryId($entry)]), $entries);
+    }
+
+    private function candidateEntryId(array $entry): string
+    {
+        return 'candidate:'.$entry['employee_id'].':'.$entry['work_date'];
+    }
+
+    private function candidateChecksum(
+        TenantMembership $actor,
+        Outlet $outlet,
+        object $week,
+        array $entries,
+        object $revision,
+        array $staffing,
+        array $snapshots,
+    ): string {
+        usort($entries, fn (array $left, array $right): int => [$left['work_date'], $left['employee_id']] <=> [$right['work_date'], $right['employee_id']]);
+        $snapshotValues = [];
+        foreach ($entries as $entry) {
+            $snapshotValues[$entry['employee_id'].'|'.$entry['work_date']] = $snapshots[$this->candidateEntryId($entry)];
+        }
+        ksort($snapshotValues);
+        $effectivePolicy = $this->effectivePlannerPolicy((int) $actor->tenant_id, $week->week_start);
+
+        return hash('sha256', json_encode($this->canonical([
+            'scope' => [
+                'tenant_id' => (int) $actor->tenant_id,
+                'outlet_id' => (int) $outlet->id,
+                'week_start' => $week->week_start,
+            ],
+            'base' => [
+                'version' => (int) $week->lock_version,
+                'published_revision_id' => (int) $revision->id,
+            ],
+            'candidate_entries' => $entries,
+            'effective_policy' => $effectivePolicy,
+            'staffing_configuration' => $revision->staffing ? json_decode($revision->staffing, true, flags: JSON_THROW_ON_ERROR) : null,
+            'staffing_settings' => $this->staffing->settings($effectivePolicy['configuration'] ?? []),
+            'effective_staffing' => [
+                'enabled' => $staffing['enabled'],
+                'days' => $staffing['days'],
+                'deficits' => $staffing['deficits'],
+                'conflicts' => $staffing['conflicts'],
+            ],
+            'deficits' => $staffing['deficits'],
+            'staffing_conflicts' => $staffing['conflicts'],
+            'schedule_snapshots' => $snapshotValues,
+        ]), JSON_THROW_ON_ERROR));
+    }
+
+    private function assertCandidateAttendanceSafe(int $tenantId, $entries, $prior): void
+    {
+        $candidate = $entries->keyBy(fn ($entry) => $entry->employee_id.'|'.$entry->work_date);
+        $keys = array_unique([...$prior->keys()->all(), ...$candidate->keys()->all()]);
+        foreach ($keys as $key) {
+            $old = $prior->get($key);
+            $next = $candidate->get($key);
+            $oldValue = $old ? [$old->status, $old->shift_template_version_id === null ? null : (int) $old->shift_template_version_id] : null;
+            $nextValue = $next ? [$next->status, $next->shift_template_version_id === null ? null : (int) $next->shift_template_version_id] : null;
+            if ($oldValue === $nextValue) {
+                continue;
+            }
+
+            $employeeId = (int) ($old->employee_id ?? $next->employee_id);
+            $workDate = $old->work_date ?? $next->work_date;
+            $hasAttendance = DB::table('attendance_sessions')->where('tenant_id', $tenantId)->where('employee_id', $employeeId)
+                ->where('work_date', $workDate)->exists();
+            abort_if($hasAttendance, 409, 'Absensi sudah ada atau masih aktif. Jadwal tidak dapat diubah.');
+        }
     }
 
     private function conflicts(int $tenant, int $outletId, string $weekStart, $entries, array $rows): void

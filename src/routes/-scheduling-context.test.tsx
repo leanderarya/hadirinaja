@@ -131,7 +131,7 @@ function mount(url = "/scheduling?outletId=2&week=2026-11-09") {
 }
 async function ready(id: number) {
   await screen.findByRole("region", { name: `Planner Outlet QA ${id}` })
-  await screen.findByRole("button", { name: "Siapkan shift staffing" })
+  await screen.findByRole("button", { name: "Start Empty" })
 }
 function selected() {
   return (
@@ -285,12 +285,7 @@ it("blocks search navigation while the planner editor is dirty", async () => {
     })
   )
   await ready(1)
-  fireEvent.click(
-    screen.getByRole("button", { name: "Siapkan shift staffing" })
-  )
-  fireEvent.change(screen.getByLabelText("Alasan perubahan"), {
-    target: { value: "Unsaved QA" },
-  })
+  fireEvent.click(screen.getByRole("button", { name: "Start Empty" }))
   act(() => {
     void router.navigate({
       to: "/scheduling",

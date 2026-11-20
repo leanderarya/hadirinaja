@@ -11,6 +11,7 @@ The redesign organizes Owner work around six destinations: **Home, Schedule, Att
 | [Design system](design-system.md) | Existing tokens, components, form patterns and responsive behavior |
 | [Navigation](navigation.md) | Six destinations, current routes, access and deep-link behavior |
 | [Scheduling UX](scheduling-ux.md) | Interaction states, copy/publish/direct-edit contracts and existing APIs |
+| [P0 Save Changes API contract](p0-save-changes-contract.md) | Shared, versioned backend/frontend contract for the isolated P0 candidate |
 | [Cepat Kopi reference](cepat-kopi-reference.md) | Approved operating rules, fixtures and baseline incompatibilities |
 | [Implementation plan](implementation-plan.md) | P0–P3 order, acceptance tests, failure recovery and exact starting point |
 

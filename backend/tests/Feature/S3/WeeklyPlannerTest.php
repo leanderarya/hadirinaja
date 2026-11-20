@@ -70,6 +70,15 @@ class WeeklyPlannerTest extends TestCase
         return app(WeeklyPlannerService::class)->publish($owner, $outlet->id, '2026-11-09', ['expected_version' => $version, 'expected_published_revision_id' => $base, 'activate_cutover' => $activate, 'reason' => 'Publish roster', 'warnings_checksum' => $checksum], $key);
     }
 
+    private function directChangePayload(array $published, array $entries): array
+    {
+        return [
+            'expected_version' => $published['version'],
+            'expected_published_revision_id' => $published['published']['revision_id'],
+            'entries' => $entries,
+        ];
+    }
+
     public function test_draft_and_non_cutover_publication_do_not_change_effective_legacy(): void
     {
         [, $owner, $outlet, $employee, , $entries] = $this->setupRoster();
@@ -81,6 +90,51 @@ class WeeklyPlannerTest extends TestCase
         $this->publishDraft($owner, $outlet, activate: false);
         $this->assertSame($before, $resolver->resolve($owner->tenant_id, $employee->id, '2026-11-09', $outlet->id)->toArray());
         $this->assertNull($outlet->fresh()->weekly_planner_start_on);
+    }
+
+    public function test_custom_weekend_validates_friday_through_sunday_without_affecting_another_tenant(): void
+    {
+        [, $owner, $outlet, $employee, $morning] = $this->setupRoster();
+        [, , $otherOwner] = $this->tenantWithOwner('Unconfigured planner');
+        [, $otherOutlet] = $this->unitWithOutlet($otherOwner);
+        $planner = app(WeeklyPlannerService::class);
+        $policies = app(AttendancePolicyService::class);
+        $date = '2026-11-02';
+        $base = $policies->effective($owner->tenant_id, null, $date)['configuration'];
+        $policies->reviseTenantVersion($owner, $date, [
+            ...$base, 'planner_weekend_starts_on' => 5, 'planner_shift_profile' => 'cepat_kopi',
+        ], 'Enable tenant weekend profile');
+        $templates = app(ShiftTemplateService::class);
+        $middle = $templates->create($owner, 'Custom middle', '11:00', '18:00', false, $date, 'Fixture shift')->versions->first();
+        $weekend = $templates->create($owner, 'Weekend evening', '16:00', '23:00', false, $date, 'Fixture shift')->versions->first();
+        $week = '2026-11-09';
+        $staffing = [...$this->staffingConfiguration($owner), 'middle' => $middle->id];
+        $entry = fn ($date, $shift) => ['employee_id' => $employee->id, 'work_date' => $date, 'status' => 'work', 'shift_template_version_id' => $shift->id];
+        $baseDraft = ['staffing' => $staffing, 'reason' => 'Fixture custom draft'];
+        $otherWeek = $planner->read($otherOwner, $otherOutlet->id, $week);
+        $ownerWeek = $planner->read($owner, $outlet->id, $week);
+        self::assertSame('Asia/Jakarta', $otherWeek['outlet']['timezone']);
+        self::assertSame(6, $otherWeek['planner_settings']['weekend_starts_on']);
+        self::assertSame('Asia/Jakarta', $ownerWeek['outlet']['timezone']);
+        self::assertSame(5, $ownerWeek['planner_settings']['weekend_starts_on']);
+        $planner->save($owner, $outlet->id, $week, $baseDraft + ['expected_version' => 0, 'entries' => [$entry('2026-11-13', $middle)]], 'bad-friday');
+        try {
+            $planner->validate($owner, $outlet->id, $week, 1);
+            self::fail('Friday must reject the middle shift.');
+        } catch (ValidationException $error) {
+            self::assertArrayHasKey('entries', $error->errors());
+        }
+        $planner->save($owner, $outlet->id, $week, $baseDraft + ['expected_version' => 1, 'entries' => [
+            $entry('2026-11-12', $middle), $entry('2026-11-13', $weekend),
+            $entry('2026-11-14', $morning), $entry('2026-11-15', $weekend),
+        ]], 'good-weekend');
+        $report = $planner->validate($owner, $outlet->id, $week, 2)['staffing_report'];
+        self::assertSame([], $report['conflicts']);
+        self::assertSame(1, $report['days'][3]['counts']['middle']);
+        self::assertSame(1, $report['days'][4]['counts']['evening']);
+        self::assertSame(1, $report['days'][5]['counts']['morning']);
+        self::assertSame(1, $report['days'][6]['counts']['evening']);
+        self::assertNull($planner->read($owner, $outlet->id, $week)['published']);
     }
 
     public function test_explicit_cutover_is_atomic_preserves_history_and_disables_legacy_fallback(): void
@@ -242,7 +296,7 @@ class WeeklyPlannerTest extends TestCase
     {
         [, $owner, $outlet, $employee] = $this->setupRoster();
         [, $other] = $this->unitWithOutlet($owner, 'Other unit', 'Other outlet');
-        app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet($owner, $employee, $other, now(), now()->addMonth());
+        $this->insertLegacyTemporaryOutletAssignment($owner, $employee, $other, now(), now()->addMonth());
         $night = app(ShiftTemplateService::class)->create($owner, 'Night', '20:00', '04:00', true, '2026-11-02', 'Night shift')->versions->first();
         $morning = app(ShiftTemplateService::class)->create($owner, 'Early', '03:30', '09:00', false, '2026-11-02', 'Early shift')->versions->first();
         $this->saveDraft($owner, $outlet, [['employee_id' => $employee->id, 'work_date' => '2026-11-09', 'status' => 'work', 'shift_template_version_id' => $night->id]]);
@@ -255,7 +309,7 @@ class WeeklyPlannerTest extends TestCase
     {
         [, $owner, $outlet, $employee, $shift] = $this->setupRoster();
         [, $other] = $this->unitWithOutlet($owner, 'Other unit', 'Other outlet');
-        app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet($owner, $employee, $other, now(), now()->addMonth());
+        $this->insertLegacyTemporaryOutletAssignment($owner, $employee, $other, now(), now()->addMonth());
         app(EmployeeScheduleService::class)->createException($owner, $employee->id, $other->id, '2026-11-10', 'work', $shift->id, 'Other outlet work');
         $this->saveDraft($owner, $outlet, [['employee_id' => $employee->id, 'work_date' => '2026-11-10', 'status' => 'work', 'shift_template_version_id' => $shift->id]]);
         $this->expectException(ValidationException::class);
@@ -467,6 +521,301 @@ class WeeklyPlannerTest extends TestCase
         $published = $service->publish($owner, $outlet->id, '2026-11-09', ['expected_version' => 1, 'expected_published_revision_id' => null, 'reason' => 'Complete staffing'], 'complete-week');
         $this->assertCount(23, $published['published']['entries']);
         $this->assertSame([], $published['published']['publication_warnings']);
+    }
+
+    public function test_direct_save_preview_is_read_only_and_save_is_idempotent(): void
+    {
+        [$user, $owner, $outlet, $employee, $shift, $entries] = $this->setupRoster();
+        $draft = $this->saveDraft($owner, $outlet, $entries);
+        $published = $this->publishDraft($owner, $outlet, $draft['version']);
+        [, $employeeMembership] = $this->membershipFor($owner, TenantRole::Employee);
+        app(TenantMembershipService::class)->linkEmployee($owner, $employeeMembership, $employee);
+        $url = '/api/v1/management/scheduling/planner/outlets/'.$outlet->id.'/weeks/2026-11-09';
+        $candidate = [
+            ['employee_id' => $employee->id, 'work_date' => '2026-11-09', 'status' => 'work', 'shift_template_version_id' => $shift->id],
+            ['employee_id' => $employee->id, 'work_date' => '2026-11-10', 'status' => 'rest'],
+        ];
+        $input = $this->directChangePayload($published, $candidate);
+        $counts = [
+            'schedule_revisions' => DB::table('schedule_revisions')->count(),
+            'schedule_entries' => DB::table('schedule_entries')->count(),
+            'scheduling_change_events' => DB::table('scheduling_change_events')->count(),
+            'planner_notifications' => DB::table('planner_notifications')->count(),
+            'scheduling_operations' => DB::table('scheduling_operations')->count(),
+        ];
+        $previousEntries = DB::table('schedule_entries')->where('revision_id', $published['published']['revision_id'])->get()->toJson();
+        $this->withCredentials()->withHeaders(['Origin' => 'http://localhost:3000', 'Referer' => 'http://localhost:3000/']);
+        $this->actingAs($user)->withSession(['active_membership_id' => $owner->id]);
+
+        $preview = $this->postJson($url.'/validate', $input)->assertOk()
+            ->assertJsonPath('valid', true)
+            ->assertJsonPath('version', $published['version'])
+            ->assertJsonPath('entry_count', 2);
+        $checksum = $preview->json('staffing_report.checksum');
+        $this->assertIsString($checksum);
+        $changedCandidate = [...$candidate, ['employee_id' => $employee->id, 'work_date' => '2026-11-11', 'status' => 'rest']];
+        $changedPreview = $this->postJson($url.'/validate', [...$input, 'entries' => $changedCandidate])->assertOk();
+        $this->assertNotSame($checksum, $changedPreview->json('staffing_report.checksum'));
+        $this->assertSame($counts, [
+            'schedule_revisions' => DB::table('schedule_revisions')->count(),
+            'schedule_entries' => DB::table('schedule_entries')->count(),
+            'scheduling_change_events' => DB::table('scheduling_change_events')->count(),
+            'planner_notifications' => DB::table('planner_notifications')->count(),
+            'scheduling_operations' => DB::table('scheduling_operations')->count(),
+        ]);
+        $this->assertSame($previousEntries, DB::table('schedule_entries')->where('revision_id', $published['published']['revision_id'])->get()->toJson());
+
+        $request = $input + ['reason' => 'Adjust published roster', 'warnings_checksum' => $checksum];
+        $this->withHeader('Idempotency-Key', 'direct-save-stale-warning')
+            ->postJson($url.'/save-changes', [...$request, 'warnings_checksum' => str_repeat('0', 64)])->assertConflict();
+        $this->assertSame($counts, [
+            'schedule_revisions' => DB::table('schedule_revisions')->count(),
+            'schedule_entries' => DB::table('schedule_entries')->count(),
+            'scheduling_change_events' => DB::table('scheduling_change_events')->count(),
+            'planner_notifications' => DB::table('planner_notifications')->count(),
+            'scheduling_operations' => DB::table('scheduling_operations')->count(),
+        ]);
+        $saved = $this->withHeader('Idempotency-Key', 'direct-save-success')->postJson($url.'/save-changes', $request)->assertOk();
+        $revisionId = $saved->json('published.revision_id');
+        $this->assertNotSame($published['published']['revision_id'], $revisionId);
+        $this->assertSame($published['version'] + 1, $saved->json('version'));
+        $this->assertDatabaseHas('schedule_weeks', [
+            'id' => $published['week_id'],
+            'published_revision_id' => $revisionId,
+            'draft_revision_id' => null,
+            'lock_version' => $published['version'] + 1,
+        ]);
+        $this->assertDatabaseHas('schedule_revisions', [
+            'id' => $revisionId,
+            'base_published_revision_id' => $published['published']['revision_id'],
+            'actor_membership_id' => $owner->id,
+        ]);
+        $this->assertSame($previousEntries, DB::table('schedule_entries')->where('revision_id', $published['published']['revision_id'])->get()->toJson());
+        $this->assertDatabaseHas('scheduling_change_events', [
+            'resource_id' => $published['week_id'],
+            'action' => 'changes_saved',
+            'reason' => 'Adjust published roster',
+        ]);
+        $this->assertDatabaseHas('planner_notifications', [
+            'membership_id' => $employeeMembership->id,
+            'event_key' => 'published:'.$revisionId,
+            'kind' => 'assignment_changed',
+        ]);
+
+        $replay = $this->withHeader('Idempotency-Key', 'direct-save-success')->postJson($url.'/save-changes', $request)->assertOk();
+        $this->assertSame($saved->json(), $replay->json());
+        $this->assertSame($counts['schedule_revisions'] + 1, DB::table('schedule_revisions')->count());
+        $this->assertSame($counts['scheduling_operations'] + 1, DB::table('scheduling_operations')->count());
+        $this->withHeader('Idempotency-Key', 'direct-save-success')
+            ->postJson($url.'/save-changes', [...$request, 'reason' => 'Different reason'])->assertConflict();
+        $this->assertSame($counts['schedule_revisions'] + 1, DB::table('schedule_revisions')->count());
+        $this->assertSame($counts['scheduling_operations'] + 1, DB::table('scheduling_operations')->count());
+    }
+
+    public function test_direct_save_rejects_overlap_stale_base_and_unresolved_draft_without_writes(): void
+    {
+        [, $owner, $outlet, $employee, , $entries] = $this->setupRoster();
+        $draft = $this->saveDraft($owner, $outlet, $entries);
+        $published = $this->publishDraft($owner, $outlet, $draft['version']);
+        $night = app(ShiftTemplateService::class)->create($owner, 'Direct night', '20:00', '04:00', true, '2026-11-02', 'Fixture shift')->versions->first();
+        $early = app(ShiftTemplateService::class)->create($owner, 'Direct early', '03:30', '09:00', false, '2026-11-02', 'Fixture shift')->versions->first();
+        $service = app(WeeklyPlannerService::class);
+        $revisionCount = DB::table('schedule_revisions')->count();
+        $operationCount = DB::table('scheduling_operations')->count();
+        $week = DB::table('schedule_weeks')->where('id', $published['week_id'])->first();
+
+        try {
+            $service->saveChanges($owner, $outlet->id, '2026-11-09', [
+                ...$this->directChangePayload($published, [
+                    ['employee_id' => $employee->id, 'work_date' => '2026-11-09', 'status' => 'work', 'shift_template_version_id' => $night->id],
+                    ['employee_id' => $employee->id, 'work_date' => '2026-11-10', 'status' => 'work', 'shift_template_version_id' => $early->id],
+                ]),
+                'reason' => 'Overlapping direct edit',
+            ], 'direct-overlap');
+            $this->fail('Overlapping candidate must be rejected.');
+        } catch (ValidationException $error) {
+            $this->assertArrayHasKey('entries', $error->errors());
+        }
+
+        try {
+            $service->saveChanges($owner, $outlet->id, '2026-11-09', [
+                ...$this->directChangePayload(array_replace($published, ['version' => $published['version'] - 1]), $entries),
+                'reason' => 'Stale direct edit',
+            ], 'direct-stale');
+            $this->fail('Stale version must be rejected.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+
+        $staleBase = $this->directChangePayload($published, $entries);
+        $staleBase['expected_published_revision_id']++;
+        try {
+            $service->saveChanges($owner, $outlet->id, '2026-11-09', [
+                ...$staleBase,
+                'reason' => 'Stale published base',
+            ], 'direct-stale-base');
+            $this->fail('Stale published revision must be rejected.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+
+        $pendingDraft = $this->saveDraft($owner, $outlet, $entries, $published['version'], 'direct-unresolved-draft');
+        try {
+            $service->saveChanges($owner, $outlet->id, '2026-11-09', [
+                ...$this->directChangePayload(array_replace($published, ['version' => $pendingDraft['version']]), $entries),
+                'reason' => 'Unresolved draft edit',
+            ], 'direct-with-unresolved-draft');
+            $this->fail('An unresolved draft must block direct save.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+
+        $this->assertSame($revisionCount + 1, DB::table('schedule_revisions')->count());
+        $this->assertSame($operationCount + 1, DB::table('scheduling_operations')->count());
+        $week = DB::table('schedule_weeks')->where('id', $published['week_id'])->first();
+        $this->assertSame($published['published']['revision_id'], $week->published_revision_id);
+        $this->assertSame($pendingDraft['draft']['revision_id'], $week->draft_revision_id);
+        $this->assertSame($pendingDraft['version'], $week->lock_version);
+    }
+
+    public function test_direct_save_rolls_back_revision_pointer_audit_notification_and_idempotency_on_failure(): void
+    {
+        [, $owner, $outlet, $employee, , $entries] = $this->setupRoster();
+        $draft = $this->saveDraft($owner, $outlet, $entries);
+        $published = $this->publishDraft($owner, $outlet, $draft['version']);
+        $candidate = [...$entries, ['employee_id' => $employee->id, 'work_date' => '2026-11-10', 'status' => 'rest']];
+        $preview = app(WeeklyPlannerService::class)->validateCandidate(
+            $owner,
+            $outlet->id,
+            '2026-11-09',
+            $this->directChangePayload($published, $candidate),
+        );
+        $counts = [
+            'revisions' => DB::table('schedule_revisions')->count(),
+            'entries' => DB::table('schedule_entries')->count(),
+            'events' => DB::table('scheduling_change_events')->count(),
+            'notifications' => DB::table('planner_notifications')->count(),
+            'operations' => DB::table('scheduling_operations')->count(),
+        ];
+        $fail = true;
+        DB::listen(function ($query) use (&$fail): void {
+            if ($fail && str_starts_with($query->sql, 'insert into `scheduling_operations`')) {
+                $fail = false;
+                throw new \RuntimeException('Injected direct-save transaction failure');
+            }
+        });
+
+        try {
+            app(WeeklyPlannerService::class)->saveChanges($owner, $outlet->id, '2026-11-09', [
+                ...$this->directChangePayload($published, $candidate),
+                'reason' => 'Rollback direct edit',
+                'warnings_checksum' => $preview['staffing_report']['checksum'],
+            ], 'direct-save-rollback');
+            $this->fail('Injected failure must roll back direct save.');
+        } catch (\RuntimeException $error) {
+            $this->assertSame('Injected direct-save transaction failure', $error->getMessage());
+        }
+
+        $week = DB::table('schedule_weeks')->where('id', $published['week_id'])->first();
+        $this->assertSame($published['published']['revision_id'], $week->published_revision_id);
+        $this->assertSame($published['version'], $week->lock_version);
+        $this->assertSame($counts, [
+            'revisions' => DB::table('schedule_revisions')->count(),
+            'entries' => DB::table('schedule_entries')->count(),
+            'events' => DB::table('scheduling_change_events')->count(),
+            'notifications' => DB::table('planner_notifications')->count(),
+            'operations' => DB::table('scheduling_operations')->count(),
+        ]);
+    }
+
+    public function test_direct_preview_and_save_keep_foreign_tenant_outlets_inaccessible(): void
+    {
+        [, $owner, $outlet, , , $entries] = $this->setupRoster();
+        $draft = $this->saveDraft($owner, $outlet, $entries);
+        $published = $this->publishDraft($owner, $outlet, $draft['version']);
+        [$foreignUser, , $foreignOwner] = $this->tenantWithOwner('Foreign direct editor');
+        $url = '/api/v1/management/scheduling/planner/outlets/'.$outlet->id.'/weeks/2026-11-09';
+        $input = $this->directChangePayload($published, $entries);
+        $this->withCredentials()->withHeaders(['Origin' => 'http://localhost:3000', 'Referer' => 'http://localhost:3000/']);
+        $this->actingAs($foreignUser)->withSession(['active_membership_id' => $foreignOwner->id]);
+        $this->postJson($url.'/validate', $input)->assertNotFound();
+        $this->withHeader('Idempotency-Key', 'foreign-direct-save')
+            ->postJson($url.'/save-changes', $input + ['reason' => 'Foreign edit'])->assertNotFound();
+        $this->assertSame($published['published']['revision_id'], DB::table('schedule_weeks')->where('id', $published['week_id'])->value('published_revision_id'));
+    }
+
+    public function test_direct_save_rejects_active_sessions_and_started_or_historical_entries(): void
+    {
+        [, $owner, $outlet, $employee, $shift, $entries] = $this->setupRoster();
+        $draft = $this->saveDraft($owner, $outlet, $entries);
+        $published = $this->publishDraft($owner, $outlet, $draft['version']);
+        $this->travelTo(CarbonImmutable::parse('2026-11-09T07:00:00+07:00'));
+        $sessionId = DB::table('attendance_sessions')->insertGetId([
+            'tenant_id' => $owner->tenant_id,
+            'employee_id' => $employee->id,
+            'outlet_id' => $outlet->id,
+            'work_date' => '2026-11-09',
+            'status' => 'active',
+            'check_in_at' => '2026-11-08 23:30:00',
+            'check_out_at' => null,
+            'schedule_snapshot' => '{}',
+            'policy_snapshot' => '{}',
+            'assignment_snapshot' => '{}',
+            'review_indicators' => '[]',
+            'created_at' => now('UTC'),
+            'updated_at' => now('UTC'),
+        ]);
+        DB::table('attendance_active_session_owners')->insert([
+            'tenant_id' => $owner->tenant_id,
+            'employee_id' => $employee->id,
+            'attendance_session_id' => $sessionId,
+            'created_at' => now('UTC'),
+        ]);
+        $candidate = [[
+            'employee_id' => $employee->id,
+            'work_date' => '2026-11-09',
+            'status' => 'work',
+            'shift_template_version_id' => $shift->id,
+        ]];
+
+        try {
+            app(WeeklyPlannerService::class)->saveChanges($owner, $outlet->id, '2026-11-09', [
+                ...$this->directChangePayload($published, $candidate),
+                'reason' => 'Active session edit',
+            ], 'direct-active-session');
+            $this->fail('Active session must block an unsafe roster change.');
+        } catch (HttpException $error) {
+            $this->assertSame(409, $error->getStatusCode());
+        }
+
+        DB::table('attendance_active_session_owners')->where('attendance_session_id', $sessionId)->delete();
+        DB::table('attendance_sessions')->where('id', $sessionId)->delete();
+        $scheduledEntries = [[
+            'employee_id' => $employee->id,
+            'work_date' => '2026-11-09',
+            'status' => 'work',
+            'shift_template_version_id' => $shift->id,
+        ]];
+        $nextDraft = $this->saveDraft($owner, $outlet, $scheduledEntries, $published['version'], 'started-base-draft');
+        $startedBase = $this->publishDraft($owner, $outlet, $nextDraft['version'], $published['published']['revision_id'], false, 'started-base-publish');
+        $this->travelTo(CarbonImmutable::parse('2026-11-09T08:00:00+07:00'));
+
+        foreach ([
+            [['employee_id' => $employee->id, 'work_date' => '2026-11-09', 'status' => 'rest']],
+            [],
+        ] as $changedEntries) {
+            try {
+                app(WeeklyPlannerService::class)->saveChanges($owner, $outlet->id, '2026-11-09', [
+                    ...$this->directChangePayload($startedBase, $changedEntries),
+                    'reason' => 'Started schedule edit',
+                ], 'direct-started-'.count($changedEntries));
+                $this->fail('Started or historical entries must not be changed or removed.');
+            } catch (HttpException $error) {
+                $this->assertSame(409, $error->getStatusCode());
+            }
+        }
+
+        $this->assertSame($startedBase['published']['revision_id'], DB::table('schedule_weeks')->where('id', $published['week_id'])->value('published_revision_id'));
     }
 
     public function test_staffing_mapping_cannot_reference_another_tenants_shift(): void

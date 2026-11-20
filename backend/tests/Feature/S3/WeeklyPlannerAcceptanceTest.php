@@ -23,7 +23,7 @@ class WeeklyPlannerAcceptanceTest extends TestCase
         $f = $this->shiftFixture();
         [$supervisorUser, $supervisor] = $this->membershipFor($f['owner'], TenantRole::Supervisor);
         app(TenantMembershipService::class)->assignSupervisorOutletScope($f['owner'], $supervisor, $f['outlet']);
-        app(AttendancePolicyService::class)->createOutletVersion($f['owner'], $f['outlet'], now()->toDateString(), [
+        app(AttendancePolicyService::class)->createOutletVersion($f['owner'], $f['outlet'], CarbonImmutable::today('Asia/Jakarta')->toDateString(), [
             'attendance_mode' => 'hybrid', 'personal_location_validation' => ['required' => true, 'latitude' => -6.2, 'longitude' => 106.8, 'radius_meters' => 100],
         ], 'Synthetic acceptance location');
         config(['attendance_evidence.require_personal_photo' => false]);

@@ -13,12 +13,32 @@ export type CatalogCategory = {
 }
 
 export const catalogCategories: CatalogCategory[] = [
-  { id: "r2c-operations", label: "R2C · Slice 02B", items: [
-    { id: "weekly-planner-board", label: "Weekly planner board", importPath: "@/components/weekly-planner-board" },
-    { id: "r2c-work-week", label: "Work-week control", importPath: "@/components/r2c/operational-blocks" },
-    { id: "r2c-schedule-matrix", label: "Weekly schedule matrix", importPath: "@/components/r2c/operational-blocks" },
-    { id: "r2c-operation-summary", label: "Read-first operational summary", importPath: "@/components/r2c/operational-blocks" },
-  ] },
+  {
+    id: "r2c-operations",
+    label: "R2C · Slice 02B",
+    items: [
+      {
+        id: "weekly-planner-board",
+        label: "Owner day editor and weekly overview",
+        importPath: "@/components/weekly-planner-board",
+      },
+      {
+        id: "r2c-work-week",
+        label: "Work-week control",
+        importPath: "@/components/r2c/operational-blocks",
+      },
+      {
+        id: "r2c-schedule-matrix",
+        label: "Weekly schedule matrix",
+        importPath: "@/components/r2c/operational-blocks",
+      },
+      {
+        id: "r2c-operation-summary",
+        label: "Read-first operational summary",
+        importPath: "@/components/r2c/operational-blocks",
+      },
+    ],
+  },
   { id: "r2c-screens", label: "R2C · Slice 02A", items: [
     { id: "r2c-shift-template-explorer", label: "Shift Template Explorer", importPath: "@/components/r2c/shift-template-explorer" },
     { id: "r2c-organization-explorer", label: "Organization Explorer", importPath: "@/components/r2c/organization-explorer" },

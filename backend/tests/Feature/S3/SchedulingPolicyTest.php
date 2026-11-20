@@ -95,6 +95,74 @@ class SchedulingPolicyTest extends TestCase
         $this->assertDatabaseCount('scheduling_change_events', 5);
     }
 
+    public function test_owner_can_revise_effective_policy_versions_without_creating_duplicate_rows(): void
+    {
+        [$user, , $owner] = $this->tenantWithOwner('Policy revision tenant');
+        [, $outlet] = $this->unitWithOutlet($owner);
+        $this->loginAs($user);
+        $tenantPolicyCount = DB::table('tenant_attendance_policy_versions')->count();
+        $outletPolicyCount = DB::table('outlet_attendance_policy_versions')->count();
+        $effectiveFrom = CarbonImmutable::today('Asia/Jakarta')->addDay()->toDateString();
+        $configuration = [
+            'late_tolerance_minutes' => 5,
+            'check_in_window' => ['early_minutes' => 60, 'late_minutes' => 60],
+            'attendance_mode' => 'kiosk',
+            'personal_location_validation' => ['required' => true, 'radius_meters' => 100],
+            'retroactive_request_limit_days' => 7,
+            'operational_review' => [
+                'schedule_change_reason_required' => true,
+                'minimum_notice_hours' => 24,
+            ],
+        ];
+
+        $tenantPolicy = $this->browserRequest()->postJson('/api/v1/management/scheduling/policies/tenant', [
+            'effective_from' => $effectiveFrom,
+            'reason' => 'Kebijakan awal.',
+            'configuration' => $configuration,
+        ])->assertCreated();
+        $configuration['late_tolerance_minutes'] = 11;
+        $this->browserRequest()->postJson('/api/v1/management/scheduling/policies/tenant', [
+            'effective_from' => $effectiveFrom,
+            'reason' => 'Revisi toleransi.',
+            'revise_existing' => true,
+            'configuration' => $configuration,
+        ])->assertCreated()->assertJsonPath('version.id', $tenantPolicy->json('version.id'))
+            ->assertJsonPath('version.revised', true);
+
+        $outletPolicy = $this->browserRequest()->postJson('/api/v1/management/scheduling/outlets/'.$outlet->getKey().'/policy', [
+            'effective_from' => $effectiveFrom,
+            'reason' => 'Override awal.',
+            'overrides' => ['late_tolerance_minutes' => 8],
+        ])->assertCreated();
+        $this->browserRequest()->postJson('/api/v1/management/scheduling/outlets/'.$outlet->getKey().'/policy', [
+            'effective_from' => $effectiveFrom,
+            'reason' => 'Revisi override.',
+            'revise_existing' => true,
+            'overrides' => ['late_tolerance_minutes' => 13],
+        ])->assertCreated()->assertJsonPath('version.id', $outletPolicy->json('version.id'));
+
+        $this->assertDatabaseCount('tenant_attendance_policy_versions', $tenantPolicyCount + 1);
+        $this->assertDatabaseCount('outlet_attendance_policy_versions', $outletPolicyCount + 1);
+        $this->browserRequest()->getJson(
+            '/api/v1/management/scheduling/policies?outlet_id='.$outlet->getKey().'&effective_date='.$effectiveFrom,
+        )->assertOk()->assertJsonPath('effective.configuration.late_tolerance_minutes', 13);
+        $this->assertDatabaseCount('scheduling_change_events', 4);
+
+        $this->browserRequest()->postJson('/api/v1/management/scheduling/policies/tenant', [
+            'effective_from' => CarbonImmutable::today('Asia/Jakarta')->addDays(2)->toDateString(),
+            'reason' => 'Lokasi personal wajib dikonfigurasi.',
+            'configuration' => [
+                ...$configuration,
+                'attendance_mode' => 'personal',
+                'personal_location_validation' => ['required' => true, 'radius_meters' => 100],
+            ],
+        ])->assertUnprocessable()->assertJsonValidationErrors([
+            'configuration.personal_location_validation.latitude',
+            'configuration.personal_location_validation.longitude',
+        ]);
+        $this->assertDatabaseCount('tenant_attendance_policy_versions', $tenantPolicyCount + 1);
+    }
+
     public function test_geofence_coordinates_require_a_complete_pair_without_partial_policy_writes(): void
     {
         [$user, , $owner] = $this->tenantWithOwner('Geofence validation tenant');

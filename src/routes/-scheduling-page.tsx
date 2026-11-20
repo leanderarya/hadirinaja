@@ -1263,7 +1263,10 @@ export function SchedulingPage({
                   />
                 ) : null}
                 <PageHeading
-                  minimal={Boolean(configuration)}
+                  minimal={
+                    Boolean(configuration) ||
+                    (activeTab === "jadwal" && operation === "planner")
+                  }
                   title={
                     activeTab === "jadwal"
                       ? "Jadwal"
@@ -1286,7 +1289,8 @@ export function SchedulingPage({
                           : "Jadwal mingguan, penugasan shift, dan pengecualian tanggal."
                   }
                 />
-                {!configuration ? (
+                {!configuration &&
+                !(activeTab === "jadwal" && operation === "planner") ? (
                   <ContextAlert
                     title={`${context.roles.includes("owner") ? "Owner" : "Supervisor"} · ${context.outlets.map((outlet) => outlet.name).join(" & ") || "Belum ada Outlet"}`}
                   >
@@ -1323,7 +1327,9 @@ export function SchedulingPage({
                       "grid min-w-0 gap-3",
                       configuration === "kalender"
                         ? "grid-cols-1 sm:grid-cols-3"
-                        : "md:grid-cols-2"
+                        : activeTab === "jadwal" && operation === "planner"
+                          ? "max-w-2xl grid-cols-1 sm:grid-cols-2"
+                          : "md:grid-cols-2"
                     )}
                   >
                     {configuration === "kalender" ? (
@@ -1342,14 +1348,6 @@ export function SchedulingPage({
                           }}
                         />
                       </Field>
-                    ) : activeTab === "jadwal" || activeTab === "kalender" ? (
-                      <WorkWeekControl
-                        weekStart={weekStart}
-                        onChange={(value) =>
-                          calendarDraft.attempt(() => changeWeek(value))
-                        }
-                        disabled={busy || loading || plannerBusy}
-                      />
                     ) : null}
                     {configuration === "kalender" ? (
                       <Field>
@@ -1380,7 +1378,11 @@ export function SchedulingPage({
                     ) : (
                       <LabeledControl
                         label="Outlet"
-                        helper="Pilih dari Outlet yang dapat Anda akses."
+                        helper={
+                          activeTab === "jadwal" && operation === "planner"
+                            ? undefined
+                            : "Pilih dari Outlet yang dapat Anda akses."
+                        }
                         control={
                           <NativeSelect
                             id="outlet-filter"
@@ -1406,6 +1408,16 @@ export function SchedulingPage({
                         }
                       />
                     )}
+                    {configuration !== "kalender" &&
+                    (activeTab === "jadwal" || activeTab === "kalender") ? (
+                      <WorkWeekControl
+                        weekStart={weekStart}
+                        onChange={(value) =>
+                          calendarDraft.attempt(() => changeWeek(value))
+                        }
+                        disabled={busy || loading || plannerBusy}
+                      />
+                    ) : null}
                     {configuration === "kalender" ? (
                       <Field>
                         <FieldLabel htmlFor="calendar-days">
