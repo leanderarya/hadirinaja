@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 use RuntimeException;
 use Tests\Support\BuildsTenantFixtures;
 use Tests\TestCase;
@@ -85,9 +86,6 @@ final class CorrectionEvidenceTest extends TestCase
         [, $destination] = $this->unitWithOutlet($fixture['owner'], 'Destination unit', 'Destination only');
         [$supervisorUser, $supervisor] = $this->membershipFor($fixture['owner'], TenantRole::Supervisor);
         app(TenantMembershipService::class)->assignSupervisorOutletScope($fixture['owner'], $supervisor, $destination);
-        app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet(
-            $fixture['owner'], $fixture['employee'], $destination, now()->subDay(), now()->addDay(),
-        );
         $this->loginAs($supervisorUser);
         $this->getJson($url)->assertForbidden();
         $this->getJson($url.'/'.$pdfId)->assertForbidden();
@@ -260,7 +258,7 @@ final class CorrectionEvidenceTest extends TestCase
         Auth::forgetGuards();
     }
 
-    private function upload(int $id, UploadedFile $file, ?string $key = null, array $bindings = []): \Illuminate\Testing\TestResponse
+    private function upload(int $id, UploadedFile $file, ?string $key = null, array $bindings = []): TestResponse
     {
         return $this->post('/api/v1/correction-evidence/'.$id, [
             'file' => $file, 'key' => $key ?? (string) Str::uuid(), ...$bindings,

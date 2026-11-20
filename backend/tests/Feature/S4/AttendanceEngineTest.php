@@ -7,6 +7,7 @@ use App\Enums\TenantRole;
 use App\Models\AttendanceEvent;
 use App\Models\AttendanceEvidence;
 use App\Models\AttendanceEvidenceAuditEvent;
+use App\Models\AttendanceEvidenceLegalHoldEvent;
 use App\Models\AttendanceIdempotencyRecord;
 use App\Models\AttendanceSession;
 use App\Models\Employee;
@@ -14,6 +15,8 @@ use App\Models\KioskDevice;
 use App\Models\TenantMembership;
 use App\Models\User;
 use App\Services\AttendanceEvidenceAuditLogger;
+use App\Services\AttendanceEvidenceExpirationService;
+use App\Services\AttendanceEvidenceLegalHoldReader;
 use App\Services\AttendanceEvidenceStorage;
 use App\Services\AttendancePolicyService;
 use App\Services\AttendanceService;
@@ -31,6 +34,7 @@ use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -160,7 +164,7 @@ class AttendanceEngineTest extends TestCase
         $differentKey = (string) Str::uuid();
         $this->browserRequest()->withHeader('Idempotency-Key', $differentKey)
             ->postJson('/api/v1/attendance/me/check-out', ['checkout_outlet_id' => $otherOutlet->getKey(), ...$location])
-            ->assertForbidden()->assertJsonPath('code', 'outlet_assignment_required');
+            ->assertConflict()->assertJsonPath('code', 'session_at_origin_outlet');
         $this->assertDatabaseHas('attendance_sessions', ['id' => $newSessionId, 'status' => 'active']);
         $this->assertDatabaseCount('attendance_events', 3);
 
@@ -170,108 +174,41 @@ class AttendanceEngineTest extends TestCase
             ->assertOk()->assertExactJson(['state' => 'not_found', 'operation' => 'check_out']);
     }
 
-    public function test_personal_cross_outlet_checkout_uses_destination_local_policy_and_preserves_origin(): void
+    public function test_personal_cross_outlet_checkout_is_rejected_without_side_effects_and_origin_checkout_replays(): void
     {
-        Carbon::setTestNow(CarbonImmutable::parse('2026-11-04T15:55:00Z'));
-        try {
-            $fixture = $this->attendanceFixture();
-            [, $destination] = $this->unitWithOutlet($fixture['owner'], 'Other unit', 'Makassar');
-            $destinationId = (int) $destination->getKey();
-            app(OutletCalendarService::class)->createVersion(
-                $fixture['owner'], $destination, '2026-11-05', 'Asia/Makassar', [1, 2, 3, 4, 5, 6, 7], 'Destination timezone',
-            );
-            $assignment = app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet(
-                $fixture['owner'], $fixture['employee'], $destination, now()->subHour(), now()->addHour(),
-            );
-            $policy = app(AttendancePolicyService::class)->createOutletVersion(
-                $fixture['owner'], $destination, '2026-11-05', [
-                    'attendance_mode' => 'personal',
-                    'personal_location_validation' => [
-                        'required' => false, 'radius_meters' => 80, 'latitude' => -5.15, 'longitude' => 119.43,
-                    ],
-                ], 'Destination policy',
-            );
-            $this->loginAs($fixture['employeeUser']);
-            $sessionId = $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
-                ->postJson('/api/v1/attendance/me/check-in', [
-                    'outlet_id' => $fixture['outlet']->getKey(), 'location' => $this->validLocation(),
-                ])->assertCreated()->json('session.id');
-            $origin = AttendanceSession::query()->findOrFail($sessionId);
-            $checkout = fn (array $location, ?string $key = null, ?int $outletId = null, ?int $target = null) =>
-                $this->browserRequest()->withHeader('Idempotency-Key', $key ?? (string) Str::uuid())
-                    ->postJson('/api/v1/attendance/me/check-out', [
-                        'checkout_outlet_id' => $outletId ?? $destinationId,
-                        'checkout_session_id' => $target ?? $sessionId,
-                        'location' => $location,
-                    ]);
-            $destinationLocation = [...$this->validLocation(), 'latitude' => -5.15, 'longitude' => 119.43];
-            $checkout($destinationLocation)->assertForbidden()->assertJsonPath('code', 'attendance_mode_not_allowed');
+        $fixture = $this->attendanceFixture();
+        [, $destination] = $this->unitWithOutlet($fixture['owner'], 'Other unit', 'Destination');
+        $this->loginAs($fixture['employeeUser']);
+        $sessionId = $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/attendance/me/check-in', [
+                'outlet_id' => $fixture['outlet']->getKey(), 'location' => $this->validLocation(),
+            ])->assertCreated()->json('session.id');
 
-            Carbon::setTestNow(CarbonImmutable::parse('2026-11-04T16:05:00Z'));
-            $this->browserRequest()->getJson('/api/v1/attendance/me?checkout_outlet_id='.$destinationId)
-                ->assertOk()->assertJsonPath('checkout_destination.id', $destinationId)
-                ->assertJsonPath('checkout_destination.timezone', 'Asia/Makassar')
-                ->assertJsonPath('checkout_destination.personal_location.required', true)
-                ->assertJsonPath('checkout_destination.personal_location.radius_meters', 80)
-                ->assertJsonPath('active_session.outlet.id', (int) $fixture['outlet']->getKey());
-            [, , $foreignOwner] = $this->tenantWithOwner('Foreign tenant');
-            [, $foreignOutlet] = $this->unitWithOutlet($foreignOwner);
-            $checkout($destinationLocation, outletId: (int) $foreignOutlet->getKey())->assertForbidden();
-            $this->browserRequest()->getJson('/api/v1/attendance/me?checkout_outlet_id='.$foreignOutlet->getKey())->assertForbidden();
-            $checkout($destinationLocation, target: $sessionId + 1)
-                ->assertConflict()->assertJsonPath('code', 'no_active_attendance');
-            $checkout($this->validLocation())->assertUnprocessable()->assertJsonPath('code', 'location_outside_range');
-            $checkout([...$destinationLocation, 'accuracy_meters' => 81])
-                ->assertUnprocessable()->assertJsonPath('code', 'location_low_accuracy');
-            $checkout(['status' => 'permission_denied'])->assertUnprocessable()->assertJsonPath('code', 'location_permission_denied');
-            $checkout(['status' => 'unavailable'])->assertUnprocessable()->assertJsonPath('code', 'location_unavailable');
-            $this->assertDatabaseCount('attendance_events', 1);
-            $this->assertDatabaseCount('attendance_active_session_owners', 1);
-
-            $key = (string) Str::uuid();
-            $completed = $checkout($destinationLocation, $key)->assertOk()
-                ->assertJsonPath('operation.contract_version', 3)->assertJsonPath('operation.checkout_outlet_id', $destinationId);
-            $event = AttendanceEvent::query()->findOrFail($completed->json('event.id'));
-            $this->assertSame((int) $origin->outlet_id, (int) $event->outlet_id);
-            $this->assertSame($destinationId, $event->checkout_outlet_id);
-            $this->assertSame('verified', $event->location_verdict);
-            $this->assertSame('verified', $event->checkout_context['verification']);
-            $this->assertSame('temporary', $event->checkout_context['assignment']['type']);
-            $this->assertSame((int) $assignment->getKey(), $event->checkout_context['assignment']['id']);
-            $this->assertSame('2026-11-05', $event->checkout_context['policy']['local_date']);
-            $this->assertSame((int) $policy->getKey(), $event->checkout_context['policy']['outlet_version_id']);
-            $this->assertSame((int) $fixture['membership']->getKey(), $event->checkout_context['actor']['tenant_membership_id']);
-            $closed = $origin->fresh();
-            $this->browserRequest()->getJson('/api/v1/attendance/me/effective?from='.$origin->work_date->toDateString().'&to='.$origin->work_date->toDateString())
-                ->assertOk()
-                ->assertJsonPath('attendance.0.sessions.0.original.outlet_id', (int) $origin->outlet_id)
-                ->assertJsonPath('attendance.0.sessions.0.original.work_date', $origin->work_date->toDateString())
-                ->assertJsonPath('attendance.0.sessions.0.checkout_destination.id', $destinationId)
-                ->assertJsonPath('attendance.0.sessions.0.checkout_destination.name', 'Makassar')
-                ->assertJsonPath('attendance.0.sessions.0.checkout_destination.timezone', 'Asia/Makassar');
-            $this->assertSame($origin->outlet_id, $closed->outlet_id);
-            $this->assertSame($origin->work_date->toDateString(), $closed->work_date->toDateString());
-            $this->assertSame($origin->schedule_snapshot, $closed->schedule_snapshot);
-            $this->assertSame($origin->assignment_snapshot, $closed->assignment_snapshot);
-            $this->assertDatabaseCount('attendance_active_session_owners', 0);
-
-            $assignment->forceFill(['effective_until' => now()])->save();
-            $checkout($destinationLocation, $key)->assertOk()->assertExactJson($completed->json());
-            $checkout($destinationLocation, $key, outletId: (int) $fixture['outlet']->getKey())
-                ->assertConflict()->assertJsonPath('code', 'idempotency_key_conflict');
-            $checkout($destinationLocation, $key, target: $sessionId + 1)
-                ->assertConflict()->assertJsonPath('code', 'idempotency_key_conflict');
-            $checkout([...$destinationLocation, 'accuracy_meters' => 11], $key)
-                ->assertConflict()->assertJsonPath('code', 'idempotency_key_conflict');
-            $this->browserRequest()->getJson('/api/v1/attendance/me/operations/check_out/'.$key)
-                ->assertOk()->assertJsonPath('contract_version', 3)->assertJsonPath('checkout_session_id', $sessionId)
-                ->assertJsonPath('result.event.id', $event->getKey());
-        } finally {
-            Carbon::setTestNow();
-        }
+        $rejected = $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/attendance/me/check-out', [
+                'checkout_outlet_id' => $destination->getKey(),
+                'checkout_session_id' => $sessionId,
+                'location' => $this->validLocation(),
+            ])->assertConflict()->assertJsonPath('code', 'session_at_origin_outlet');
+        $this->assertDatabaseCount('attendance_events', 1);
+        $this->assertDatabaseCount('attendance_evidence', 0);
+        $this->assertDatabaseCount('attendance_active_session_owners', 1);
+        $this->assertSame('active', AttendanceSession::query()->findOrFail($sessionId)->status);
+        $key = (string) Str::uuid();
+        $checkout = fn () => $this->browserRequest()->withHeader('Idempotency-Key', $key)
+            ->postJson('/api/v1/attendance/me/check-out', [
+                'checkout_outlet_id' => $fixture['outlet']->getKey(),
+                'checkout_session_id' => $sessionId,
+                'location' => $this->validLocation(),
+            ]);
+        $completed = $checkout()->assertOk()->assertJsonPath('session.status', 'closed');
+        $checkout()->assertOk()->assertExactJson($completed->json());
+        $event = AttendanceEvent::query()->findOrFail($completed->json('event.id'));
+        $this->assertSame((int) $fixture['outlet']->getKey(), (int) $event->outlet_id);
+        $this->assertSame($sessionId, (int) $event->attendance_session_id);
     }
 
-    public function test_personal_checkout_requires_current_primary_assignment_and_a_configured_geofence(): void
+    public function test_personal_checkout_uses_origin_geofence_and_rejects_unconfigured_origin_geofence(): void
     {
         $fixture = $this->attendanceFixture();
         [, $destination] = $this->unitWithOutlet($fixture['owner'], 'Other unit', 'Destination');
@@ -281,40 +218,26 @@ class AttendanceEngineTest extends TestCase
             ->postJson('/api/v1/attendance/me/check-in', [
                 'outlet_id' => $fixture['outlet']->getKey(), 'location' => $location,
             ])->assertCreated()->json('session.id');
-        $outletId = (int) $destination->getKey();
-        $checkout = fn () => $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
+        $checkout = fn (int $outletId, string $key) => $this->browserRequest()->withHeader('Idempotency-Key', $key)
             ->postJson('/api/v1/attendance/me/check-out', [
                 'checkout_outlet_id' => $outletId, 'checkout_session_id' => $sessionId, 'location' => $location,
             ]);
-        $assignmentService = app(EmployeeOutletAssignmentService::class);
-        $assignmentService->assignTemporaryOutlet(
-            $fixture['owner'], $fixture['employee'], $destination, now()->addHour(), now()->addHours(2),
-        );
-        $checkout()->assertForbidden()->assertJsonPath('code', 'outlet_assignment_required');
-
-        $assignment = $assignmentService->assignPrimaryOutlet(
-            $fixture['owner'], $fixture['employee'], $destination, now(),
-        );
-        app(AttendancePolicyService::class)->createOutletVersion(
-            $fixture['owner'], $destination, CarbonImmutable::today('UTC')->toDateString(),
-            ['attendance_mode' => 'personal'], 'Destination policy without geofence',
-        );
-        $checkout()->assertUnprocessable()->assertJsonPath('code', 'location_geofence_unconfigured');
+        $checkout((int) $destination->getKey(), (string) Str::uuid())
+            ->assertConflict()->assertJsonPath('code', 'session_at_origin_outlet');
         $this->assertDatabaseCount('attendance_events', 1);
         $this->assertDatabaseCount('attendance_active_session_owners', 1);
 
-        $nextDay = CarbonImmutable::today('UTC')->addDay();
+        $tomorrow = CarbonImmutable::tomorrow('Asia/Jakarta');
         app(AttendancePolicyService::class)->createOutletVersion(
-            $fixture['owner'], $destination, $nextDay->toDateString(), [
-                'attendance_mode' => 'hybrid',
-                'personal_location_validation' => ['radius_meters' => 100, 'latitude' => -6.2, 'longitude' => 106.816666],
-            ], 'Configure destination geofence',
+            $fixture['owner'], $fixture['outlet'], $tomorrow->toDateString(), ['attendance_mode' => 'personal'],
+            'Origin policy without geofence',
         );
-        $this->travelTo($nextDay->addHours(3), function () use ($checkout, $assignment, $fixture): void {
+        $this->travelTo($tomorrow->addHours(12), function () use ($checkout, $fixture, $sessionId): void {
             $this->loginAs($fixture['employeeUser']);
-            $event = AttendanceEvent::query()->findOrFail($checkout()->assertOk()->json('event.id'));
-            $this->assertSame('primary', $event->checkout_context['assignment']['type']);
-            $this->assertSame((int) $assignment->getKey(), $event->checkout_context['assignment']['id']);
+            $checkout((int) $fixture['outlet']->getKey(), (string) Str::uuid())->assertUnprocessable()
+                ->assertJsonPath('code', 'location_geofence_unconfigured');
+            $this->assertSame('active', AttendanceSession::query()->findOrFail($sessionId)->status);
+            $this->assertDatabaseCount('attendance_events', 1);
         });
     }
 
@@ -422,122 +345,80 @@ class AttendanceEngineTest extends TestCase
         $this->assertSame([], Storage::disk('local')->allFiles('attendance-evidence'));
     }
 
-    public function test_kiosk_cross_outlet_checkout_uses_the_paired_destination_local_policy_and_gps(): void
+    public function test_kiosk_cross_outlet_checkout_is_rejected_without_events_evidence_or_session_closure(): void
     {
         Storage::fake('local');
-        Carbon::setTestNow(CarbonImmutable::parse('2026-11-04T15:55:00Z'));
+        $fixture = $this->attendanceFixture();
+        [, $destination] = $this->unitWithOutlet($fixture['owner'], 'Destination unit', 'Destination');
+        $this->loginAs($fixture['employeeUser']);
+        $sessionId = $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/attendance/me/check-in', [
+                'outlet_id' => $fixture['outlet']->getKey(), 'location' => $this->validLocation(),
+            ])->assertCreated()->json('session.id');
+
+        $pairing = app(KioskPairingService::class)->issuePairingCode($fixture['owner'], $destination, 'Destination kiosk');
+        $paired = $this->browserRequest()->postJson('/api/v1/kiosk/pair', ['code' => $pairing['code']])->assertOk();
+        $device = KioskDevice::query()->forTenant((int) $fixture['tenant']->getKey())
+            ->where('outlet_id', $destination->getKey())->firstOrFail();
+        $result = app(AttendanceService::class)->checkOut(
+            AttendanceActor::kiosk($device),
+            $fixture['employee'],
+            (string) Str::uuid(),
+            $this->validLocation(),
+            $this->photo(40, 88, 177),
+            expectedSessionId: $sessionId,
+        );
+
+        $this->assertSame(409, $result['status']);
+        $this->assertSame('session_at_origin_outlet', $result['body']['code']);
+        $this->assertDatabaseCount('attendance_events', 1);
+        $this->assertDatabaseCount('attendance_evidence', 0);
+        $this->assertDatabaseCount('attendance_active_session_owners', 1);
+        $this->assertSame('active', AttendanceSession::query()->findOrFail($sessionId)->status);
+        $this->assertSame([], Storage::disk('local')->allFiles('attendance-evidence'));
+    }
+
+    public function test_outlet_transfer_is_rejected_while_attendance_session_is_active(): void
+    {
+        $fixture = $this->attendanceFixture();
+        [, $destination] = $this->unitWithOutlet($fixture['owner'], 'Destination unit', 'Destination');
+        $this->loginAs($fixture['employeeUser']);
+        $sessionId = $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/attendance/me/check-in', [
+                'outlet_id' => $fixture['outlet']->getKey(), 'location' => $this->validLocation(),
+            ])->assertCreated()->json('session.id');
+
         try {
-            $fixture = $this->attendanceFixture();
-            $employee = $fixture['employee'];
-            [, $destination] = $this->unitWithOutlet($fixture['owner'], 'Destination unit', 'Makassar');
-            $destinationId = (int) $destination->getKey();
-            $assignment = app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet(
-                $fixture['owner'], $employee, $destination, now()->subHour(), now()->addHour(),
+            app(EmployeeOutletAssignmentService::class)->assignPrimaryOutlet(
+                $fixture['owner'], $fixture['employee'], $destination, now(),
             );
-            app(OutletCalendarService::class)->createVersion(
-                $fixture['owner'], $destination, '2026-11-05', 'Asia/Makassar', [1, 2, 3, 4, 5, 6, 7], 'Destination timezone',
-            );
-            $policies = app(AttendancePolicyService::class);
-            $policies->createOutletVersion($fixture['owner'], $destination, '2026-11-04',
-                ['attendance_mode' => 'personal'], 'Personal only until local midnight');
-            $policy = $policies->createOutletVersion($fixture['owner'], $destination, '2026-11-05', [
-                'attendance_mode' => 'kiosk',
-                'personal_location_validation' => [
-                    'required' => false, 'radius_meters' => 80, 'latitude' => -5.15, 'longitude' => 119.43,
-                ],
-            ], 'Destination policy');
-            $sessionId = app(AttendanceService::class)->checkIn(
-                AttendanceActor::personal($fixture['membership']), $employee, $fixture['outlet'],
-                (string) Str::uuid(), $this->validLocation(), null,
-            )['body']['session']['id'];
-            $origin = AttendanceSession::query()->findOrFail($sessionId);
-            [$device, $token] = $this->kioskFor([...$fixture, 'outlet' => $destination], $employee);
-            $identity = ['employee_id' => $employee->getKey(), 'pin' => '123456'];
-            $post = fn (array $payload, ?string $key = null) => $this->kioskRequest($token)
-                ->withHeader('Idempotency-Key', $key ?? (string) Str::uuid())
-                ->post('/api/v1/kiosk/attendance/check-out', [
-                    ...$identity, 'checkout_session_id' => $sessionId, 'photo' => $this->photo(40, 88, 177), ...$payload,
-                ]);
-            $gps = [...$this->validLocation(), 'latitude' => -5.15, 'longitude' => 119.43];
-            $post(['location' => $gps])->assertForbidden()->assertJsonPath('code', 'attendance_mode_not_allowed');
-
-            Carbon::setTestNow(CarbonImmutable::parse('2026-11-04T16:05:00Z'));
-            $this->kioskRequest($token)->postJson('/api/v1/kiosk/attendance/next-operation', $identity)
-                ->assertOk()->assertJsonPath('next_operation', 'check_out')
-                ->assertJsonPath('checkout_session_id', $sessionId)
-                ->assertJsonPath('checkout_outlet_id', $destinationId)
-                ->assertJsonPath('checkout_location.required', true);
-            [, , $foreignOwner] = $this->tenantWithOwner('Foreign tenant');
-            $foreign = app(OrganizationService::class)->registerEmployee($foreignOwner, 'Foreign employee');
-            $post(['employee_id' => $foreign->getKey(), 'location' => $gps])->assertUnauthorized();
-            $post(['tenant_id' => $foreignOwner->tenant_id, 'location' => $gps])
-                ->assertUnprocessable()->assertJsonValidationErrors('tenant_id');
-            $post(['checkout_outlet_id' => $fixture['outlet']->getKey(), 'location' => $gps])
-                ->assertUnprocessable()->assertJsonValidationErrors('checkout_outlet_id');
-            $stalePairingKey = (string) Str::uuid();
-            $post(['expected_kiosk_device_id' => $device->getKey() + 1, 'location' => $gps], $stalePairingKey)
-                ->assertConflict()->assertJsonPath('code', 'kiosk_pairing_changed');
-            $this->assertDatabaseMissing('attendance_idempotency_records', ['idempotency_key' => $stalePairingKey]);
-            $post(['checkout_session_id' => $sessionId + 1, 'location' => $gps])
-                ->assertConflict()->assertJsonPath('code', 'no_active_attendance');
-            $post([])->assertUnprocessable()->assertJsonPath('code', 'location_unavailable');
-            $post(['location' => ['status' => 'permission_denied']])->assertUnprocessable()->assertJsonPath('code', 'location_permission_denied');
-            $post(['location' => $this->validLocation()])->assertUnprocessable()->assertJsonPath('code', 'location_outside_range');
-            $post(['location' => [...$gps, 'accuracy_meters' => 81]])->assertUnprocessable()->assertJsonPath('code', 'location_low_accuracy');
-            $this->assertDatabaseCount('attendance_active_session_owners', 1);
-            $this->assertDatabaseCount('attendance_evidence', 0);
-
-            $key = (string) Str::uuid();
-            $accepted = $post(['expected_kiosk_device_id' => $device->getKey(), 'location' => $gps], $key)->assertOk()
-                ->assertJsonPath('operation.contract_version', 4)
-                ->assertJsonPath('operation.checkout_outlet_id', $destinationId)
-                ->assertJsonPath('session.outlet.id', (int) $origin->outlet_id);
-            $event = AttendanceEvent::query()->findOrFail($accepted->json('event.id'));
-            $this->assertSame((int) $origin->outlet_id, (int) $event->outlet_id);
-            $this->assertSame($destinationId, $event->authenticated_kiosk_outlet_id);
-            $this->assertSame($destinationId, $event->checkout_outlet_id);
-            $this->assertSame((int) $device->getKey(), $event->checkout_context['actor']['kiosk_device_id']);
-            $this->assertSame((int) $assignment->getKey(), $event->checkout_context['assignment']['id']);
-            $this->assertSame('temporary', $event->checkout_context['assignment']['type']);
-            $this->assertSame((int) $policy->getKey(), $event->checkout_context['policy']['outlet_version_id']);
-            $this->assertSame('Asia/Makassar', $event->checkout_context['policy']['timezone']);
-            $this->assertSame('2026-11-05', $event->checkout_context['policy']['local_date']);
-            $this->assertSame('verified', $event->location_verdict);
-            $closed = $origin->fresh();
-            $this->assertSame($origin->work_date->toDateString(), $closed->work_date->toDateString());
-            $this->assertSame($origin->schedule_snapshot, $closed->schedule_snapshot);
-            $this->assertSame($origin->assignment_snapshot, $closed->assignment_snapshot);
-            $this->assertDatabaseCount('attendance_active_session_owners', 0);
-            $this->assertDatabaseCount('attendance_evidence', 1);
-
-            $assignment->forceFill(['effective_until' => now()])->save();
-            $post(['location' => $gps], $key)->assertOk()->assertExactJson($accepted->json());
-            $post(['location' => [...$gps, 'accuracy_meters' => 11]], $key)->assertConflict()
-                ->assertJsonPath('code', 'idempotency_key_conflict');
-            $post(['location' => $gps, 'checkout_session_id' => $sessionId + 1], $key)->assertConflict()
-                ->assertJsonPath('code', 'idempotency_key_conflict');
-            $statusUrl = '/api/v1/kiosk/attendance/operations/check_out/'.$key.'?employee_id='.$employee->getKey();
-            $this->kioskRequest($token)->getJson($statusUrl.'&expected_kiosk_device_id='.($device->getKey() + 1))
-                ->assertConflict()->assertJsonPath('code', 'kiosk_pairing_changed');
-            $this->kioskRequest($token)->getJson($statusUrl)->assertOk()
-                ->assertJsonPath('checkout_session_id', $sessionId)->assertJsonPath('result.event.id', $event->getKey());
-
-            [$supervisor, $membership] = $this->membershipFor($fixture['owner'], TenantRole::Supervisor);
-            app(TenantMembershipService::class)->assignSupervisorOutletScope($fixture['owner'], $membership, $destination);
-            $this->loginAs($supervisor);
-            $this->getJson('/api/v1/management/attendance/events/'.$event->getKey().'/evidence')->assertForbidden();
-
-            $staleActor = AttendanceActor::kiosk($device);
-            app(KioskPairingService::class)->revokeDevice($fixture['owner'], (int) $device->getKey());
-            $this->kioskRequest($token)->getJson($statusUrl)->assertForbidden()->assertJsonPath('code', 'kiosk_revoked');
-            $post(['location' => $gps], $key)->assertForbidden()->assertJsonPath('code', 'kiosk_revoked');
-            $rejected = app(AttendanceService::class)->checkOut($staleActor, $employee, (string) Str::uuid(), $gps, $this->photo(42, 88, 177));
-            $this->assertSame('kiosk_unavailable', $rejected['body']['code']);
-            $this->expectException(\Illuminate\Auth\Access\AuthorizationException::class);
-            app(AttendanceService::class)->checkOut($staleActor, $employee, $key, $gps, $this->photo(40, 88, 177), expectedSessionId: $sessionId);
-        } finally {
-            Carbon::setTestNow();
+            $this->fail('An active attendance session must prevent an outlet transfer.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('outlet', $exception->errors());
         }
+
+        $this->assertSame((int) $fixture['outlet']->getKey(), (int) $fixture['employee']->assignments()
+            ->where('assignment_type', 'primary')->where('effective_until', '>', now())->value('outlet_id'));
+        $this->assertSame('active', AttendanceSession::query()->findOrFail($sessionId)->status);
+        $this->assertDatabaseCount('attendance_events', 1);
+    }
+
+    public function test_current_attendance_fails_closed_for_ambiguous_effective_outlets(): void
+    {
+        $fixture = $this->attendanceFixture();
+        [, $otherOutlet] = $this->unitWithOutlet($fixture['owner'], 'Other unit', 'Other outlet');
+        DB::table('employee_outlet_assignments')->insert([
+            'tenant_id' => $fixture['tenant']->getKey(),
+            'employee_id' => $fixture['employee']->getKey(),
+            'outlet_id' => $otherOutlet->getKey(),
+            'assignment_type' => 'temporary',
+            'effective_from' => now()->subMinute(),
+            'effective_until' => now()->addMinute(),
+            'created_by_membership_id' => $fixture['owner']->getKey(),
+        ]);
+
+        $this->expectException(ValidationException::class);
+        app(AttendanceService::class)->current($fixture['membership'], $fixture['employee']);
     }
 
     public function test_existing_kiosk_checkout_contract_replays_without_claiming_gps(): void
@@ -601,27 +482,21 @@ class AttendanceEngineTest extends TestCase
         );
         $this->assertSame(201, $checkIn['status']);
         $sessionId = $checkIn['body']['session']['id'];
-        app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet(
-            $fixture['owner'], $employee, $destination, now()->subHour(), now()->addHour(),
-        );
-        [$device, $token] = $this->kioskFor([...$fixture, 'outlet' => $destination], $employee);
+        $pairing = app(KioskPairingService::class)->issuePairingCode($fixture['owner'], $destination, 'Destination kiosk');
+        $this->browserRequest()->postJson('/api/v1/kiosk/pair', ['code' => $pairing['code']])->assertOk();
+        $device = KioskDevice::query()->forTenant((int) $fixture['tenant']->getKey())
+            ->where('outlet_id', $destination->getKey())->firstOrFail();
 
-        $this->kioskRequest($token)->withHeader('Idempotency-Key', (string) Str::uuid())
-            ->post('/api/v1/kiosk/attendance/check-out', [
-                'employee_id' => $employee->getKey(), 'pin' => '123456', 'photo' => $this->photo(20, 60, 100),
-                'checkout_outlet_id' => $fixture['outlet']->getKey(),
-            ])->assertUnprocessable()->assertJsonValidationErrors('checkout_outlet_id');
         $kioskActor = AttendanceActor::kiosk($device);
         $key = (string) Str::uuid();
-        $rejected = $this->kioskRequest($token)->withHeader('Idempotency-Key', $key)
-            ->post('/api/v1/kiosk/attendance/check-out', [
-                'employee_id' => $employee->getKey(), 'pin' => '123456', 'photo' => $this->photo(20, 60, 100),
-            ])->assertUnprocessable()->assertJsonPath('code', 'location_unavailable')
-            ->assertJsonPath('operation.checkout_outlet_id', (int) $destination->getKey());
-        $recovery = $this->kioskRequest($token)
-            ->getJson('/api/v1/kiosk/attendance/operations/check_out/'.$key.'?employee_id='.$employee->getKey())
-            ->assertOk()->assertJsonPath('checkout_outlet_id', (int) $destination->getKey());
-        $this->assertEquals($rejected->json(), $recovery->json('result'));
+        $rejected = app(AttendanceService::class)->checkOut(
+            $kioskActor, $employee, $key, $this->validLocation(), $this->photo(20, 60, 100),
+            expectedSessionId: $sessionId,
+        );
+        $this->assertSame(409, $rejected['status']);
+        $this->assertSame('session_at_origin_outlet', $rejected['body']['code']);
+        $this->assertSame('rejected', app(AttendanceService::class)
+            ->operationStatus($kioskActor, (int) $employee->getKey(), 'check_out', $key)['state']);
         $this->assertDatabaseCount('attendance_events', 1);
         $this->assertDatabaseCount('attendance_evidence', 0);
 
@@ -1598,12 +1473,12 @@ class AttendanceEngineTest extends TestCase
             ->assertCreated();
         $sessionId = $checkIn->json('session.id');
         $oldAssignmentId = AttendanceSession::query()->findOrFail($sessionId)->assignment_snapshot['id'];
+        $checkOut = $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/attendance/me/check-out', ['location' => $this->validLocation()])->assertOk();
         app(EmployeeOutletAssignmentService::class)->assignPrimaryOutlet(
             $fixture['owner'], $fixture['employee'], $newOutlet, CarbonImmutable::now()->addSecond(),
         );
 
-        $checkOut = $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
-            ->postJson('/api/v1/attendance/me/check-out', ['location' => $this->validLocation()])->assertOk();
         $this->assertSame($sessionId, $checkOut->json('session.id'));
         $session = AttendanceSession::query()->findOrFail($sessionId);
         $this->assertSame((int) $fixture['outlet']->getKey(), (int) $session->outlet_id);
@@ -1644,7 +1519,7 @@ class AttendanceEngineTest extends TestCase
         ]);
         $atBoundary = $recordedAt->addDays(90);
 
-        $lifecycle = app(\App\Services\AttendanceEvidenceExpirationService::class);
+        $lifecycle = app(AttendanceEvidenceExpirationService::class);
         $before = $lifecycle->run(true, 100, $atBoundary->subSecond());
         $at = $lifecycle->run(true, 100, $atBoundary);
 
@@ -1653,18 +1528,18 @@ class AttendanceEngineTest extends TestCase
         $this->assertSame('available', $evidence->fresh()->lifecycle_state);
         Storage::disk('local')->assertExists($evidence->storage_path);
 
-        \Illuminate\Support\Facades\Artisan::call('attendance:evidence-expire', [
+        Artisan::call('attendance:evidence-expire', [
             '--dry-run' => true,
             '--limit' => 100,
         ]);
-        $this->assertStringContainsString('dry-run', \Illuminate\Support\Facades\Artisan::output());
+        $this->assertStringContainsString('dry-run', Artisan::output());
 
         config(['attendance_evidence.deletion_enabled' => false]);
-        $disabled = app(\App\Services\AttendanceEvidenceExpirationService::class)
+        $disabled = app(AttendanceEvidenceExpirationService::class)
             ->run(false, 100, $atBoundary);
         $this->assertTrue($disabled['disabled']);
         $this->assertSame(0, $disabled['deleted']);
-        \Illuminate\Support\Facades\Artisan::call('attendance:evidence-expire', ['--limit' => 100]);
+        Artisan::call('attendance:evidence-expire', ['--limit' => 100]);
         $this->assertSame('available', $evidence->fresh()->lifecycle_state);
         Storage::disk('local')->assertExists($evidence->storage_path);
         $this->assertSame(1, AttendanceEvent::query()->whereKey($event->getKey())->count());
@@ -1694,7 +1569,7 @@ class AttendanceEngineTest extends TestCase
             'occurred_at' => now('UTC'),
         ]);
 
-        $result = app(\App\Services\AttendanceEvidenceExpirationService::class)
+        $result = app(AttendanceEvidenceExpirationService::class)
             ->run(false, 100, CarbonImmutable::now('UTC'));
 
         $this->assertSame(1, $result['held']);
@@ -1706,7 +1581,7 @@ class AttendanceEngineTest extends TestCase
             'outcome' => 'denied',
         ]);
         $this->expectException(\LogicException::class);
-        \App\Models\AttendanceEvidenceLegalHoldEvent::query()->firstOrFail()->delete();
+        AttendanceEvidenceLegalHoldEvent::query()->firstOrFail()->delete();
     }
 
     public function test_unavailable_legal_hold_status_fails_closed_without_deleting_or_hiding_evidence(): void
@@ -1717,11 +1592,11 @@ class AttendanceEngineTest extends TestCase
         DB::table('attendance_events')->where('id', $event->getKey())->update([
             'recorded_at' => $recordedAt->format('Y-m-d H:i:s'),
         ]);
-        $holdReader = \Mockery::mock(\App\Services\AttendanceEvidenceLegalHoldReader::class);
+        $holdReader = \Mockery::mock(AttendanceEvidenceLegalHoldReader::class);
         $holdReader->shouldReceive('hasActiveHold')->once()->andThrow(new RuntimeException('hold status unavailable'));
-        $this->app->instance(\App\Services\AttendanceEvidenceLegalHoldReader::class, $holdReader);
+        $this->app->instance(AttendanceEvidenceLegalHoldReader::class, $holdReader);
 
-        $result = app(\App\Services\AttendanceEvidenceExpirationService::class)
+        $result = app(AttendanceEvidenceExpirationService::class)
             ->run(false, 100, CarbonImmutable::now('UTC'));
 
         $this->assertSame(1, $result['failed']);
@@ -1733,7 +1608,7 @@ class AttendanceEngineTest extends TestCase
             'action' => 'expiration_attempt',
             'outcome' => 'failure',
         ]);
-        $this->app->forgetInstance(\App\Services\AttendanceEvidenceLegalHoldReader::class);
+        $this->app->forgetInstance(AttendanceEvidenceLegalHoldReader::class);
     }
 
     public function test_old_unreferenced_orphan_is_deleted_with_a_hashed_path_audit_record(): void
@@ -1746,7 +1621,7 @@ class AttendanceEngineTest extends TestCase
         $disk->put($path, 'synthetic orphan bytes');
         touch($disk->path($path), time() - 25 * 60 * 60);
 
-        $result = app(\App\Services\AttendanceEvidenceExpirationService::class)
+        $result = app(AttendanceEvidenceExpirationService::class)
             ->run(false, 100, CarbonImmutable::now('UTC'));
 
         $pathHash = hash('sha256', $fixture['tenant']->getKey().':'.$path);
@@ -1779,7 +1654,7 @@ class AttendanceEngineTest extends TestCase
         Storage::set('local', $disk);
 
         $now = CarbonImmutable::now('UTC');
-        $failed = app(\App\Services\AttendanceEvidenceExpirationService::class)->run(false, 100, $now);
+        $failed = app(AttendanceEvidenceExpirationService::class)->run(false, 100, $now);
         $this->assertSame(1, $failed['failed']);
         $pending = $evidence->fresh();
         $this->assertSame('deletion_pending', $pending->lifecycle_state);
@@ -1790,7 +1665,7 @@ class AttendanceEngineTest extends TestCase
         DB::table('attendance_evidence')->where('id', $evidence->getKey())->update([
             'deletion_retry_at' => $now->subSecond()->format('Y-m-d H:i:s'),
         ]);
-        $recovered = app(\App\Services\AttendanceEvidenceExpirationService::class)
+        $recovered = app(AttendanceEvidenceExpirationService::class)
             ->run(false, 100, $now->addSeconds(10));
 
         $this->assertSame(1, $recovered['deleted']);
@@ -1819,7 +1694,7 @@ class AttendanceEngineTest extends TestCase
         ]);
         Storage::disk('local')->delete((string) $evidence->storage_path);
 
-        $result = app(\App\Services\AttendanceEvidenceExpirationService::class)
+        $result = app(AttendanceEvidenceExpirationService::class)
             ->run(false, 100, CarbonImmutable::now('UTC'));
 
         $tombstone = $evidence->fresh();
@@ -1857,7 +1732,7 @@ class AttendanceEngineTest extends TestCase
             'updated_at' => now('UTC'),
         ]);
 
-        $result = app(\App\Services\AttendanceEvidenceExpirationService::class)
+        $result = app(AttendanceEvidenceExpirationService::class)
             ->run(true, 100, CarbonImmutable::now('UTC'));
 
         $this->assertSame(0, $result['orphan_candidates']);
@@ -1899,7 +1774,7 @@ class AttendanceEngineTest extends TestCase
         app(AttendancePolicyService::class)->createOutletVersion(
             $owner,
             $outlet,
-            CarbonImmutable::today('UTC')->toDateString(),
+            CarbonImmutable::today('Asia/Jakarta')->toDateString(),
             [
                 'attendance_mode' => $mode,
                 'personal_location_validation' => [

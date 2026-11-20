@@ -22,6 +22,8 @@ final class DisposableTestDatabaseGuard
             ? false
             : $runDirectory.'/.hadirinaja-p2d-runner-owned';
         $socket = realpath($expectedSocket);
+        $expectedUser = (string) getenv('DB_USERNAME');
+        $expectedPassword = (string) getenv('DB_PASSWORD');
         $runnerOwnsTarget = $temporaryDirectory !== false
             && $runDirectory !== false
             && dirname($runDirectory) === $temporaryDirectory
@@ -46,9 +48,16 @@ final class DisposableTestDatabaseGuard
             || (is_string($urlEnvironment) && trim($urlEnvironment) !== '')
             || $clientSocket !== ''
             || (is_string($socketEnvironment) && trim($socketEnvironment) !== '')
-            || ! preg_match('/^hadirinaja_p2d_[0-9]{8}_[a-f0-9]{12}$/', $expectedName)
-            || in_array($expectedName, ['hadirinaja_test', 'hadirinaja_dev'], true)
+            || (
+                $expectedName !== 'hadirinaja_test'
+                && ! preg_match('/^hadirinaja_p2d_[0-9]{8}_[a-f0-9]{12}$/', $expectedName)
+            )
+            || $expectedName === 'hadirinaja_dev'
             || ($config['database'] ?? null) !== $expectedName
+            || ! preg_match('/^p2d_runner_[a-f0-9]{12}$/', $expectedUser)
+            || ($config['username'] ?? null) !== $expectedUser
+            || $expectedPassword === ''
+            || ($config['password'] ?? null) !== $expectedPassword
             || $expectedPort === '3306'
             || ! ctype_digit($expectedPort)
             || (int) $expectedPort < 1024
@@ -71,7 +80,7 @@ final class DisposableTestDatabaseGuard
         $expectedDataDirectory = realpath((string) getenv('HADIRINAJA_TEST_DISPOSABLE_DATADIR'));
         $expectedSocket = realpath((string) getenv('HADIRINAJA_TEST_DISPOSABLE_SOCKET'));
         $identity = $connection->selectOne(
-            'SELECT DATABASE() AS database_name, @@port AS port, @@datadir AS data_directory, @@socket AS socket',
+            'SELECT DATABASE() AS database_name, @@port AS port, @@datadir AS data_directory, @@socket AS socket, CURRENT_USER() AS account_name',
         );
         if (! is_object($identity)) {
             throw new RuntimeException('Backend tests could not verify the connected MySQL instance.');
@@ -83,6 +92,7 @@ final class DisposableTestDatabaseGuard
         if (
             $identity->database_name !== $expectedName
             || (string) $identity->port !== $expectedPort
+            || $identity->account_name !== getenv('DB_USERNAME').'@127.0.0.1'
             || $actualDataDirectory === false
             || $actualDataDirectory !== $expectedDataDirectory
             || $actualSocket === false

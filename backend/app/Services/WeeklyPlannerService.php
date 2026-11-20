@@ -25,6 +25,7 @@ final class WeeklyPlannerService
         private readonly SchedulingChangeRecorder $audit,
         private readonly PlannerStaffingService $staffing,
         private readonly PlannerNotificationService $notifications,
+        private readonly AttendancePolicyService $policies,
     ) {}
 
     public function read(TenantMembership $actor, int $outletId, string $start): array
@@ -43,6 +44,7 @@ final class WeeklyPlannerService
         return $result + [
             'outlet' => ['id' => $outlet->id, 'name' => $outlet->name, 'weekly_planner_start_on' => $outlet->weekly_planner_start_on],
             'week_start' => $start, 'employees' => $employees->toArray(),
+            'planner_settings' => $this->plannerSettings($actor->tenant_id, $start),
             'published_weeks' => $this->publishedWeeks($actor->tenant_id, $outletId, $start),
         ];
     }
@@ -73,7 +75,9 @@ final class WeeklyPlannerService
             }
             $sourceRevision = $week->draft_revision_id ?? $week->published_revision_id;
             $inherited = $sourceRevision ? DB::table('schedule_revisions')->where('id', $sourceRevision)->value('staffing') : null;
-            $configuration = array_key_exists('staffing', $data) ? $this->staffing->normalize($actor->tenant_id, $data['staffing']) : ($inherited ? json_decode($inherited, true, flags: JSON_THROW_ON_ERROR) : null);
+            $configuration = array_key_exists('staffing', $data)
+                ? $this->staffing->normalize($actor->tenant_id, $data['staffing'], $this->plannerSettings($actor->tenant_id, $start))
+                : ($inherited ? json_decode($inherited, true, flags: JSON_THROW_ON_ERROR) : null);
             $revisionId = $week->draft_revision_id;
             if (! $revisionId) {
                 $revisionId = DB::table('schedule_revisions')->insertGetId([
@@ -247,7 +251,15 @@ final class WeeklyPlannerService
         $entries = $revisionId ? DB::table('schedule_entries')->where('revision_id', $revisionId)->orderBy('employee_id')->orderBy('work_date')
             ->get(['employee_id', 'work_date', 'status', 'shift_template_version_id'])->map(fn ($entry) => (array) $entry)->all() : [];
 
-        return $this->staffing->report($configuration ? json_decode($configuration, true, flags: JSON_THROW_ON_ERROR) : null, $entries, $week->week_start, $week->lock_version, $revisionId);
+        return $this->staffing->report($configuration ? json_decode($configuration, true, flags: JSON_THROW_ON_ERROR) : null, $entries, $week->week_start, $week->lock_version, $revisionId,
+            $week->tenant_id, $this->plannerSettings($week->tenant_id, $week->week_start));
+    }
+
+    private function plannerSettings(int $tenantId, string $weekStart): array
+    {
+        $weekEnd = CarbonImmutable::parse($weekStart)->addDays(6)->toDateString();
+
+        return $this->staffing->settings($this->policies->effective($tenantId, null, $weekEnd)['configuration'] ?? []);
     }
 
     private function mutate(TenantMembership $actor, int $outletId, string $start, array $data, string $key, string $operation, callable $write): array
@@ -372,6 +384,7 @@ final class WeeklyPlannerService
         $entries = DB::table('schedule_entries')->where('revision_id', $revision->id)->get();
         $prior = DB::table('schedule_entries')->where('revision_id', $week->published_revision_id)->get()->keyBy(fn ($row) => $row->employee_id.'|'.$row->work_date);
         $now = CarbonImmutable::now('UTC');
+        $settings = $this->plannerSettings($actor->tenant_id, $week->week_start);
         $rows = [];
         foreach ($entries as $entry) {
             $timezone = $this->timezone($actor->tenant_id, $outlet->id, $entry->work_date);
@@ -400,8 +413,14 @@ final class WeeklyPlannerService
                 if (! $shift || $shift->effective_from->toDateString() > $entry->work_date) {
                     throw ValidationException::withMessages(['entries' => 'Versi shift belum berlaku.']);
                 }
-                if (CarbonImmutable::parse($entry->work_date)->isoWeekday() >= 6 && $shift->start_time === '11:00:00' && $shift->end_time === '19:00:00') {
-                    throw ValidationException::withMessages(['entries' => 'Shift tengah tidak diperbolehkan pada akhir pekan.']);
+                $times = [$shift->start_time, $shift->end_time];
+                if ($this->staffing->isWeekend($entry->work_date, $settings)
+                    && ($settings['custom']
+                        ? ($shift->crosses_midnight || ! in_array($times, [$settings['weekday_shifts']['morning'], $settings['weekend_evening']], true))
+                        : $times === $settings['weekday_shifts']['middle'])) {
+                    throw ValidationException::withMessages(['entries' => $settings['custom']
+                        ? 'Gunakan shift pagi atau sore akhir pekan pada Jumat sampai Minggu.'
+                        : 'Shift tengah tidak diperbolehkan pada akhir pekan.']);
                 }
                 $endDate = $shift->crosses_midnight ? CarbonImmutable::parse($entry->work_date)->addDay()->toDateString() : $entry->work_date;
                 $start = $this->localTime->instant($entry->work_date, $shift->start_time, $timezone);

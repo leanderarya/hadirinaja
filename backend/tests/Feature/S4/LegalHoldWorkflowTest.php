@@ -483,7 +483,7 @@ class LegalHoldWorkflowTest extends TestCase
         app(AttendancePolicyService::class)->createOutletVersion(
             $owner,
             $outlet,
-            CarbonImmutable::today('UTC')->toDateString(),
+            CarbonImmutable::today('Asia/Jakarta')->toDateString(),
             ['attendance_mode' => 'hybrid', 'personal_location_validation' => [
                 'required' => false, 'radius_meters' => 100, 'latitude' => -6.2, 'longitude' => 106.816666,
             ]],

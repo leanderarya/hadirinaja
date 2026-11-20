@@ -83,6 +83,47 @@ class WeeklyPlannerTest extends TestCase
         $this->assertNull($outlet->fresh()->weekly_planner_start_on);
     }
 
+    public function test_custom_weekend_validates_friday_through_sunday_without_affecting_another_tenant(): void
+    {
+        [, $owner, $outlet, $employee, $morning] = $this->setupRoster();
+        [, , $otherOwner] = $this->tenantWithOwner('Unconfigured planner');
+        [, $otherOutlet] = $this->unitWithOutlet($otherOwner);
+        $planner = app(WeeklyPlannerService::class);
+        $policies = app(AttendancePolicyService::class);
+        $date = '2026-11-02';
+        $base = $policies->effective($owner->tenant_id, null, $date)['configuration'];
+        $policies->reviseTenantVersion($owner, $date, [
+            ...$base, 'planner_weekend_starts_on' => 5, 'planner_shift_profile' => 'cepat_kopi',
+        ], 'Enable tenant weekend profile');
+        $templates = app(ShiftTemplateService::class);
+        $middle = $templates->create($owner, 'Custom middle', '11:00', '18:00', false, $date, 'Fixture shift')->versions->first();
+        $weekend = $templates->create($owner, 'Weekend evening', '16:00', '23:00', false, $date, 'Fixture shift')->versions->first();
+        $week = '2026-11-09';
+        $staffing = [...$this->staffingConfiguration($owner), 'middle' => $middle->id];
+        $entry = fn ($date, $shift) => ['employee_id' => $employee->id, 'work_date' => $date, 'status' => 'work', 'shift_template_version_id' => $shift->id];
+        $baseDraft = ['staffing' => $staffing, 'reason' => 'Fixture custom draft'];
+        self::assertSame(6, $planner->read($otherOwner, $otherOutlet->id, $week)['planner_settings']['weekend_starts_on']);
+        self::assertSame(5, $planner->read($owner, $outlet->id, $week)['planner_settings']['weekend_starts_on']);
+        $planner->save($owner, $outlet->id, $week, $baseDraft + ['expected_version' => 0, 'entries' => [$entry('2026-11-13', $middle)]], 'bad-friday');
+        try {
+            $planner->validate($owner, $outlet->id, $week, 1);
+            self::fail('Friday must reject the middle shift.');
+        } catch (ValidationException $error) {
+            self::assertArrayHasKey('entries', $error->errors());
+        }
+        $planner->save($owner, $outlet->id, $week, $baseDraft + ['expected_version' => 1, 'entries' => [
+            $entry('2026-11-12', $middle), $entry('2026-11-13', $weekend),
+            $entry('2026-11-14', $morning), $entry('2026-11-15', $weekend),
+        ]], 'good-weekend');
+        $report = $planner->validate($owner, $outlet->id, $week, 2)['staffing_report'];
+        self::assertSame([], $report['conflicts']);
+        self::assertSame(1, $report['days'][3]['counts']['middle']);
+        self::assertSame(1, $report['days'][4]['counts']['evening']);
+        self::assertSame(1, $report['days'][5]['counts']['morning']);
+        self::assertSame(1, $report['days'][6]['counts']['evening']);
+        self::assertNull($planner->read($owner, $outlet->id, $week)['published']);
+    }
+
     public function test_explicit_cutover_is_atomic_preserves_history_and_disables_legacy_fallback(): void
     {
         [, $owner, $outlet, $employee, , $entries] = $this->setupRoster();
@@ -242,7 +283,7 @@ class WeeklyPlannerTest extends TestCase
     {
         [, $owner, $outlet, $employee] = $this->setupRoster();
         [, $other] = $this->unitWithOutlet($owner, 'Other unit', 'Other outlet');
-        app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet($owner, $employee, $other, now(), now()->addMonth());
+        $this->insertLegacyTemporaryOutletAssignment($owner, $employee, $other, now(), now()->addMonth());
         $night = app(ShiftTemplateService::class)->create($owner, 'Night', '20:00', '04:00', true, '2026-11-02', 'Night shift')->versions->first();
         $morning = app(ShiftTemplateService::class)->create($owner, 'Early', '03:30', '09:00', false, '2026-11-02', 'Early shift')->versions->first();
         $this->saveDraft($owner, $outlet, [['employee_id' => $employee->id, 'work_date' => '2026-11-09', 'status' => 'work', 'shift_template_version_id' => $night->id]]);
@@ -255,7 +296,7 @@ class WeeklyPlannerTest extends TestCase
     {
         [, $owner, $outlet, $employee, $shift] = $this->setupRoster();
         [, $other] = $this->unitWithOutlet($owner, 'Other unit', 'Other outlet');
-        app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet($owner, $employee, $other, now(), now()->addMonth());
+        $this->insertLegacyTemporaryOutletAssignment($owner, $employee, $other, now(), now()->addMonth());
         app(EmployeeScheduleService::class)->createException($owner, $employee->id, $other->id, '2026-11-10', 'work', $shift->id, 'Other outlet work');
         $this->saveDraft($owner, $outlet, [['employee_id' => $employee->id, 'work_date' => '2026-11-10', 'status' => 'work', 'shift_template_version_id' => $shift->id]]);
         $this->expectException(ValidationException::class);

@@ -24,8 +24,7 @@ if [[ "$#" -eq 0 ]]; then
 fi
 
 run_suffix="$(php -r 'echo bin2hex(random_bytes(6));')"
-run_date="$(date +%Y%m%d)"
-database_name="hadirinaja_p2d_${run_date}_${run_suffix}"
+database_name="hadirinaja_test"
 database_user="p2d_runner_${run_suffix}"
 database_password="$(php -r 'echo bin2hex(random_bytes(24));')"
 run_user="$(id -un)"
@@ -64,8 +63,8 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-if [[ ! "$database_name" =~ ^hadirinaja_p2d_[0-9]{8}_[a-f0-9]{12}$ || "$database_name" == "hadirinaja_test" || "$database_name" == "hadirinaja_dev" ]]; then
-    printf 'Generated test target did not pass the disposable database name guard.\n' >&2
+if [[ "$database_name" != "hadirinaja_test" ]]; then
+    printf 'Disposable test schema did not pass its name guard.\n' >&2
     exit 2
 fi
 
@@ -154,6 +153,7 @@ export HADIRINAJA_TEST_DISPOSABLE_DATADIR="$data_dir"
 export HADIRINAJA_TEST_DISPOSABLE_SOCKET="$socket_path"
 export HADIRINAJA_TEST_SCHEMA_PREPARED=1
 export DB_TIMEZONE=+00:00
+export DB_SOCKET=
 
 php -r '
 $pdo = new PDO(
@@ -175,6 +175,9 @@ if (
 }
 echo "Verified schema-scoped test account against the disposable target.\n";
 '
+
+printf 'Running non-mutating concurrency worker identity probe.\n'
+php "$backend_dir/tests/Support/primary-assignment-worker.php" --identity-probe
 
 php -r '
 $pdo = new PDO(
@@ -233,6 +236,7 @@ values = {
     "HADIRINAJA_TEST_DISPOSABLE_DATADIR": data_dir,
     "HADIRINAJA_TEST_DISPOSABLE_SOCKET": socket_path,
     "HADIRINAJA_TEST_SCHEMA_PREPARED": "1",
+    "DB_SOCKET": "",
 }
 
 for name, value in values.items():
@@ -247,6 +251,31 @@ PY
 
 printf 'Migrating only the new target database %s.\n' "$database_name"
 php artisan migrate:fresh --force --no-interaction
+
+php -r '
+require "vendor/autoload.php";
+$app = require "bootstrap/app.php";
+$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$connection = Illuminate\Support\Facades\DB::connection();
+Tests\Support\DisposableTestDatabaseGuard::assertConnected($connection);
+$migrationFiles = glob("database/migrations/*.php");
+$expectedMigrations = array_map(static fn (string $file): string => pathinfo($file, PATHINFO_FILENAME), $migrationFiles);
+$actualMigrations = $connection->table("migrations")->pluck("migration")->all();
+$expectedTriggers = [];
+foreach ($migrationFiles as $file) {
+    preg_match_all("/CREATE TRIGGER\\s+(\\w+)/", file_get_contents($file), $matches);
+    $expectedTriggers = [...$expectedTriggers, ...$matches[1]];
+}
+$actualTriggers = array_column($connection->select(
+    "SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ?",
+    [$connection->getDatabaseName()],
+), "TRIGGER_NAME");
+if (array_diff($expectedMigrations, $actualMigrations) || array_diff($expectedTriggers, $actualTriggers)) {
+    fwrite(STDERR, "Disposable schema is missing a migration or security trigger.\n");
+    exit(1);
+}
+echo "Verified all ".count($expectedMigrations)." migrations and ".count($expectedTriggers)." security triggers.\n";
+'
 
 printf 'Running backend regressions: %s\n' "$*"
 vendor/bin/phpunit --configuration "$phpunit_config" --cache-directory "$run_root/phpunit-cache" --do-not-cache-result "$@"

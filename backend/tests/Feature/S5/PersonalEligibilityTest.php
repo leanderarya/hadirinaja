@@ -112,7 +112,7 @@ class PersonalEligibilityTest extends TestCase
             $owner, $employee, $outlet, now()->subDay(),
         );
         app(TenantMembershipService::class)->linkEmployee($owner, $owner, $employee);
-        $today = CarbonImmutable::today('UTC')->toDateString();
+        $today = CarbonImmutable::today('Asia/Jakarta')->toDateString();
         app(AttendancePolicyService::class)->createOutletVersion(
             $owner, $outlet, $today, ['attendance_mode' => 'kiosk'], 'Synthetic kiosk-only policy.',
         );

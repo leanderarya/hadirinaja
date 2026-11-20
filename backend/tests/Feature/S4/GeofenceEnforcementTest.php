@@ -12,7 +12,9 @@ use App\Services\OrganizationService;
 use App\Services\TenantMembershipService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\BuildsTenantFixtures;
@@ -42,6 +44,30 @@ class GeofenceEnforcementTest extends TestCase
             'nonnumeric' => [[...$valid, 'latitude' => 'bad'], false],
             'zero accuracy' => [[...$valid, 'accuracy_meters' => 0], false],
         ];
+    }
+
+    public function test_25_meter_boundary_and_tenant_required_photos(): void
+    {
+        config(['attendance_evidence.require_personal_photo' => false]);
+        Storage::fake('local');
+        $f = $this->fixture(25, true);
+        $location = ['status' => 'provided', 'latitude' => rad2deg(25 / 6371000), 'longitude' => 0, 'accuracy_meters' => 25];
+        $call = fn ($operation, $body) => $this->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->post('/api/v1/attendance/me/'.$operation, $body, ['Accept' => 'application/json']);
+        $this->getJson('/api/v1/attendance/me')->assertOk()
+            ->assertJsonPath('require_personal_photo', true)->assertJsonPath('personal_location.radius_meters', 25)
+            ->assertJsonPath('personal_location.geofence_configured', true);
+        $in = ['outlet_id' => $f['outlet']->id, 'location' => $location];
+        $call('check-in', $in)->assertUnprocessable()->assertJsonPath('code', 'photo_required');
+        $call('check-in', [...$in, 'location' => [...$location, 'latitude' => rad2deg(25.01 / 6371000)],
+            'photo' => UploadedFile::fake()->image('outside.jpg', 640, 480)->size(20)])->assertUnprocessable()->assertJsonPath('code', 'location_outside_range');
+        $call('check-in', [...$in, 'location' => [...$location, 'accuracy_meters' => 25.001],
+            'photo' => UploadedFile::fake()->image('inaccurate.jpg', 640, 480)->size(20)])->assertUnprocessable()->assertJsonPath('code', 'location_low_accuracy');
+        $call('check-in', [...$in, 'photo' => UploadedFile::fake()->image('arrival.jpg', 640, 480)->size(20)])->assertCreated();
+        $call('check-out', ['location' => $location])->assertUnprocessable()->assertJsonPath('code', 'photo_required');
+        $this->assertDatabaseHas('attendance_sessions', ['tenant_id' => $f['tenant']->id, 'status' => 'active']);
+        $call('check-out', ['location' => $location, 'photo' => UploadedFile::fake()->image('departure.jpg', 648, 480)->size(20)])->assertOk();
+        $this->assertDatabaseCount('attendance_evidence', 2);
     }
 
     #[DataProvider('locations')]
@@ -100,6 +126,32 @@ class GeofenceEnforcementTest extends TestCase
         $this->assertDatabaseCount('attendance_sessions', 1);
     }
 
+    public function test_attendance_mode_cannot_change_while_an_outlet_session_is_active(): void
+    {
+        $f = $this->fixture();
+        $this->withHeader('Idempotency-Key', (string) Str::uuid())->postJson(
+            '/api/v1/attendance/me/check-in',
+            [
+                'outlet_id' => $f['outlet']->id,
+                'location' => ['status' => 'provided', 'latitude' => 0, 'longitude' => 0, 'accuracy_meters' => 10],
+            ],
+        )->assertCreated();
+
+        try {
+            app(AttendancePolicyService::class)->reviseOutletVersion(
+                $f['owner'],
+                $f['outlet'],
+                CarbonImmutable::today('Asia/Jakarta')->toDateString(),
+                ['attendance_mode' => 'personal'],
+                'Uji guard sesi aktif.',
+            );
+            $this->fail('Policy mode changed while an attendance session was active.');
+        } catch (ValidationException) {
+            $this->assertDatabaseHas('attendance_sessions', ['status' => 'active']);
+            $this->assertSame('hybrid', $f['policy']->fresh()->overrides['attendance_mode']);
+        }
+    }
+
     public function test_personal_location_coordinates_are_exposed_only_for_authorized_outlets(): void
     {
         $f = $this->fixture();
@@ -123,7 +175,7 @@ class GeofenceEnforcementTest extends TestCase
         }
     }
 
-    private function fixture(): array
+    private function fixture(int $radius = 100, bool $requirePhoto = false): array
     {
         [$ownerUser, $tenant, $owner] = $this->tenantWithOwner('Geofence tenant');
         [, $outlet] = $this->unitWithOutlet($owner);
@@ -137,7 +189,13 @@ class GeofenceEnforcementTest extends TestCase
         app(TenantMembershipService::class)->linkEmployee($owner, $membership, $employee);
         [, $secondMembership] = $this->membershipFor($owner, TenantRole::Employee);
         app(TenantMembershipService::class)->linkEmployee($owner, $secondMembership, $second);
-        $policy = app(AttendancePolicyService::class)->createOutletVersion($owner, $outlet, CarbonImmutable::today('UTC')->toDateString(), ['attendance_mode' => 'hybrid', 'personal_location_validation' => ['required' => true, 'latitude' => 0, 'longitude' => 0, 'radius_meters' => 100]], 'Geofence test');
+        $date = CarbonImmutable::today('Asia/Jakarta')->toDateString();
+        if ($requirePhoto) {
+            $policies = app(AttendancePolicyService::class);
+            $configuration = $policies->effective($tenant->id, null, $date)['configuration'];
+            $policies->reviseTenantVersion($owner, $date, [...$configuration, 'require_personal_photo' => true], 'Tenant photo test');
+        }
+        $policy = app(AttendancePolicyService::class)->createOutletVersion($owner, $outlet, $date, ['attendance_mode' => 'hybrid', 'personal_location_validation' => ['required' => true, 'latitude' => 0, 'longitude' => 0, 'radius_meters' => $radius]], 'Geofence test');
         $this->outletId = $outlet->id;
         $this->withCredentials()->withHeaders(['Origin' => 'http://localhost:3000', 'Referer' => 'http://localhost:3000/']);
         $response = $this->postJson('/api/v1/auth/login', ['identifier' => $user->email, 'password' => 'password'])->assertOk();

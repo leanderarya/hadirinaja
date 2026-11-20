@@ -55,7 +55,7 @@ class WeeklyScheduleConcurrencyTest extends TestCase
                         'APP_ENV' => 'testing',
                         'DB_CONNECTION' => 'mysql',
                         'DB_HOST' => '127.0.0.1',
-                        'DB_PORT' => '3306',
+                        'DB_PORT' => (string) getenv('HADIRINAJA_TEST_DISPOSABLE_PORT'),
                         'DB_DATABASE' => 'hadirinaja_test',
                         'DB_URL' => '',
                         'S3_READY_FILE' => $directory."/ready-$worker",

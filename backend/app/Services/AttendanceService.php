@@ -52,6 +52,12 @@ final class AttendanceService
             ->get();
         $outletIds = $assignments->pluck('outlet_id')->map(fn ($id): int => (int) $id)->unique()->values();
 
+        if ($outletIds->count() > 1) {
+            throw ValidationException::withMessages([
+                'outlet' => 'The Employee has ambiguous effective outlet assignments.',
+            ]);
+        }
+
         if ($requestedOutletId !== null && ! $outletIds->contains($requestedOutletId)) {
             throw new AuthorizationException('Outlet attendance access is not available.');
         }
@@ -67,7 +73,11 @@ final class AttendanceService
             throw new \LogicException('The active-session ownership row is inconsistent.');
         }
 
-        if ($checkoutOutletId !== null && (! $active || ! $outletIds->contains($checkoutOutletId))) {
+        if ($checkoutOutletId !== null && (
+            ! $active
+            || $checkoutOutletId !== (int) $active->outlet_id
+            || ! $outletIds->contains($checkoutOutletId)
+        )) {
             throw new AuthorizationException('Outlet attendance access is not available.');
         }
         $destination = $active ? $outlets->find($checkoutOutletId ?? $active->outlet_id) : null;
@@ -151,7 +161,7 @@ final class AttendanceService
             'active_session' => $activeData,
             'checkout_destination' => $destination ? $this->checkoutDestinationPreview($destination, $now) : null,
             'allowed_next_operation' => $allowedOperation,
-            'require_personal_photo' => (bool) config('attendance_evidence.require_personal_photo', false),
+            'require_personal_photo' => $this->personalPhotoRequired($effectiveConfiguration ?? []),
             'personal_location' => $this->locationPreview($locationPolicy),
             'recent_history' => $history,
         ];
@@ -234,6 +244,10 @@ final class AttendanceService
 
             if (! $session || $session->status !== 'active') {
                 throw new \LogicException('The active-session ownership row is inconsistent.');
+            }
+
+            if ((int) $session->outlet_id !== (int) $device->outlet_id) {
+                return ['eligible' => false, 'next_operation' => null, 'reason' => 'session_at_origin_outlet'];
             }
 
             if (! $this->isAssignedAt($tenantId, $employeeId, (int) $device->outlet_id, $now)) {
@@ -457,6 +471,10 @@ final class AttendanceService
             return $this->reject($record, 403, 'attendance_mode_not_allowed', 'Mode kehadiran ini tidak diizinkan oleh kebijakan outlet.');
         }
 
+        if ($actor->origin === 'personal' && $prepared === null && $this->personalPhotoRequired($policy)) {
+            return $this->reject($record, 422, 'photo_required', 'Foto wajib disertakan untuk setiap operasi kehadiran personal.');
+        }
+
         $locationResult = $actor->origin === 'personal'
             ? $this->evaluateLocation($location, $policy)
             : $this->emptyLocationResult();
@@ -547,6 +565,13 @@ final class AttendanceService
             return $this->reject($record, 409, 'no_active_attendance', 'Sesi untuk percobaan checkout ini tidak dapat dipastikan.');
         }
 
+        $checkoutOutletId = $device
+            ? (int) $device->outlet_id
+            : ($record->checkout_outlet_id === null ? (int) $session->outlet_id : (int) $record->checkout_outlet_id);
+        if ($checkoutOutletId !== (int) $session->outlet_id) {
+            return $this->reject($record, 409, 'session_at_origin_outlet', 'Sesi ini hanya dapat ditutup di outlet asal.');
+        }
+
         if (! $verified && $device && (int) $session->outlet_id !== (int) $device->outlet_id) {
             return $this->reject($record, 409, 'session_at_origin_outlet', 'Sesi ini hanya dapat ditutup melalui kiosk outlet asal.');
         }
@@ -578,6 +603,10 @@ final class AttendanceService
 
         if (! is_array($configuration) || ! $this->modeAllows($configuration, $actor->origin)) {
             return $this->reject($record, 403, 'attendance_mode_not_allowed', 'Mode kehadiran ini tidak diizinkan oleh kebijakan outlet.');
+        }
+
+        if ($actor->origin === 'personal' && $prepared === null && $this->personalPhotoRequired($configuration)) {
+            return $this->reject($record, 422, 'photo_required', 'Foto wajib disertakan untuk setiap operasi kehadiran personal.');
         }
 
         $checkIn = CarbonImmutable::parse($session->check_in_at, 'UTC')->utc();
@@ -818,20 +847,34 @@ final class AttendanceService
 
     private function isAssignedAt(int $tenantId, int $employeeId, int $outletId, CarbonImmutable $at): bool
     {
-        return EmployeeOutletAssignment::query()->forTenant($tenantId)
+        $assignments = EmployeeOutletAssignment::query()->forTenant($tenantId)
             ->where('employee_id', $employeeId)->where('outlet_id', $outletId)
             ->where('effective_from', '<=', $at->format('Y-m-d H:i:s'))
-            ->where('effective_until', '>', $at->format('Y-m-d H:i:s'))->exists();
+            ->where('effective_until', '>', $at->format('Y-m-d H:i:s'))->get(['outlet_id']);
+
+        $effectiveOutlets = EmployeeOutletAssignment::query()->forTenant($tenantId)
+            ->where('employee_id', $employeeId)
+            ->where('effective_from', '<=', $at->format('Y-m-d H:i:s'))
+            ->where('effective_until', '>', $at->format('Y-m-d H:i:s'))
+            ->distinct()->count('outlet_id');
+
+        return $effectiveOutlets === 1 && $assignments->isNotEmpty();
     }
 
     private function activeAssignment(int $tenantId, int $employeeId, int $outletId, CarbonImmutable $at, bool $currentRead = false): ?EmployeeOutletAssignment
     {
-        return EmployeeOutletAssignment::query()->forTenant($tenantId)
-            ->where('employee_id', $employeeId)->where('outlet_id', $outletId)
+        $query = EmployeeOutletAssignment::query()->forTenant($tenantId)
+            ->where('employee_id', $employeeId)
             ->where('effective_from', '<=', $at->format('Y-m-d H:i:s'))
-            ->where('effective_until', '>', $at->format('Y-m-d H:i:s'))
-            ->orderByDesc('effective_from')
-            ->when($currentRead, fn ($query) => $query->orderByDesc('id')->sharedLock())->first();
+            ->where('effective_until', '>', $at->format('Y-m-d H:i:s'));
+        $assignments = $query->when($currentRead, fn ($query) => $query->sharedLock())->get();
+
+        if ($assignments->pluck('outlet_id')->unique()->count() !== 1
+            || (int) $assignments->first()?->outlet_id !== $outletId) {
+            return null;
+        }
+
+        return $assignments->sortByDesc('effective_from')->first();
     }
 
     private function assertCurrentPersonalActor(AttendanceActor $actor, int $employeeId): void
@@ -944,6 +987,12 @@ final class AttendanceService
         ];
     }
 
+    private function personalPhotoRequired(array $policy): bool
+    {
+        return (bool) config('attendance_evidence.require_personal_photo', false)
+            || ($policy['require_personal_photo'] ?? false) === true;
+    }
+
     private function hasConfiguredLocation(array $settings): bool
     {
         foreach (['latitude', 'longitude', 'radius_meters'] as $field) {
@@ -954,7 +1003,7 @@ final class AttendanceService
 
         return abs((float) $settings['latitude']) <= 90
             && abs((float) $settings['longitude']) <= 180
-            && (float) $settings['radius_meters'] >= 50
+            && (float) $settings['radius_meters'] >= SchedulingDefaults::MIN_GEOFENCE_METERS
             && (float) $settings['radius_meters'] <= 5000;
     }
 

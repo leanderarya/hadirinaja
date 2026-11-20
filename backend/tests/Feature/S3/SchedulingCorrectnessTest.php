@@ -79,7 +79,7 @@ class SchedulingCorrectnessTest extends TestCase
     {
         [$owner, $employee, $outlet, $date, $night, $morning] = $this->context();
         [, $other] = $this->unitWithOutlet($owner, 'Other unit', 'Other outlet');
-        app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet($owner, $employee, $other, now(), $date->addDays(3));
+        $this->insertLegacyTemporaryOutletAssignment($owner, $employee, $other, now(), $date->addDays(3));
         $service = app(EmployeeScheduleService::class);
         $weekly = fn () => $service->createWeeklyRule($owner, $employee->id, $outlet->id, $date->isoWeekday(), $night->id, $date->toDateString(), null, 'Night rule');
         $exception = fn () => $service->createException($owner, $employee->id, $other->id, $date->addDay()->toDateString(), 'work', $morning->id, 'Other outlet');
@@ -115,7 +115,7 @@ class SchedulingCorrectnessTest extends TestCase
     {
         [$owner, $employee, $outlet, $date, $night, $morning] = $this->context();
         [, $other] = $this->unitWithOutlet($owner, 'Other unit', 'Other outlet');
-        app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet($owner, $employee, $other, now(), $date->addYear());
+        $this->insertLegacyTemporaryOutletAssignment($owner, $employee, $other, now(), $date->addYear());
         OutletCalendarVersion::query()->where('outlet_id', $outlet->id)->update(['timezone' => 'Asia/Tokyo']);
         OutletCalendarVersion::query()->create([
             'tenant_id' => $owner->tenant_id, 'outlet_id' => $outlet->id,
@@ -199,7 +199,7 @@ class SchedulingCorrectnessTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-05-01T12:00:00Z'));
         [$owner, $employee, $outlet, $date, $night] = $this->context();
         [, $other] = $this->unitWithOutlet($owner, 'UTC unit', 'UTC outlet');
-        app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet($owner, $employee, $other, now(), $date->addYear());
+        $this->insertLegacyTemporaryOutletAssignment($owner, $employee, $other, now(), $date->addYear());
         OutletCalendarVersion::query()->where('outlet_id', $outlet->id)->update(['timezone' => 'America/New_York']);
         OutletCalendarVersion::query()->where('outlet_id', $other->id)->update(['timezone' => 'UTC']);
         $morning = app(ShiftTemplateService::class)->create($owner, 'UTC morning', '07:30', '09:00', false, $date->toDateString(), 'UTC shift')->versions->first();

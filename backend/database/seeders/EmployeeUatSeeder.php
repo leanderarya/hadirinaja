@@ -199,8 +199,8 @@ final class EmployeeUatSeeder extends Seeder
                     $owner,
                     $fixture['employee'],
                     $secondaryOutlet,
-                    CarbonImmutable::now('UTC')->subHour(),
-                    CarbonImmutable::now('UTC')->addDays(21),
+                    CarbonImmutable::now('UTC')->subDays(10),
+                    CarbonImmutable::now('UTC')->subDays(2),
                 );
             }
 

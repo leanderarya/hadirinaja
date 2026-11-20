@@ -184,7 +184,13 @@ class ShiftChangeTest extends TestCase
     {
         $f = $this->shiftFixture();
         [, $other] = $this->unitWithOutlet($f['owner']);
-        app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet($f['owner'], $f['people'][2], $other, now()->subHour(), CarbonImmutable::parse($f['date'])->addWeek());
+        $this->insertLegacyTemporaryOutletAssignment(
+            $f['owner'],
+            $f['people'][2],
+            $other,
+            now()->subHour(),
+            CarbonImmutable::parse($f['date'])->addWeek(),
+        );
         $entries = [['employee_id' => $f['people'][2]->id, 'work_date' => $f['date'], 'status' => 'work', 'shift_template_version_id' => $f['staffing']['evening']]];
         $this->publishFixture($f['owner'], $other, $f['date'], $entries, $f['staffing'], true);
         $target = DB::table('schedule_entries')->where('employee_id', $f['people'][2]->id)->value('id');

@@ -12,6 +12,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Tests\Support\DisposableTestDatabaseGuard;
 
 $basePath = dirname(__DIR__, 2);
 require $basePath.'/vendor/autoload.php';
@@ -27,12 +28,24 @@ if (config('database.default') !== 'mysql'
     exit(2);
 }
 
-$connectionId = (int) DB::selectOne('SELECT CONNECTION_ID() AS id')->id;
+DisposableTestDatabaseGuard::assertConfigured($mysql);
+$connection = DB::connection();
+DisposableTestDatabaseGuard::assertConnected($connection);
+$identity = $connection->selectOne(
+    'SELECT CONNECTION_ID() AS connection_id, DATABASE() AS database_name, @@port AS port, @@datadir AS data_directory, @@socket AS socket, CURRENT_USER() AS account_name',
+);
 $readyPath = (string) getenv('S3_READY_FILE');
 $startPath = (string) getenv('S3_START_FILE');
 $attemptPath = (string) getenv('S3_ATTEMPT_FILE');
 $resultPath = (string) getenv('S3_RESULT_FILE');
-file_put_contents($readyPath, json_encode(['connection_id' => $connectionId], JSON_THROW_ON_ERROR));
+file_put_contents($readyPath, json_encode([
+    'connection_id' => (int) $identity->connection_id,
+    'database_name' => $identity->database_name,
+    'port' => (string) $identity->port,
+    'data_directory' => realpath((string) $identity->data_directory),
+    'socket' => realpath((string) $identity->socket),
+    'account_name' => $identity->account_name,
+], JSON_THROW_ON_ERROR));
 
 $deadline = microtime(true) + 15;
 while (! is_file($startPath) && microtime(true) < $deadline) {

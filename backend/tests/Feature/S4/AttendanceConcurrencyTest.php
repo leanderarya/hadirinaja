@@ -4,9 +4,9 @@ namespace Tests\Feature\S4;
 
 use App\Data\AttendanceActor;
 use App\Enums\TenantRole;
+use App\Models\AttendanceEvent;
 use App\Models\AttendanceEvidence;
 use App\Models\AttendanceEvidenceAuditEvent;
-use App\Models\AttendanceEvent;
 use App\Models\Employee;
 use App\Models\KioskDevice;
 use App\Services\AttendancePolicyService;
@@ -174,7 +174,7 @@ class AttendanceConcurrencyTest extends TestCase
         $this->assertDatabaseHas('attendance_active_session_owners', ['attendance_session_id' => $checkout['checkout_session_id']]);
     }
 
-    public function test_two_kiosk_checkouts_cannot_close_the_cross_outlet_session_twice(): void
+    public function test_two_kiosk_checkouts_cannot_close_the_origin_session_twice(): void
     {
         [$fixture, $checkout, $assignment] = $this->verifiedCheckoutFixture(kiosk: true);
         $results = $this->runConcurrent($fixture, [$checkout, [...$checkout, 'key' => (string) Str::uuid()]]);
@@ -209,16 +209,7 @@ class AttendanceConcurrencyTest extends TestCase
     private function verifiedCheckoutFixture(bool $kiosk = false): array
     {
         $fixture = $this->fixture();
-        [, $destination] = $this->unitWithOutlet($fixture['owner'], 'Destination unit', 'Destination outlet');
-        $assignment = app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet(
-            $fixture['owner'], $fixture['employee'], $destination, now()->subHour(), now()->addHour(),
-        );
-        app(AttendancePolicyService::class)->createOutletVersion(
-            $fixture['owner'], $destination, CarbonImmutable::today('UTC')->toDateString(),
-            ['attendance_mode' => $kiosk ? 'kiosk' : 'personal', 'personal_location_validation' => [
-                'required' => true, 'radius_meters' => 100, 'latitude' => -6.2, 'longitude' => 106.816666,
-            ]], 'Destination checkout policy',
-        );
+        $assignment = $fixture['employee']->assignments()->where('assignment_type', 'primary')->firstOrFail();
         $result = app(AttendanceService::class)->checkIn(
             AttendanceActor::personal($fixture['membership']), $fixture['employee'], $fixture['outlet'],
             (string) Str::uuid(),
@@ -227,8 +218,8 @@ class AttendanceConcurrencyTest extends TestCase
         $this->assertSame(201, $result['status']);
 
         $operation = $kiosk
-            ? $this->worker('kiosk', 'check_out', deviceId: (int) $this->kioskDevice([...$fixture, 'outlet' => $destination])->getKey())
-            : [...$this->worker('personal', 'check_out'), 'checkout_outlet_id' => $destination->getKey()];
+            ? $this->worker('kiosk', 'check_out', deviceId: (int) $this->kioskDevice($fixture)->getKey())
+            : [...$this->worker('personal', 'check_out'), 'checkout_outlet_id' => $fixture['outlet']->getKey()];
 
         return [$fixture, [
             ...$operation,
@@ -375,7 +366,7 @@ class AttendanceConcurrencyTest extends TestCase
         app(AttendancePolicyService::class)->createOutletVersion(
             $owner,
             $outlet,
-            CarbonImmutable::today('UTC')->toDateString(),
+            CarbonImmutable::today('Asia/Jakarta')->toDateString(),
             [
                 'attendance_mode' => 'hybrid',
                 'personal_location_validation' => [

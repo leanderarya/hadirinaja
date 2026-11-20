@@ -9,6 +9,8 @@ use Tests\Support\DisposableTestDatabaseGuard;
 
 abstract class TestCase extends BaseTestCase
 {
+    private static bool $preparedSchemaValidated = false;
+
     public function createApplication()
     {
         $app = parent::createApplication();
@@ -23,7 +25,7 @@ abstract class TestCase extends BaseTestCase
         $databaseConnection = $app['db']->connection();
         DisposableTestDatabaseGuard::assertConnected($databaseConnection);
 
-        if (getenv('HADIRINAJA_TEST_SCHEMA_PREPARED') === '1') {
+        if (! self::$preparedSchemaValidated && getenv('HADIRINAJA_TEST_SCHEMA_PREPARED') === '1') {
             $migrationFiles = glob($app->databasePath('migrations/*.php'));
             $expectedMigrations = array_map(
                 static fn (string $file): string => pathinfo($file, PATHINFO_FILENAME),
@@ -42,6 +44,8 @@ abstract class TestCase extends BaseTestCase
                 || array_diff($expectedTriggers, $actualTriggers)) {
                 throw new RuntimeException('Prepared test schema must contain every migration and security trigger.');
             }
+
+            self::$preparedSchemaValidated = true;
             RefreshDatabaseState::$migrated = true;
         }
 

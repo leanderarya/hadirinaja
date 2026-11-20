@@ -37,12 +37,7 @@ class PrimaryAssignmentConcurrencyTest extends TestCase
                     [PHP_BINARY, base_path('tests/Support/primary-assignment-worker.php')],
                     base_path(),
                     [
-                        'APP_ENV' => 'testing',
-                        'DB_CONNECTION' => 'mysql',
-                        'DB_HOST' => '127.0.0.1',
-                        'DB_PORT' => '3306',
-                        'DB_DATABASE' => 'hadirinaja_test',
-                        'DB_URL' => '',
+                        ...$this->disposableDatabaseWorkerEnvironment(),
                         'S1_READY_FILE' => $directory."/ready-$worker",
                         'S1_START_FILE' => $startPath,
                         'S1_ATTEMPT_FILE' => $directory."/attempt-$worker",
@@ -60,10 +55,18 @@ class PrimaryAssignmentConcurrencyTest extends TestCase
             }
 
             $this->waitForFiles([$directory.'/ready-1', $directory.'/ready-2'], $processes);
-            $readyConnections = [
-                json_decode(file_get_contents($directory.'/ready-1'), true, flags: JSON_THROW_ON_ERROR)['connection_id'],
-                json_decode(file_get_contents($directory.'/ready-2'), true, flags: JSON_THROW_ON_ERROR)['connection_id'],
+            $workerIdentities = [
+                json_decode(file_get_contents($directory.'/ready-1'), true, flags: JSON_THROW_ON_ERROR),
+                json_decode(file_get_contents($directory.'/ready-2'), true, flags: JSON_THROW_ON_ERROR),
             ];
+            foreach ($workerIdentities as $identity) {
+                $this->assertSame(getenv('HADIRINAJA_TEST_DISPOSABLE_DATABASE'), $identity['database_name']);
+                $this->assertSame(getenv('HADIRINAJA_TEST_DISPOSABLE_PORT'), $identity['port']);
+                $this->assertSame(realpath((string) getenv('HADIRINAJA_TEST_DISPOSABLE_DATADIR')), $identity['data_directory']);
+                $this->assertSame(realpath((string) getenv('HADIRINAJA_TEST_DISPOSABLE_SOCKET')), $identity['socket']);
+                $this->assertSame(getenv('DB_USERNAME').'@127.0.0.1', $identity['account_name']);
+            }
+            $readyConnections = array_column($workerIdentities, 'connection_id');
             $this->assertCount(2, array_unique($readyConnections), 'Workers must use independent MySQL connections.');
 
             file_put_contents($startPath, 'start');

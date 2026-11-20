@@ -32,6 +32,36 @@ final class EmployeeOutletAssignmentService
             $outlet = $this->tenantOutlet($employee, $outlet);
             $this->authorizeAssignment($actor, $employee, $outlet);
 
+            $activeSession = DB::table('attendance_active_session_owners')
+                ->join('attendance_sessions', function ($join): void {
+                    $join->on('attendance_sessions.tenant_id', '=', 'attendance_active_session_owners.tenant_id')
+                        ->on('attendance_sessions.id', '=', 'attendance_active_session_owners.attendance_session_id');
+                })
+                ->where('attendance_active_session_owners.tenant_id', $employee->tenant_id)
+                ->where('attendance_active_session_owners.employee_id', $employee->getKey())
+                ->where('attendance_sessions.status', 'active')
+                ->value('attendance_sessions.outlet_id');
+
+            if ($activeSession !== null && (int) $activeSession !== (int) $outlet->getKey()) {
+                throw ValidationException::withMessages([
+                    'outlet' => 'An Employee cannot transfer outlets while an attendance session is active.',
+                ]);
+            }
+
+            $temporaryOverlap = EmployeeOutletAssignment::query()->forTenant((int) $employee->tenant_id)
+                ->where('employee_id', $employee->getKey())
+                ->where('assignment_type', EmployeeOutletAssignmentType::Temporary->value)
+                ->where('outlet_id', '<>', $outlet->getKey())
+                ->where('effective_from', '<', self::OPEN_ENDED_AT)
+                ->where('effective_until', '>', $effectiveFrom)
+                ->lockForUpdate()->exists();
+
+            if ($temporaryOverlap) {
+                throw ValidationException::withMessages([
+                    'effective_from' => 'The primary assignment would overlap a different outlet assignment.',
+                ]);
+            }
+
             $future = EmployeeOutletAssignment::query()->forTenant((int) $employee->tenant_id)
                 ->where('employee_id', $employee->getKey())
                 ->where('assignment_type', EmployeeOutletAssignmentType::Primary->value)
@@ -94,6 +124,35 @@ final class EmployeeOutletAssignmentService
             $employee = $this->lockEmployee($employee);
             $outlet = $this->tenantOutlet($employee, $outlet);
             $this->authorizeAssignment($actor, $employee, $outlet);
+
+            $activeSession = DB::table('attendance_active_session_owners')
+                ->join('attendance_sessions', function ($join): void {
+                    $join->on('attendance_sessions.tenant_id', '=', 'attendance_active_session_owners.tenant_id')
+                        ->on('attendance_sessions.id', '=', 'attendance_active_session_owners.attendance_session_id');
+                })
+                ->where('attendance_active_session_owners.tenant_id', $employee->tenant_id)
+                ->where('attendance_active_session_owners.employee_id', $employee->getKey())
+                ->where('attendance_sessions.status', 'active')
+                ->value('attendance_sessions.outlet_id');
+
+            if ($activeSession !== null && (int) $activeSession !== (int) $outlet->getKey()) {
+                throw ValidationException::withMessages([
+                    'outlet' => 'An Employee cannot transfer outlets while an attendance session is active.',
+                ]);
+            }
+
+            $overlap = EmployeeOutletAssignment::query()->forTenant((int) $employee->tenant_id)
+                ->where('employee_id', $employee->getKey())
+                ->where('outlet_id', '<>', $outlet->getKey())
+                ->where('effective_from', '<', $effectiveUntil)
+                ->where('effective_until', '>', $effectiveFrom)
+                ->lockForUpdate()->exists();
+
+            if ($overlap) {
+                throw ValidationException::withMessages([
+                    'effective_from' => 'The temporary assignment overlaps a different outlet assignment.',
+                ]);
+            }
 
             return EmployeeOutletAssignment::query()->create([
                 'tenant_id' => $employee->tenant_id,

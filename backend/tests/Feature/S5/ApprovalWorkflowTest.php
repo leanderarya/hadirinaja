@@ -267,8 +267,8 @@ class ApprovalWorkflowTest extends TestCase
         Carbon::setTestNow($date);
         $fixture = $this->fixture();
         $outlet = app(OrganizationService::class)->createOutlet($fixture['owner'], $fixture['unit'], 'Outlet tenggat');
-        app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet(
-            $fixture['owner'], $fixture['employee'], $outlet, $date->subDay(), $date->addDays(10),
+        app(EmployeeOutletAssignmentService::class)->assignPrimaryOutlet(
+            $fixture['owner'], $fixture['employee'], $outlet, $date,
         );
         $policy = app(AttendancePolicyService::class);
         $policy->createOutletVersion($fixture['owner'], $outlet, '2026-10-21', ['retroactive_request_limit_days' => 1], 'Tenggat historis');
@@ -448,9 +448,8 @@ class ApprovalWorkflowTest extends TestCase
             ->postJson('/api/v1/management/approvals/'.$id.'/decision', [
                 'decision' => 'approved', 'reason' => 'Catatan kerja telah diperiksa.',
             ]);
-        $reverse = fn (int $requestId, int $decisionId, string $key, string $reason = 'Koreksi dibalik berdasarkan catatan.') =>
-            $this->browserRequest()->withHeader('Idempotency-Key', $key)
-                ->postJson('/api/v1/management/approvals/'.$requestId.'/reversal', ['decision_id' => $decisionId, 'reason' => $reason]);
+        $reverse = fn (int $requestId, int $decisionId, string $key, string $reason = 'Koreksi dibalik berdasarkan catatan.') => $this->browserRequest()->withHeader('Idempotency-Key', $key)
+            ->postJson('/api/v1/management/approvals/'.$requestId.'/reversal', ['decision_id' => $decisionId, 'reason' => $reason]);
 
         $first = $submit(1);
         $firstDecision = $approve($first)->assertOk()->json('request.decision_history.0.id');
@@ -479,9 +478,6 @@ class ApprovalWorkflowTest extends TestCase
         $reverse($latest, $latestDecision, (string) Str::uuid())->assertForbidden();
 
         $destination = app(OrganizationService::class)->createOutlet($fixture['owner'], $fixture['unit'], 'Outlet tujuan tanpa akses historis');
-        app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet(
-            $fixture['owner'], $fixture['employee'], $destination, $today->startOfDay(), $today->addDay(),
-        );
         [$destinationSupervisorUser, $destinationSupervisor] = $this->membershipFor($fixture['owner'], TenantRole::Supervisor);
         app(TenantMembershipService::class)->assignSupervisorOutletScope($fixture['owner'], $destinationSupervisor, $destination);
         $this->loginAs($destinationSupervisorUser);
@@ -798,31 +794,31 @@ class ApprovalWorkflowTest extends TestCase
         $this->withCookie('hadirinaja_kiosk', $kioskCookie->getValue())->getJson('/api/v1/management/approvals')->assertUnauthorized();
     }
 
-    public function test_historical_primary_and_actual_review_scope_excludes_checkout_destination_and_general_history(): void
+    public function test_origin_review_scope_excludes_checkout_destination_and_other_outlet_history(): void
     {
         $today = CarbonImmutable::today('UTC');
         Carbon::setTestNow($today->setTime(8, 0));
         $fixture = $this->fixture();
         $organization = app(OrganizationService::class);
-        $actual = $organization->createOutlet($fixture['owner'], $fixture['unit'], 'Actual correction outlet');
+        $actual = $fixture['outlet'];
         $destination = $organization->createOutlet($fixture['owner'], $fixture['unit'], 'Checkout destination only');
         $assignments = app(EmployeeOutletAssignmentService::class);
-        foreach ([$actual, $destination] as $outlet) {
-            $assignments->assignTemporaryOutlet($fixture['owner'], $fixture['employee'], $outlet, now()->subHour(), now()->addHours(12));
-            app(AttendancePolicyService::class)->createOutletVersion($fixture['owner'], $outlet, $today->toDateString(), [
-                'attendance_mode' => 'hybrid',
-                'personal_location_validation' => ['required' => true, 'radius_meters' => 100, 'latitude' => -6.2, 'longitude' => 106.816666],
-            ], 'Correction scope fixture.');
-        }
         $session = $this->recordSession([...$fixture, 'outlet' => $actual], false);
         Carbon::setTestNow($today->setTime(16, 0));
-        $checkout = app(AttendanceService::class)->checkOut(
+        $rejectedCheckout = app(AttendanceService::class)->checkOut(
             AttendanceActor::personal($fixture['membership']), $fixture['employee'], (string) Str::uuid(),
             ['status' => 'provided', 'latitude' => -6.2, 'longitude' => 106.816666, 'accuracy_meters' => 20],
             null, $destination, (int) $session->getKey(),
         );
+        $this->assertSame(409, $rejectedCheckout['status']);
+        $this->assertSame('session_at_origin_outlet', $rejectedCheckout['body']['code']);
+        $checkout = app(AttendanceService::class)->checkOut(
+            AttendanceActor::personal($fixture['membership']), $fixture['employee'], (string) Str::uuid(),
+            ['status' => 'provided', 'latitude' => -6.2, 'longitude' => 106.816666, 'accuracy_meters' => 20],
+            null, $actual, (int) $session->getKey(),
+        );
         $this->assertSame(200, $checkout['status']);
-        $this->assertSame((int) $destination->getKey(), $session->events()->where('event_type', 'check_out')->sole()->checkout_outlet_id);
+        $this->assertSame((int) $actual->getKey(), $session->events()->where('event_type', 'check_out')->sole()->checkout_outlet_id);
 
         $assignments->assignPrimaryOutlet($fixture['owner'], $fixture['employee'], $destination, now());
         $this->loginAs($fixture['employeeUser']);
@@ -872,7 +868,7 @@ class ApprovalWorkflowTest extends TestCase
         $this->browserRequest()->getJson($fileUrl)->assertOk();
         $date = $today->toDateString();
         $this->browserRequest()->getJson('/api/v1/management/attendance/effective?employee_id='.$fixture['employee']->getKey()
-            .'&from='.$date.'&to='.$date)->assertForbidden();
+            .'&from='.$date.'&to='.$date)->assertOk();
         $decisionId = $approve()->assertOk()->assertJsonPath('request.status', 'approved')->json('request.decision_history.0.id');
         $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())->postJson($approvalUrl.'/reversal', [
             'decision_id' => $decisionId, 'reason' => 'Percobaan Supervisor.',
@@ -889,10 +885,7 @@ class ApprovalWorkflowTest extends TestCase
         $today = CarbonImmutable::today('UTC');
         Carbon::setTestNow($today->setTime(12, 0));
         $fixture = $this->fixture();
-        $actual = app(OrganizationService::class)->createOutlet($fixture['owner'], $fixture['unit'], 'Reconstruction actual outlet');
-        app(EmployeeOutletAssignmentService::class)->assignTemporaryOutlet(
-            $fixture['owner'], $fixture['employee'], $actual, $today, $today->addDay(),
-        );
+        $actual = $fixture['outlet'];
         $request = app(ApprovalWorkflowService::class)->submitEmployeeRequest($fixture['membership'], $fixture['employeeUser'], [
             'type' => 'attendance_correction', 'correction_target' => 'reconstruction',
             'work_date' => $today->toDateString(), 'effective_outlet_id' => $actual->getKey(),
