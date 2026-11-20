@@ -105,8 +105,18 @@ export const catalogCategories: CatalogCategory[] = [
         importPath: "@/components/employee-shell",
       },
       {
+        id: "employee-navigation-attendance",
+        label: "Employee Navigation · Hari Ini",
+        importPath: "@/components/employee-shell",
+      },
+      {
         id: "employee-topbar",
         label: "Employee Top Bar",
+        importPath: "@/components/employee-shell",
+      },
+      {
+        id: "employee-topbar-attendance",
+        label: "Employee Top Bar · Hari Ini",
         importPath: "@/components/employee-shell",
       },
       {
@@ -123,6 +133,51 @@ export const catalogCategories: CatalogCategory[] = [
         id: "employee-attendance-clock",
         label: "Employee Attendance Clock · Outlet timezone",
         importPath: "@/components/employee-attendance-clock",
+      },
+      {
+        id: "roam-button",
+        label: "Roam Button · WBM9u primary / secondary / danger",
+        importPath: "@/components/roam/roam-button",
+      },
+      {
+        id: "roam-step-trail",
+        label: "Roam Step Trail · WLYnJ three steps",
+        importPath: "@/components/roam/roam-step-trail",
+      },
+      {
+        id: "roam-status-card",
+        label: "Roam Status Card · QihdH pastel status surface",
+        importPath: "@/components/roam/roam-status-card",
+      },
+      {
+        id: "roam-status-message",
+        label: "Roam Status Message · esTPz inline tone",
+        importPath: "@/components/roam/roam-status-message",
+      },
+      {
+        id: "attendance-confirmation-summary",
+        label: "Attendance Confirmation Summary · uqxF6",
+        importPath: "@/components/attendance/attendance-confirmation-summary",
+      },
+      {
+        id: "attendance-recovery-list",
+        label: "Attendance Recovery List · outside-card recovery",
+        importPath: "@/components/attendance/attendance-recovery-list",
+      },
+      {
+        id: "attendance-step-heading",
+        label: "Attendance Step Heading · 22/700 title",
+        importPath: "@/components/attendance/attendance-step-heading",
+      },
+      {
+        id: "attendance-location-step",
+        label: "Attendance Location Step",
+        importPath: "@/components/attendance/attendance-location-step",
+      },
+      {
+        id: "attendance-result-step",
+        label: "Attendance Result Step",
+        importPath: "@/components/attendance/attendance-result-step",
       },
       {
         id: "management-sidebar",
@@ -197,6 +252,7 @@ export const catalogCategories: CatalogCategory[] = [
       },
       { id: "badge", label: "Status Badge · Pen", importPath: "@/components/ui/badge" },
       { id: "button", label: "Button · Pen foundation", importPath: "@/components/ui/button" },
+      { id: "button-attendance", label: "Button · Hari Ini", importPath: "@/components/ui/button" },
       {
         id: "button-group",
         label: "Button Group",

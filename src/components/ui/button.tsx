@@ -29,6 +29,8 @@ const buttonVariants = cva(
       variant: {
         default:
           "bg-primary text-primary-foreground hover:bg-primary/90 data-pressed:bg-primary/90",
+        attendance:
+          "rounded-full bg-primary text-primary-foreground hover:bg-primary/90 data-pressed:bg-primary/90",
         destructive:
           "bg-danger-strong text-primary-foreground hover:bg-danger-strong/90 data-pressed:bg-danger-strong/90",
         "destructive-outline":

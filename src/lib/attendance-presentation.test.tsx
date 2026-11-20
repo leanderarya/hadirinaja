@@ -157,7 +157,7 @@ describe("employee attendance presentation", () => {
           check_out_at: "2026-10-24T23:00:00Z",
         },
       })
-    ).toMatch(/Presensi keluar dicatat oleh server.*25 Okt.*06.00/)
+    ).toMatch(/Check-out tercatat · 06\.00/)
   })
   it("shows the approved four-link employee navigation, including Profile", () => {
     render(

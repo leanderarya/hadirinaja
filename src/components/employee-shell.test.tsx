@@ -21,6 +21,35 @@ const authorizedOutlets = [
   { id: 9, name: "Outlet Kemang" },
 ]
 
+describe("EmployeeShell attendance appearance", () => {
+  it("shows Hari Ini navigation and only implemented account destinations", async () => {
+    render(
+      <EmployeeShell active="today" appearance="attendance" accountName="Rani">
+        <p>Ringkasan</p>
+      </EmployeeShell>
+    )
+
+    expect(screen.getByRole("heading", { name: "Hari Ini" })).toBeTruthy()
+    const navigation = screen.getByRole("navigation", {
+      name: "Navigasi karyawan",
+    })
+    expect(
+      within(navigation).getByRole("link", { name: "Hari Ini" }).getAttribute(
+        "aria-current"
+      )
+    ).toBe("page")
+    expect(
+      within(navigation).getByRole("link", { name: "Permintaan" }).getAttribute(
+        "href"
+      )
+    ).toBe("/requests")
+
+    fireEvent.click(screen.getByRole("button", { name: "Opsi lainnya" }))
+    expect(await screen.findByRole("link", { name: "Buka profil" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Keluar dari akun" })).toBeTruthy()
+  })
+})
+
 describe("EmployeeTopbar", () => {
   it("shows only the supplied authorized outlet list when view switching is unsupported", async () => {
     render(

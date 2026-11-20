@@ -10,7 +10,13 @@ import {
   UserGroupIcon,
 } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Calendar, ClipboardList, House, UserRound } from "lucide-react"
+import {
+  Calendar,
+  ClipboardList,
+  House,
+  MoreHorizontal,
+  UserRound,
+} from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { apiRequest } from "@/lib/api"
@@ -49,13 +55,19 @@ export function EmployeeNavigation({
   appearance = "default",
 }: {
   active: Destination
-  appearance?: "default" | "r2c"
+  appearance?: "default" | "r2c" | "attendance"
 }) {
   const renderDestination = (item: (typeof destinations)[number]) => {
     const selected = active === item.id
 
     const r2cLabels = {
       today: "Presensi",
+      schedule: "Jadwal",
+      requests: "Permintaan",
+      profile: "Profil",
+    }
+    const attendanceLabels = {
+      today: "Hari Ini",
       schedule: "Jadwal",
       requests: "Permintaan",
       profile: "Profil",
@@ -67,7 +79,12 @@ export function EmployeeNavigation({
       profile: UserRound,
     }
     const Icon = r2cIcons[item.id]
-    const label = appearance === "r2c" ? r2cLabels[item.id] : item.label
+    const label =
+      appearance === "r2c"
+        ? r2cLabels[item.id]
+        : appearance === "attendance"
+          ? attendanceLabels[item.id]
+          : item.label
     const content =
       appearance === "r2c" ? (
         <>
@@ -89,22 +106,31 @@ export function EmployeeNavigation({
           </span>
         </>
       ) : (
-        <>
+        appearance === "attendance" ? (
+          <>
+            <Icon aria-hidden="true" size={21} />
+            <span className="employee-nav-label">{label}</span>
+          </>
+        ) : (
+          <>
           <HugeiconsIcon
             aria-hidden="true"
             className="employee-nav-icon"
             icon={item.icon}
           />
           <span className="employee-nav-label">{item.label}</span>
-        </>
+          </>
+        )
       )
 
     const className = cn(
       buttonVariants({ variant: "ghost" }),
       appearance === "r2c"
         ? "flex h-[60px] min-w-0 flex-1 flex-col items-center justify-start gap-[3px] rounded-xl p-0"
+        : appearance === "attendance"
+          ? "employee-nav-link employee-nav-link--attendance"
         : "employee-nav-link",
-      appearance === "default" && selected && "is-active"
+      appearance !== "r2c" && selected && "is-active"
     )
 
     return (
@@ -126,6 +152,8 @@ export function EmployeeNavigation({
       className={
         appearance === "r2c"
           ? "flex h-20 w-full items-center justify-between gap-2 rounded-[20px] border border-border bg-surface px-3 py-2"
+          : appearance === "attendance"
+            ? "employee-navigation-dock employee-navigation-dock--attendance"
           : "employee-navigation-dock"
       }
     >
@@ -148,11 +176,13 @@ export function EmployeeTopbar({
   outletContext,
   onLogout,
   logoutBusy = false,
+  appearance = "default",
 }: {
   accountName: string
   outletContext?: EmployeeOutletContext
   onLogout?: () => void
   logoutBusy?: boolean
+  appearance?: "default" | "attendance"
 }) {
   const [outletOpen, setOutletOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
@@ -179,7 +209,57 @@ export function EmployeeTopbar({
   }
 
   return (
-    <header className="employee-topbar">
+    <header
+      className={cn(
+        "employee-topbar",
+        appearance === "attendance" && "employee-topbar--attendance"
+      )}
+    >
+      {appearance === "attendance" ? (
+        <div className="employee-topbar-inner employee-topbar-inner--attendance">
+          <span aria-hidden="true" className="size-11" />
+          <h1 className="m-0 text-roam-nav-title">Hari Ini</h1>
+          <Popover open={accountOpen} onOpenChange={setAccountOpen}>
+            <PopoverTrigger
+              render={
+                <Button
+                  aria-label="Opsi lainnya"
+                  className="size-11 shrink-0"
+                  size="icon"
+                  variant="ghost"
+                />
+              }
+            >
+              <MoreHorizontal aria-hidden="true" />
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              className="w-[min(20rem,calc(100vw-1.5rem))] gap-3"
+            >
+              <PopoverHeader>
+                <PopoverTitle>Menu karyawan</PopoverTitle>
+                <PopoverDescription>{accountName}</PopoverDescription>
+              </PopoverHeader>
+              <Button
+                className="w-full justify-start"
+                nativeButton={false}
+                render={<a href="/profile" />}
+                variant="ghost"
+              >
+                Buka profil
+              </Button>
+              <Button
+                className="w-full justify-start"
+                disabled={logoutBusy || !onLogout}
+                onClick={() => onLogout?.()}
+                variant="ghost"
+              >
+                {logoutBusy ? "Keluar dari akun…" : "Keluar dari akun"}
+              </Button>
+            </PopoverContent>
+          </Popover>
+        </div>
+      ) : (
       <div className="employee-topbar-inner">
         <div className="employee-outlet-context">
           <Popover
@@ -354,6 +434,7 @@ export function EmployeeTopbar({
           </Popover>
         </div>
       </div>
+      )}
     </header>
   )
 }
@@ -388,11 +469,13 @@ export function EmployeeShell({
   children,
   accountName = "Karyawan",
   outletContext,
+  appearance = "default",
 }: {
   active: Destination
   children: ReactNode
   accountName?: string
   outletContext?: EmployeeOutletContext
+  appearance?: "default" | "attendance"
 }) {
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const { busy, error, logout } = useEmployeeLogout()
@@ -410,7 +493,12 @@ export function EmployeeShell({
   }, [])
 
   return (
-    <div className="employee-shell min-h-svh bg-background">
+    <div
+      className={cn(
+        "employee-shell min-h-svh bg-background",
+        appearance === "attendance" && "employee-shell--attendance"
+      )}
+    >
       <a
         href="#employee-content"
         className="sr-only focus:not-sr-only focus:block focus:p-4"
@@ -418,6 +506,7 @@ export function EmployeeShell({
         Lewati navigasi
       </a>
       <EmployeeTopbar
+        appearance={appearance}
         accountName={accountName}
         onLogout={() => void logout()}
         outletContext={outletContext}
@@ -429,7 +518,10 @@ export function EmployeeShell({
           keyboardOpen && "employee-navigation-keyboard"
         )}
       >
-        <EmployeeNavigation active={active} />
+        <EmployeeNavigation
+          active={active}
+          appearance={appearance === "attendance" ? "attendance" : "default"}
+        />
       </div>
       <main id="employee-content" tabIndex={-1} className="employee-content">
         {error && (

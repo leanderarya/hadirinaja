@@ -15,6 +15,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { catalogCategories } from "@/components/ui-kit/catalog"
 import { ActionsSection } from "@/components/ui-kit/sections/actions"
 import { AppComponentsSection } from "@/components/ui-kit/sections/app-components"
+import { AttendanceFoundationsSection } from "@/components/ui-kit/sections/attendance-foundations"
 import { DataDisplaySection } from "@/components/ui-kit/sections/data-display"
 import { DesignTokensSection } from "@/components/ui-kit/sections/design-tokens"
 import { FeedbackSection } from "@/components/ui-kit/sections/feedback"
@@ -134,6 +135,11 @@ function UiKitPageContent() {
           <section className="flex flex-col gap-6">
             <h2 className="text-subtitle">App Components</h2>
             <AppComponentsSection />
+          </section>
+
+          <section className="flex flex-col gap-6">
+            <h2 className="text-subtitle">Attendance Foundations</h2>
+            <AttendanceFoundationsSection />
           </section>
 
           <section className="flex flex-col gap-6">

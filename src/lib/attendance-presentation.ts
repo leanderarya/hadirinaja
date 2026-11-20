@@ -25,12 +25,24 @@ export function attendanceConfirmation(result: {
   const recordedAt =
     result.event?.recorded_at ??
     (checkIn ? result.session?.check_in_at : result.session?.check_out_at)
-  const title = checkIn
-    ? "Presensi masuk dikonfirmasi oleh server."
-    : "Presensi keluar dicatat oleh server."
-  return recordedAt
-    ? `${title} ${formatAttendanceTime(recordedAt, result.session?.timezone)}`
-    : `${title} Waktu pencatatan belum tersedia.`
+  const title = checkIn ? "Check-in tercatat" : "Check-out tercatat"
+  if (!recordedAt) return `${title}. Riwayat sudah diperbarui.`
+  const date = new Date(recordedAt)
+  if (!Number.isFinite(date.getTime())) return `${title}. Riwayat sudah diperbarui.`
+  if (!result.session?.timezone) return `${title}. Riwayat sudah diperbarui.`
+  try {
+    const time = new Intl.DateTimeFormat("id-ID", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+      timeZone: result.session.timezone,
+    })
+      .format(date)
+      .replace(":", ".")
+    return `${title} · ${time}`
+  } catch {
+    return `${title}. Riwayat sudah diperbarui.`
+  }
 }
 
 export function reviewIndicatorLabel(value: string): string {

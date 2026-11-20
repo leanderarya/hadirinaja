@@ -1,5 +1,10 @@
 import { TanStackDevtools } from "@tanstack/react-devtools"
-import { ClientOnly, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router"
+import {
+  ClientOnly,
+  createRootRoute,
+  HeadContent,
+  Scripts,
+} from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import { Agentation } from "agentation"
 
@@ -15,7 +20,7 @@ export const Route = createRootRoute({
       },
       {
         name: "viewport",
-        content: "width=device-width, initial-scale=1",
+        content: "width=device-width, initial-scale=1, viewport-fit=cover",
       },
       {
         name: "color-scheme",
@@ -69,7 +74,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <body>
         <ClientOnly fallback={null}>{children}</ClientOnly>
         <Toaster />
-        {import.meta.env.DEV && <Agentation className="employee-review-feedback" />}
+        {import.meta.env.DEV && (
+          <Agentation className="employee-review-feedback" />
+        )}
         <TanStackDevtools
           config={{
             position: "bottom-left",

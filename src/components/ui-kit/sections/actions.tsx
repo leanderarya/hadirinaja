@@ -32,6 +32,7 @@ import { UiKitSection } from "@/components/ui-kit/ui-kit-section"
 
 const buttonVariants = [
   "default",
+  "attendance",
   "outline",
   "secondary",
   "ghost",
@@ -119,7 +120,15 @@ export function ActionsSection() {
         <div className="flex flex-wrap items-center gap-3">
               {buttonVariants.map((variant) => (
                 <Button key={variant} variant={variant}>
-              {variant === "default" ? "Primary" : variant === "secondary" ? "Quiet" : variant === "destructive" ? "Danger" : variant}
+                  {variant === "default"
+                    ? "Primary"
+                    : variant === "attendance"
+                      ? "Attendance"
+                      : variant === "secondary"
+                        ? "Quiet"
+                        : variant === "destructive"
+                          ? "Danger"
+                          : variant}
                 </Button>
               ))}
             </div>
@@ -134,6 +143,18 @@ export function ActionsSection() {
               ))}
             </div>
           </div>
+        </div>
+      </UiKitSection>
+
+      <UiKitSection
+        id="button-attendance"
+        importPath="@/components/ui/button"
+        title="Button · Hari Ini"
+      >
+        <div className="employee-shell--attendance w-full max-w-sm rounded-2xl p-4">
+          <Button className="w-full" variant="attendance">
+            Absen Masuk
+          </Button>
         </div>
       </UiKitSection>
 

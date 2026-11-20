@@ -50,6 +50,11 @@ export function AppComponentsSection() {
           <EmployeeNavigation active="profile" />
         </div>
       </UiKitSection>
+      <UiKitSection id="employee-navigation-attendance" importPath="@/components/employee-shell" title="Employee Navigation · Hari Ini">
+        <div className="employee-navigation employee-navigation-demo">
+          <EmployeeNavigation active="today" appearance="attendance" />
+        </div>
+      </UiKitSection>
       <UiKitSection id="employee-topbar" importPath="@/components/employee-shell" title="Employee Top Bar">
         <EmployeeTopbar
           accountName="Rani Karyawan"
@@ -62,6 +67,9 @@ export function AppComponentsSection() {
             onChange: setDemoOutletId,
           }}
         />
+      </UiKitSection>
+      <UiKitSection id="employee-topbar-attendance" importPath="@/components/employee-shell" title="Employee Top Bar · Hari Ini">
+        <EmployeeTopbar accountName="Rani Karyawan" appearance="attendance" />
       </UiKitSection>
       <UiKitSection id="correction-evidence-panel" title="Correction Evidence" importPath="@/components/correction-evidence-panel">
         <p className="text-body">Lampiran tetap opsional. Pada permintaan yang dapat diakses, tindakan bukti dan pembuka permintaan bukti tambahan memiliki target minimal 44 × 44 px.</p>
