@@ -16,7 +16,7 @@
 
 ### 1. Folder layout
 
-Keep `~/Development` to these entries only:
+HadirinAja folders in `~/Development` are limited to the entries below. Other projects in `~/Development` are out of scope: never read, modify, move, or delete them.
 
 - `hadirinaja/` — the single git repository (`main` = V1.0 Cepat Kopi pilot line).
 - `hadirinaja-wt/<track>/` — git worktrees, one per track. At most 3 active; remove one when its milestone closes.
@@ -24,7 +24,14 @@ Keep `~/Development` to these entries only:
 - `hadirinaja-evidence/<yyyymmdd>-<topic>/` — UAT reports, screenshots, network captures.
 - `hadirinaja-archive/` — superseded tarballs and provenance folders. Read-only.
 
-Never move or rename the existing runtime folders (`hadirinaja-v1.0-cepat-kopi-pilot-20261119` on 127.0.0.1:18084 / DB 3309, `hadirinaja-v1.0-local-uat` on 18083 / DB 3307, `hadirinaja-v1.0-p0-candidate-20261118` / DB 3308). They contain hardcoded absolute paths.
+These existing non-git folders are frozen. Never move, rename, or modify them, and do not create new non-git folders:
+
+- `hadirinaja-v1.1-candidate` — legacy V1.1 candidate, frozen. New V1.1 work happens in a worktree created from branch `v1.1/frontend-candidate`.
+- `hadirinaja-v1.0-cepat-kopi-pilot-20261119` — pilot runtime on 127.0.0.1:18084 / DB 3309.
+- `hadirinaja-v1.0-local-uat` — protected UAT on 18083 / DB 3307.
+- `hadirinaja-v1.0-p0-candidate-20261118` — P0 clone / DB 3308.
+
+The three runtime folders contain hardcoded absolute paths.
 
 ### 2. Branch and worktree
 
@@ -40,7 +47,7 @@ Forbidden:
 
 - Copying source with `cp` or `rsync`, or creating `mktemp`-style folder names.
 - Creating any new `hadirinaja-*` folder in `~/Development`.
-- Copying or symlinking `node_modules` or `vendor` between folders — run `bun install` per worktree from the lockfile.
+- Copying or symlinking `node_modules` or `vendor` between folders — install dependencies per worktree with `bun install` (`bun.lock` is authoritative; do not regenerate `package-lock.json` unless the task says so).
 
 Never work on `main`. Never merge `archive/v1.0-p0-schedule-ux-fail` into V1.0; it is reference only.
 

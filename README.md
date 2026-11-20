@@ -1,6 +1,6 @@
 # HadirinAja
 
-Attendance management for Indonesian small businesses: geofenced check-in, shift scheduling, and a supervisor backoffice. Current line is the V1.0 Cepat Kopi pilot.
+Attendance management for Indonesian small businesses: geofenced check-in, shift scheduling, and an Owner backoffice. Current line is the V1.0 Cepat Kopi pilot.
 
 - **Working rules** — [`AGENTS.md`](AGENTS.md): folder layout, worktree and branch policy, commit hygiene, safety boundaries, and process.
 - **Docs** — [`docs/`](docs/): product rules, pilot readiness, environment setup, UX writing standard, and weekly planner specs.
