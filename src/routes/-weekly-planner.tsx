@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { WeeklyPlannerBoard } from "@/components/weekly-planner-board"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -23,20 +22,23 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { apiRequest, ApiError } from "@/lib/api"
+import { WeeklyPlannerBoard } from "@/components/weekly-planner-board"
+import { ApiError, apiRequest } from "@/lib/api"
 import type { ShiftTemplate } from "@/lib/shift-templates"
 import { useConfigurationDraft } from "@/lib/use-configuration-draft"
 import {
+  isPlannerWeekend,
+  type PlannerEntry,
+  type PlannerWeek,
   plannerDateLabel,
+  plannerShiftTimes,
+  plannerVisibleRoles,
   replacePlannerEntry,
+  type Staffing,
+  type StaffingReport,
   staffingLabels,
   staffingOptions,
   staffingRoles,
-  staffingTimes,
-  type PlannerEntry,
-  type PlannerWeek,
-  type Staffing,
-  type StaffingReport,
 } from "@/lib/weekly-planner"
 
 type Command = { path: string; method: string; body: unknown; key: string }
@@ -124,6 +126,7 @@ export function WeeklyPlanner({
   const current = data?.draft ?? data?.published
   const entries = current?.entries ?? []
   const staffing = current?.staffing
+  const plannerSettings = data?.planner_settings
   const disabled = loading || busy || stale || uncertain
   const shiftLabels = Object.fromEntries(
     templates.flatMap((template) =>
@@ -389,6 +392,7 @@ export function WeeklyPlanner({
         employees={data.employees}
         report={data.staffing_report}
         shiftLabels={shiftLabels}
+        plannerSettings={plannerSettings}
         disabled={disabled || !staffing}
         onEdit={(day, entry) => {
           setDate(day)
@@ -518,7 +522,8 @@ export function WeeklyPlanner({
                 ? staffingRoles.map((role) => (
                     <Field key={role}>
                       <FieldLabel htmlFor={`planner-${role}`}>
-                        {staffingLabels[role]} · {staffingTimes[role].join("–")}
+                        {staffingLabels[role]} ·{" "}
+                        {plannerShiftTimes(role, plannerSettings).join("–")}
                       </FieldLabel>
                       <NativeSelect
                         id={`planner-${role}`}
@@ -536,16 +541,19 @@ export function WeeklyPlanner({
                         <NativeSelectOption value="">
                           Pilih versi shift
                         </NativeSelectOption>
-                        {staffingOptions(templates, role, weekStart).map(
-                          (version) => (
-                            <NativeSelectOption
-                              value={version.id}
-                              key={version.id}
-                            >
-                              {version.name} · v{version.revision}
-                            </NativeSelectOption>
-                          )
-                        )}
+                        {staffingOptions(
+                          templates,
+                          role,
+                          weekStart,
+                          plannerSettings
+                        ).map((version) => (
+                          <NativeSelectOption
+                            value={version.id}
+                            key={version.id}
+                          >
+                            {version.name} · v{version.revision}
+                          </NativeSelectOption>
+                        ))}
                       </NativeSelect>
                     </Field>
                   ))
@@ -604,22 +612,40 @@ export function WeeklyPlanner({
                       <NativeSelectOption value="unscheduled">
                         Tidak dijadwalkan
                       </NativeSelectOption>
-                      {staffingRoles
-                        .filter(
-                          (role) =>
-                            role !== "middle" ||
-                            (new Date(`${date}T12:00:00Z`).getUTCDay() !== 0 &&
-                              new Date(`${date}T12:00:00Z`).getUTCDay() !== 6)
-                        )
-                        .map((role) => (
-                          <NativeSelectOption
-                            key={role}
-                            value={staffing?.[role] ?? ""}
-                          >
-                            {staffingLabels[role]} ·{" "}
-                            {staffingTimes[role].join("–")}
-                          </NativeSelectOption>
-                        ))}
+                      {plannerVisibleRoles(date, plannerSettings).flatMap(
+                        (role) => {
+                          if (
+                            plannerSettings?.custom &&
+                            isPlannerWeekend(date, plannerSettings)
+                          ) {
+                            return staffingOptions(
+                              templates,
+                              role,
+                              date,
+                              plannerSettings,
+                              role === "evening"
+                            ).map((version) => (
+                              <NativeSelectOption
+                                value={version.id}
+                                key={version.id}
+                              >
+                                {version.name} · v{version.revision}
+                              </NativeSelectOption>
+                            ))
+                          }
+                          return (
+                            <NativeSelectOption
+                              key={role}
+                              value={staffing?.[role] ?? ""}
+                            >
+                              {staffingLabels[role]} ·{" "}
+                              {plannerShiftTimes(role, plannerSettings).join(
+                                "–"
+                              )}
+                            </NativeSelectOption>
+                          )
+                        }
+                      )}
                     </NativeSelect>
                   </Field>
                 </>

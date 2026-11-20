@@ -9,7 +9,11 @@ import {
   within,
 } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { PlannerWeek, StaffingReport } from "@/lib/weekly-planner"
+import type {
+  PlannerSettings,
+  PlannerWeek,
+  StaffingReport,
+} from "@/lib/weekly-planner"
 
 const { apiRequest, ApiFailure } = vi.hoisted(() => ({
   apiRequest: vi.fn(),
@@ -32,6 +36,7 @@ vi.mock("@/lib/use-configuration-draft", () => ({
     dialog: null,
   }),
 }))
+
 import { WeeklyPlanner } from "./-weekly-planner"
 
 const report: StaffingReport = {
@@ -64,8 +69,56 @@ const templates = [
       },
     ],
   },
+  {
+    id: 2,
+    name: "Weekend QA",
+    versions: [
+      {
+        id: 2,
+        revision: 1,
+        start_time: "16:00:00",
+        end_time: "23:00:00",
+        effective_from: "2026-11-09",
+        crosses_midnight: false,
+      },
+      {
+        id: 3,
+        revision: 2,
+        start_time: "16:00:00",
+        end_time: "23:00:00",
+        effective_from: "2026-11-15",
+        crosses_midnight: false,
+      },
+      {
+        id: 4,
+        revision: 3,
+        start_time: "16:00:00",
+        end_time: "22:00:00",
+        effective_from: "2026-11-09",
+        crosses_midnight: false,
+      },
+      {
+        id: 5,
+        revision: 4,
+        start_time: "16:00:00",
+        end_time: "23:00:00",
+        effective_from: "2026-11-09",
+        crosses_midnight: true,
+      },
+    ],
+  },
 ]
-function week(id = 1): PlannerWeek {
+const fridayWeekendSettings: PlannerSettings = {
+  weekend_starts_on: 5,
+  weekday_shifts: {
+    morning: ["08:00:00", "16:00:00"],
+    middle: ["11:00:00", "18:00:00"],
+    evening: ["16:00:00", "22:00:00"],
+  },
+  weekend_evening: ["16:00:00", "23:00:00"],
+  custom: true,
+}
+function week(id = 1, plannerSettings?: PlannerSettings): PlannerWeek {
   return {
     version: 1,
     week_start: "2026-11-09",
@@ -80,6 +133,7 @@ function week(id = 1): PlannerWeek {
     outlet: { id, name: `Outlet QA ${id}`, weekly_planner_start_on: null },
     employees: [{ id: 1, name: "Employee QA" }],
     published_weeks: [],
+    ...(plannerSettings ? { planner_settings: plannerSettings } : {}),
   }
 }
 function planner(outletId = 1) {
@@ -143,6 +197,56 @@ describe("Supervisor weekly planner", () => {
         })
       )
     )
+  })
+  it.each([
+    ["2026-11-13", ["Weekend QA · v1"]],
+    ["2026-11-14", ["Weekend QA · v1"]],
+    ["2026-11-15", ["Weekend QA · v1", "Weekend QA · v2"]],
+  ])("offers date-valid configured weekend options on %s and hides middle", async (date, expectedOptions) => {
+    apiRequest.mockResolvedValue(week(1, fridayWeekendSettings))
+    render(planner())
+    expect(
+      await screen.findAllByText("Akhir pekan · tanpa tengah")
+    ).toHaveLength(3)
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: `Tambah penugasan ${date}`,
+      })
+    )
+    const dialog = await screen.findByRole("dialog")
+    const assignment = within(dialog).getByLabelText(
+      "Penugasan"
+    ) as HTMLSelectElement
+    const optionLabels = Array.from(assignment.options).map((option) =>
+      option.textContent?.trim()
+    )
+
+    for (const label of expectedOptions) expect(optionLabels).toContain(label)
+    expect(optionLabels).not.toContain("Weekend QA · v3")
+    expect(optionLabels).not.toContain("Tengah · 11:00–18:00")
+    expect(optionLabels).not.toContain("Weekend QA · v4")
+  })
+  it("keeps absent planner settings on the existing Saturday-Sunday mapping", async () => {
+    apiRequest.mockResolvedValue(week())
+    render(planner())
+    expect(
+      await screen.findAllByText("Akhir pekan · tanpa tengah")
+    ).toHaveLength(2)
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Tambah penugasan 2026-11-14",
+      })
+    )
+    const dialog = await screen.findByRole("dialog")
+    const assignment = within(dialog).getByLabelText(
+      "Penugasan"
+    ) as HTMLSelectElement
+    const optionLabels = Array.from(assignment.options).map((option) =>
+      option.textContent?.trim()
+    )
+    expect(optionLabels).toContain("Pagi · 08:00–16:00")
+    expect(optionLabels).toContain("Sore · 16:00–22:00")
+    expect(optionLabels).not.toContain("Tengah · 11:00–19:00")
   })
   it("blocks stale publication until the latest version is loaded", async () => {
     apiRequest.mockImplementation(

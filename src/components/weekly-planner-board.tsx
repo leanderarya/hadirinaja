@@ -9,12 +9,14 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import {
+  isPlannerWeekend,
+  type PlannerEntry,
+  type PlannerSettings,
   plannerDateLabel,
   plannerDates,
-  staffingLabels,
-  type PlannerEntry,
   type StaffingReport,
   type StaffingRole,
+  staffingLabels,
 } from "@/lib/weekly-planner"
 
 export function WeeklyPlannerBoard({
@@ -22,6 +24,7 @@ export function WeeklyPlannerBoard({
   entries,
   employees,
   report,
+  plannerSettings,
   shiftLabels,
   disabled = false,
   onEdit,
@@ -30,6 +33,7 @@ export function WeeklyPlannerBoard({
   entries: PlannerEntry[]
   employees: Array<{ id: number; name: string }>
   report?: StaffingReport
+  plannerSettings?: PlannerSettings | null
   shiftLabels: Record<number, string>
   disabled?: boolean
   onEdit?: (date: string, entry?: PlannerEntry) => void
@@ -39,13 +43,14 @@ export function WeeklyPlannerBoard({
       className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"
       aria-label="Roster Senin sampai Minggu"
     >
-      {plannerDates(weekStart).map((date, index) => {
+      {plannerDates(weekStart).map((date) => {
+        const weekend = isPlannerWeekend(date, plannerSettings)
         const day = report?.days.find((item) => item.work_date === date)
         const targets =
           day?.targets ??
-          (index < 5
-            ? { morning: 1, middle: 1, evening: 1 }
-            : { morning: 2, evening: 2 })
+          (weekend
+            ? { morning: 2, evening: 2 }
+            : { morning: 1, middle: 1, evening: 1 })
         const roster = entries.filter((entry) => entry.work_date === date)
         return (
           <Card size="sm" key={date}>
@@ -54,7 +59,7 @@ export function WeeklyPlannerBoard({
                 <time dateTime={date}>{plannerDateLabel(date)}</time>
               </CardTitle>
               <CardDescription>
-                {index < 5 ? "Hari kerja" : "Akhir pekan · tanpa tengah"}
+                {weekend ? "Akhir pekan · tanpa tengah" : "Hari kerja"}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">

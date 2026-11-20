@@ -3,13 +3,14 @@ import {
   buildPolicySnapshot,
   changedPolicyFields,
   hasPolicyOverride,
+  type PolicyResponse,
   policyDefaults,
   policyDraft,
   policyFingerprint,
   validatePolicyDate,
   validatePolicyDraft,
-  type PolicyResponse,
 } from "./policy-editor"
+
 const fixture = (): PolicyResponse => ({
   effective_date: "2026-10-28",
   effective: {
@@ -197,6 +198,14 @@ describe("policy version snapshot editing", () => {
     expect(validatePolicyDate("2026-10-28", "2026-10-28")).toBe(true)
     for (const date of ["2026-10-27", "2026-02-30", "invalid"])
       expect(validatePolicyDate(date, "2026-10-28")).toBe(false)
+  })
+  it("accepts a 25 meter geofence radius and rejects 24.99 meters", () => {
+    const draft = policyDraft(policyDefaults),
+      radius = "personal_location_validation.radius_meters"
+    draft[radius] = "25"
+    expect(validatePolicyDraft(draft)).not.toHaveProperty(radius)
+    draft[radius] = "24.99"
+    expect(validatePolicyDraft(draft)).toHaveProperty(radius)
   })
   it("compares snapshot data and version ids without sensitivity to property order", () => {
     const a = fixture(),

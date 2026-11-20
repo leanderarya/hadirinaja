@@ -1,13 +1,13 @@
-import { WeeklyPlannerBoard } from "@/components/weekly-planner-board"
 import { useState } from "react"
 import {
   OperationalSummary,
+  type ScheduleDaySummary,
   ScheduleMatrix,
   WorkWeekControl,
-  type ScheduleDaySummary,
 } from "@/components/r2c/operational-blocks"
 import { ContextDrawer } from "@/components/r2c/screen-blocks"
 import { UiKitSection } from "@/components/ui-kit/ui-kit-section"
+import { WeeklyPlannerBoard } from "@/components/weekly-planner-board"
 
 const days: ScheduleDaySummary[] = [
   "2026-10-26",
@@ -41,8 +41,28 @@ export function R2cOperationsSection() {
     [open, setOpen] = useState(false)
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <UiKitSection id="weekly-planner-board" title="Weekly planner · empty roster" importPath="@/components/weekly-planner-board" description="Komponen nyata dengan data kosong; tanpa akun atau jadwal rekaan.">
-        <WeeklyPlannerBoard weekStart="2026-11-02" entries={[]} employees={[]} shiftLabels={{}} />
+      <UiKitSection
+        id="weekly-planner-board"
+        title="Weekly planner · empty roster"
+        importPath="@/components/weekly-planner-board"
+        description="Komponen nyata dengan data kosong; tanpa akun atau jadwal rekaan."
+      >
+        <WeeklyPlannerBoard
+          weekStart="2026-11-02"
+          entries={[]}
+          employees={[]}
+          plannerSettings={{
+            weekend_starts_on: 5,
+            weekday_shifts: {
+              morning: ["08:00:00", "16:00:00"],
+              middle: ["11:00:00", "18:00:00"],
+              evening: ["16:00:00", "22:00:00"],
+            },
+            weekend_evening: ["16:00:00", "23:00:00"],
+            custom: true,
+          }}
+          shiftLabels={{}}
+        />
       </UiKitSection>
       <UiKitSection
         id="r2c-work-week"

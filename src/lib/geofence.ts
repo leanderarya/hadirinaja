@@ -47,7 +47,7 @@ export function locationEligibility(
     }) ||
     outlet.radius_meters == null ||
     !Number.isFinite(outlet.radius_meters) ||
-    outlet.radius_meters < 50 ||
+    outlet.radius_meters < 25 ||
     outlet.radius_meters > 5000
   ) {
     return {

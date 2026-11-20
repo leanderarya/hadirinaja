@@ -26,6 +26,15 @@ describe("personal location feedback", () => {
       locationEligibility({ ...outlet, latitude: null }, location).eligible
     ).toBe(false)
   })
+  it("accepts a 25 meter radius and rejects a radius below 25 meters", () => {
+    expect(
+      locationEligibility({ ...outlet, radius_meters: 25 }, location).eligible
+    ).toBe(true)
+    expect(
+      locationEligibility({ ...outlet, radius_meters: 24.99 }, location)
+        .eligible
+    ).toBe(false)
+  })
   it("uses the existing radius as maximum accuracy without rounding", () => {
     expect(
       locationEligibility(outlet, { ...location, accuracy_meters: 100 })

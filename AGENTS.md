@@ -80,6 +80,9 @@ Do not, under any task:
 - Reseed, migrate, or reset a protected database.
 - Bypass the DB isolation guard, authentication, CSRF, CORS, or origin restrictions.
 - Fake attendance or worker identity.
+- Never run migrate:fresh, db:wipe, --refresh-fixtures, reseed or reset on any database without the Owner's explicit approval for that specific run.
+- Production data: hadirinaja-staging.cahayaarkana.site holds real attendance data from 2026-11-23. Back up first, record the reason, and prefer in-app correction over direct DB edits.
+- Before stopping or restarting any DB or server, inspect the running process environment (ps eww) to identify every dependent service.
 
 STOP and report if:
 

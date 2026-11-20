@@ -83,7 +83,7 @@ export const policyFields = [
     key: "personal_location_validation.radius_meters",
     label: "Radius dari titik lokasi (meter)",
     group: "location",
-    min: 50,
+    min: 25,
     max: 5000,
   },
   {
@@ -247,7 +247,9 @@ export function buildPolicySnapshot(
     )
   const rawOverrides = target.effective.outlet_overrides
   if (Array.isArray(rawOverrides) && rawOverrides.length)
-    throw new Error("Data pengaturan khusus Outlet tidak valid; penyimpanan dihentikan.")
+    throw new Error(
+      "Data pengaturan khusus Outlet tidak valid; penyimpanan dihentikan."
+    )
   const snapshot: Record<string, unknown> = structuredClone(
     scope === "tenant"
       ? (target.effective.tenant_default ?? policyDefaults)
