@@ -1,6 +1,13 @@
-# Faiz UI (some-ui)
+# HadirinAja
 
-A TanStack Start design system starter with shadcn/ui, a Faiz-branded marketing landing page, and a living component catalog at `/ui-kit`. Built on React 19, Tailwind CSS v4, and Geist Variable — with semantic design tokens for color, spacing, motion, shadows, logo, and typography.
+Attendance management for Indonesian small businesses: geofenced check-in, shift scheduling, and a supervisor backoffice. Current line is the V1.0 Cepat Kopi pilot.
+
+- **Working rules** — [`AGENTS.md`](AGENTS.md): folder layout, worktree and branch policy, commit hygiene, safety boundaries, and process.
+- **Docs** — [`docs/`](docs/): product rules, pilot readiness, environment setup, UX writing standard, and weekly planner specs.
+- **UI kit** — `/ui-kit` (living catalog of shadcn/ui components and design tokens).
+- **UI copy** — follows [`docs/ux-writing-standard.md`](docs/ux-writing-standard.md).
+
+Built on TanStack Start + TanStack Router, React 19, Tailwind CSS v4, and shadcn/ui, with semantic design tokens for color, spacing, motion, shadows, logo, and typography.
 
 ## Tech stack
 
