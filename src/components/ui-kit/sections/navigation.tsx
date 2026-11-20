@@ -1,5 +1,6 @@
 "use client"
 
+import { OwnerMobileNavigation } from "@/components/management-sidebar"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -50,6 +51,16 @@ import { UiKitSection } from "@/components/ui-kit/ui-kit-section"
 export function NavigationSection() {
   return (
     <div className="flex flex-col gap-6">
+      <UiKitSection
+        id="owner-mobile-navigation"
+        importPath="@/components/management-sidebar"
+        title="Owner Mobile Navigation"
+      >
+        <div className="owner-mobile-navigation-demo w-full max-w-sm overflow-hidden rounded-xl border bg-background">
+          <OwnerMobileNavigation active="team" preview />
+        </div>
+      </UiKitSection>
+
       <UiKitSection
         id="breadcrumb"
         importPath="@/components/ui/breadcrumb"
@@ -190,7 +201,7 @@ export function NavigationSection() {
         </div>
       </UiKitSection>
 
-      <UiKitSection id="tabs" importPath="@/components/ui/tabs" title="Tabs">
+      <UiKitSection id="tabs" importPath="@/components/ui/tabs" title="Tabs" description="Tab reaches the active panel with a visible outline. Arrow keys switch tabs. The outline remains visible in forced colors.">
         <Tabs className="max-w-md" defaultValue="account">
           <TabsList>
             <TabsTrigger value="account">Account</TabsTrigger>

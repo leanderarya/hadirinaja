@@ -137,7 +137,7 @@ function DashboardPage() {
               </span>
             </div>
           </div>
-          <button className="rounded-lg p-1 hover:bg-muted">
+          <button type="button" className="rounded-lg p-1 hover:bg-muted">
             <HugeiconsIcon icon={ArrowDown01Icon} className="size-4 text-muted-foreground" />
           </button>
         </div>
@@ -325,7 +325,7 @@ function DashboardPage() {
           {/* Right Header Items */}
           <div className="flex items-center gap-4">
             {/* Chat Icon with Badge */}
-            <button className="relative rounded-lg p-1.5 hover:bg-muted text-muted-foreground">
+            <button type="button" className="relative rounded-lg p-1.5 hover:bg-muted text-muted-foreground">
               <HugeiconsIcon icon={Message01Icon} className="size-4.5" />
               <span className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-[#ff5a1f] text-[9px] font-bold text-white">
                 5
@@ -333,12 +333,12 @@ function DashboardPage() {
             </button>
 
             {/* Shuffle Icon */}
-            <button className="rounded-lg p-1.5 hover:bg-muted text-muted-foreground">
+            <button type="button" className="rounded-lg p-1.5 hover:bg-muted text-muted-foreground">
               <HugeiconsIcon icon={ShuffleIcon} className="size-4.5" />
             </button>
 
             {/* Bell Icon */}
-            <button className="rounded-lg p-1.5 hover:bg-muted text-muted-foreground">
+            <button type="button" className="rounded-lg p-1.5 hover:bg-muted text-muted-foreground">
               <HugeiconsIcon icon={BellIcon} className="size-4.5" />
             </button>
 
@@ -361,7 +361,7 @@ function DashboardPage() {
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold text-foreground">Today</h2>
               <div className="flex items-center gap-2">
-                <button className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
+                <button type="button" className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
                   <div className="grid grid-cols-2 gap-0.5 size-3">
                     <div className="bg-foreground rounded-xs" />
                     <div className="bg-foreground rounded-xs" />
@@ -370,7 +370,7 @@ function DashboardPage() {
                   </div>
                   <span>Add apps</span>
                 </button>
-                <button className="rounded-lg border bg-white p-1.5 text-muted-foreground hover:bg-[#f9fafb]">
+                <button type="button" className="rounded-lg border bg-white p-1.5 text-muted-foreground hover:bg-[#f9fafb]">
                   <HugeiconsIcon icon={BellIcon} className="size-4" />
                 </button>
               </div>
@@ -499,7 +499,7 @@ function DashboardPage() {
                   <a href="#" className="font-semibold underline hover:text-blue-950">Join Whop University</a> and start your path to your first $10K.
                 </span>
               </div>
-              <button
+              <button type="button"
                 onClick={() => setBannerOpen(false)}
                 className="rounded-lg p-1 text-blue-600 hover:bg-blue-100/50 transition-colors"
               >
@@ -515,36 +515,36 @@ function DashboardPage() {
             {/* Filter Bar */}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
-                <button className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
+                <button type="button" className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
                   <span>Last 7 days</span>
                   <HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5 text-muted-foreground" />
                 </button>
-                <button className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
+                <button type="button" className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
                   <HugeiconsIcon icon={Calendar03Icon} className="size-3.5 text-muted-foreground" />
                   <span>Feb 28 - Mar 6, 2026</span>
                 </button>
                 <span className="text-xs text-muted-foreground">compared to</span>
-                <button className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
+                <button type="button" className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
                   <span>Previous period</span>
                   <HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5 text-muted-foreground" />
                 </button>
-                <button className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
+                <button type="button" className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
                   <span>Daily</span>
                   <HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5 text-muted-foreground" />
                 </button>
                 <span className="text-xs text-muted-foreground">on</span>
-                <button className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
+                <button type="button" className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
                   <span>All products</span>
                   <HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5 text-muted-foreground" />
                 </button>
               </div>
 
               <div className="flex items-center gap-2">
-                <button className="flex items-center gap-1 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
+                <button type="button" className="flex items-center gap-1 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
                   <HugeiconsIcon icon={Add01Icon} className="size-3.5" />
                   <span>Add</span>
                 </button>
-                <button className="flex items-center gap-1 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
+                <button type="button" className="flex items-center gap-1 rounded-lg border bg-white px-3 py-1.5 text-xs font-semibold text-foreground shadow-xs hover:bg-[#f9fafb]">
                   <HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
                   <span>Edit</span>
                 </button>
@@ -567,7 +567,7 @@ function DashboardPage() {
                       </span>
                     </div>
                   </div>
-                  <button className="rounded-lg p-1 hover:bg-muted text-muted-foreground">
+                  <button type="button" className="rounded-lg p-1 hover:bg-muted text-muted-foreground">
                     <HugeiconsIcon icon={ArrowDown01Icon} className="size-4" />
                   </button>
                 </div>
@@ -652,7 +652,7 @@ function DashboardPage() {
                       </span>
                     </div>
                   </div>
-                  <button className="rounded-lg p-1 hover:bg-muted text-muted-foreground">
+                  <button type="button" className="rounded-lg p-1 hover:bg-muted text-muted-foreground">
                     <HugeiconsIcon icon={ArrowDown01Icon} className="size-4" />
                   </button>
                 </div>
@@ -737,7 +737,7 @@ function DashboardPage() {
                       </span>
                     </div>
                   </div>
-                  <button className="rounded-lg p-1 hover:bg-muted text-muted-foreground">
+                  <button type="button" className="rounded-lg p-1 hover:bg-muted text-muted-foreground">
                     <HugeiconsIcon icon={ArrowDown01Icon} className="size-4" />
                   </button>
                 </div>

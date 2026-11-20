@@ -1,0 +1,23 @@
+# Backoffice navigation
+
+[Back to blueprint](README.md)
+
+The Owner has exactly six **top-level** destinations. IDs and route paths below are reuse candidates, not a request to rename every URL. Use the [project writing standard](../ux-writing-standard.md) for the visible Indonesian labels.
+
+| Owner destination | Existing UI and API | Mapping and redesign boundary |
+|---|---|---|
+| Home / Ringkasan | [`reports.index.tsx`](../../src/routes/reports.index.tsx), [`workspace.tsx`](../../src/routes/workspace.tsx), `GET /api/v1/management/reports/dashboard` | PARTIAL: summary and workspace exist. Choose a single Owner landing and link to actual follow-up work; do not synthesize KPIs. |
+| Schedule / Jadwal | [`scheduling.tsx`](../../src/routes/scheduling.tsx), [`-scheduling-page.tsx`](../../src/routes/-scheduling-page.tsx), `/api/v1/management/scheduling/*` | PARTIAL: planner and supporting tools already exist. Use the [approved weekly workflow](scheduling-ux.md). |
+| Attendance / Presensi | [`reports.attendance.tsx`](../../src/routes/reports.attendance.tsx), [`approvals.tsx`](../../src/routes/approvals.tsx), `GET /api/v1/management/attendance`, `GET /api/v1/management/reports/attendance` | PARTIAL: operational reads, reporting and review exist on separate surfaces. Keep evidence and approval links scoped. Do not repurpose Employee [`/attendance`](../../src/routes/attendance.tsx) or turn Kiosk into an Owner action. |
+| Employees / Karyawan | [`workspace.tsx`](../../src/routes/workspace.tsx) team area, [`access.tsx`](../../src/routes/access.tsx), `/api/v1/management/employees` plus existing access routes | PARTIAL: roster, detail, update and access flows exist. Consolidate the entry point; distinguish employee records, placement and user access. Keep access changes separately confirmed. |
+| Outlets / Outlet | [`settings_.organization.tsx`](../../src/routes/settings_.organization.tsx), [`-organization-experience.tsx`](../../src/routes/-organization-experience.tsx), [`outlet-geofence-map.tsx`](../../src/components/outlet-geofence-map.tsx), `/api/v1/management/organization` and `/outlets` under management | PARTIAL: outlet operations live under Settings today. Give them a single Owner entry without duplicating data ownership. Surface effective policy and authorized map details, not raw secrets or other outlets' data. |
+| Settings / Pengaturan | [`settings.tsx`](../../src/routes/settings.tsx), [attendance policy](../../src/routes/settings_.attendance-policy.tsx), [outlet calendar](../../src/routes/settings_.outlet-calendar.tsx), [shift templates](../../src/routes/settings_.shift-templates.tsx), [kiosk devices](../../src/routes/settings_.kiosk-devices.tsx) | PARTIAL: configuration pages exist. Group by domain; retain dedicated pages for complex, versioned configuration. |
+
+All API paths are defined in [`backend/routes/api.php`](../../backend/routes/api.php). The current [`management-navigation.ts`](../../src/lib/management-navigation.ts) has overview, team, schedule, approvals, reporting and settings groups, but not the approved six destinations. Treat reports, audit and approvals as contextual links, not extra top-level Owner menus. Keep existing deep links working or deliberately route them to an equivalent scoped screen; do not remove existing capability merely because the sidebar changes.
+
+## Access and state
+
+- Keep organization switch and account actions in the shell, outside the six destinations. Reuse the active-tenant session model (`GET /api/v1/auth/me`, `POST /api/v1/auth/tenant`) and [`auth-navigation.ts`](../../src/lib/auth-navigation.ts). Preserve Employee landing and existing Supervisor scoping rather than applying Owner navigation to every role.
+- `auth:sanctum`, active tenant, and backend authorization are the security boundary. A hidden menu does not authorize an API call. Use [`EnsureActiveTenant`](../../backend/app/Http/Middleware/EnsureActiveTenant.php), [`TenantAuthorization`](../../backend/app/Services/TenantAuthorization.php), and each resource controller as evidence.
+- When switching tenant or outlet, cancel/ignore old in-flight reads; discard or explicitly resolve unsaved local edits before loading another scope. Check redirects and direct URLs under Owner, scoped Supervisor, Employee, signed-out and foreign-tenant sessions. Do not widen list queries or show stale rows during a switch.
+- Preserve the active destination on reload. Date/outlet deep links may restore only values authorized for the active tenant. A missing or inaccessible outlet must not fall back to a different outlet silently when a mutation is pending.

@@ -12,10 +12,13 @@ use LogicException;
 #[Fillable([
     'tenant_id', 'employee_id', 'attendance_session_id', 'approval_request_id', 'classification',
     'original_values', 'proposed_values', 'created_by_user_id', 'created_at',
+    'contract_version', 'basis_correction_id',
 ])]
 class AttendanceCorrection extends Model
 {
     use BelongsToTenant;
+
+    public const VERSIONED_EFFECT_CONTRACT = 2;
 
     public $timestamps = false;
 
@@ -25,6 +28,8 @@ class AttendanceCorrection extends Model
             'original_values' => 'array',
             'proposed_values' => 'array',
             'created_at' => 'immutable_datetime',
+            'contract_version' => 'integer',
+            'basis_correction_id' => 'integer',
         ];
     }
 
@@ -42,6 +47,16 @@ class AttendanceCorrection extends Model
     protected function performDeleteOnModel(): void
     {
         throw new LogicException('Attendance corrections are append-only.');
+    }
+
+    /** @return array{int, string, int} */
+    public function effectOrder(ApprovalDecision $decision): array
+    {
+        return [
+            $this->contract_version,
+            $this->contract_version === self::VERSIONED_EFFECT_CONTRACT ? '' : $decision->acted_at->toIso8601String(),
+            (int) $decision->getKey(),
+        ];
     }
 
     public function approvalRequest(): BelongsTo

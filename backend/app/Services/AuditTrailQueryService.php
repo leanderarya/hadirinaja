@@ -16,6 +16,7 @@ final class AuditTrailQueryService
         'attendance_finalization',
         'schedule_change',
         'employee_assignment',
+        'management_change',
         'report_export',
     ];
 
@@ -75,6 +76,7 @@ final class AuditTrailQueryService
                 'attendance_finalization' => $this->finalizations($scope, $filters),
                 'schedule_change' => $this->scheduleChanges($scope, $filters),
                 'employee_assignment' => $this->employeeAssignments($scope, $filters),
+                'management_change' => $this->managementChanges($scope, $filters),
                 'report_export' => $this->reportExports($scope, $filters),
             };
             $branches[] = $branch;
@@ -92,6 +94,7 @@ final class AuditTrailQueryService
     private function attendanceEvents(ReportingScope $scope, array $filters): Builder
     {
         $query = DB::table('attendance_events as e')
+            ->leftJoin('kiosk_devices as kd', fn (JoinClause $join) => $join->on('kd.id', '=', 'e.kiosk_device_id')->on('kd.tenant_id', '=', 'e.tenant_id'))
             ->join('employees as emp', fn (JoinClause $join) => $join->on('emp.id', '=', 'e.employee_id')->on('emp.tenant_id', '=', 'e.tenant_id'))
             ->join('outlets as o', fn (JoinClause $join) => $join->on('o.id', '=', 'e.outlet_id')->on('o.tenant_id', '=', 'e.tenant_id'))
             ->leftJoin('tenant_memberships as m', fn (JoinClause $join) => $join->on('m.id', '=', 'e.tenant_membership_id')->on('m.tenant_id', '=', 'e.tenant_id'))
@@ -99,7 +102,7 @@ final class AuditTrailQueryService
             ->where('e.tenant_id', $scope->tenantId)->whereBetween('e.recorded_at', $this->utcRange($filters))
             ->whereIn('e.outlet_id', $filters['outlet_ids'])
             ->when($filters['employee_id'] !== null, fn (Builder $q) => $q->where('e.employee_id', $filters['employee_id']))
-            ->selectRaw("'attendance_event' AS source_type, e.id AS source_id, e.tenant_id, e.recorded_at AS occurred_at, u.id AS actor_user_id, u.name AS actor_name, emp.id AS employee_id, emp.name AS employee_name, o.id AS outlet_id, o.name AS outlet_name, CONCAT('attendance.', e.event_type) AS action, CONCAT(IF(e.origin = 'kiosk', 'Kiosk ', 'Personal '), IF(e.event_type = 'check_in', 'check-in', 'check-out')) AS summary, NULL AS reason, 'attendance_session' AS resource_type, e.attendance_session_id AS resource_id");
+            ->selectRaw("'attendance_event' AS source_type, e.id AS source_id, e.tenant_id, e.recorded_at AS occurred_at, u.id AS actor_user_id, u.name AS actor_name, emp.id AS employee_id, emp.name AS employee_name, o.id AS outlet_id, o.name AS outlet_name, CONCAT('attendance.', e.event_type) AS action, CONCAT(IF(e.origin = 'kiosk', CONCAT('Kiosk #', e.kiosk_device_id, ' · ', COALESCE(kd.name, 'Perangkat kiosk'), ' · '), 'Personal '), IF(e.event_type = 'check_in', 'check-in', 'check-out')) AS summary, NULL AS reason, 'attendance_session' AS resource_type, e.attendance_session_id AS resource_id");
 
         return $query;
     }
@@ -152,16 +155,18 @@ final class AuditTrailQueryService
     {
         $query = DB::table('scheduling_change_events as e')
             ->leftJoin('weekly_schedule_rules as wr', fn (JoinClause $join) => $join->on('e.resource_type', '=', DB::raw("'weekly_schedule_rule'"))->on('wr.id', '=', 'e.resource_id')->on('wr.tenant_id', '=', 'e.tenant_id'))
+            ->leftJoin('shift_change_requests as scr', fn (JoinClause $join) => $join->on('e.resource_type', '=', DB::raw("'shift_change_request'"))->on('scr.id', '=', 'e.resource_id')->on('scr.tenant_id', '=', 'e.tenant_id'))
+            ->leftJoin('schedule_weeks as sw', fn (JoinClause $join) => $join->on('e.resource_type', '=', DB::raw("'schedule_week'"))->on('sw.id', '=', 'e.resource_id')->on('sw.tenant_id', '=', 'e.tenant_id'))
             ->leftJoin('schedule_exceptions as se', fn (JoinClause $join) => $join->on('e.resource_type', '=', DB::raw("'schedule_exception'"))->on('se.id', '=', 'e.resource_id')->on('se.tenant_id', '=', 'e.tenant_id'))
             ->leftJoin('outlet_attendance_policy_versions as op', fn (JoinClause $join) => $join->on('e.resource_type', '=', DB::raw("'outlet_policy'"))->on('op.id', '=', 'e.resource_id')->on('op.tenant_id', '=', 'e.tenant_id'))
             ->leftJoin('outlet_calendar_versions as cv', fn (JoinClause $join) => $join->on('e.resource_type', '=', DB::raw("'outlet_calendar'"))->on('cv.id', '=', 'e.resource_id')->on('cv.tenant_id', '=', 'e.tenant_id'))
             ->leftJoin('outlet_calendar_exceptions as ce', fn (JoinClause $join) => $join->on('e.resource_type', '=', DB::raw("'calendar_exception'"))->on('ce.id', '=', 'e.resource_id')->on('ce.tenant_id', '=', 'e.tenant_id'))
-            ->leftJoin('employees as emp', fn (JoinClause $join) => $join->on('emp.id', '=', DB::raw('COALESCE(wr.employee_id, se.employee_id)'))->on('emp.tenant_id', '=', 'e.tenant_id'))
-            ->leftJoin('outlets as o', fn (JoinClause $join) => $join->on('o.id', '=', DB::raw('COALESCE(wr.outlet_id, se.outlet_id, op.outlet_id, cv.outlet_id, ce.outlet_id)'))->on('o.tenant_id', '=', 'e.tenant_id'))
+            ->leftJoin('employees as emp', fn (JoinClause $join) => $join->on('emp.id', '=', DB::raw('COALESCE(wr.employee_id, se.employee_id, scr.requester_id)'))->on('emp.tenant_id', '=', 'e.tenant_id'))
+            ->leftJoin('outlets as o', fn (JoinClause $join) => $join->on('o.id', '=', DB::raw('COALESCE(wr.outlet_id, se.outlet_id, op.outlet_id, cv.outlet_id, ce.outlet_id, sw.outlet_id, scr.outlet_id)'))->on('o.tenant_id', '=', 'e.tenant_id'))
             ->join('users as u', 'u.id', '=', 'e.actor_user_id')
             ->where('e.tenant_id', $scope->tenantId)->whereBetween('e.created_at', $this->utcRange($filters))
-            ->when($filters['employee_id'] !== null, fn (Builder $q) => $q->whereRaw('COALESCE(wr.employee_id, se.employee_id) = ?', [$filters['employee_id']]))
-            ->selectRaw("'schedule_change' AS source_type, e.id AS source_id, e.tenant_id, e.created_at AS occurred_at, u.id AS actor_user_id, u.name AS actor_name, COALESCE(wr.employee_id, se.employee_id) AS employee_id, emp.name AS employee_name, o.id AS outlet_id, o.name AS outlet_name, CONCAT('schedule.', e.action) AS action, CONCAT('Perubahan ', REPLACE(e.resource_type, '_', ' '), ': ', e.action) AS summary, e.reason AS reason, e.resource_type AS resource_type, e.resource_id AS resource_id");
+            ->when($filters['employee_id'] !== null, fn (Builder $q) => $q->whereRaw('COALESCE(wr.employee_id, se.employee_id, scr.requester_id) = ?', [$filters['employee_id']]))
+            ->selectRaw("'schedule_change' AS source_type, e.id AS source_id, e.tenant_id, e.created_at AS occurred_at, u.id AS actor_user_id, u.name AS actor_name, COALESCE(wr.employee_id, se.employee_id, scr.requester_id) AS employee_id, emp.name AS employee_name, o.id AS outlet_id, o.name AS outlet_name, CONCAT('schedule.', e.action) AS action, CONCAT('Perubahan ', REPLACE(e.resource_type, '_', ' '), ': ', e.action) AS summary, e.reason AS reason, e.resource_type AS resource_type, e.resource_id AS resource_id");
 
         if ($scope->owner) {
             return $this->scopeOutlet($query, 'o.id', $filters['outlet_ids'], $this->includeTenantLevel($scope, $filters));
@@ -220,6 +225,20 @@ final class AuditTrailQueryService
             });
     }
 
+    /** @param array<string, mixed> $filters */
+    private function managementChanges(ReportingScope $scope, array $filters): Builder
+    {
+        $query = DB::table('management_change_events as e')
+            ->leftJoin('employees as emp', fn (JoinClause $join) => $join->on('emp.id', '=', 'e.employee_id')->on('emp.tenant_id', '=', 'e.tenant_id'))
+            ->leftJoin('outlets as o', fn (JoinClause $join) => $join->on('o.id', '=', 'e.outlet_id')->on('o.tenant_id', '=', 'e.tenant_id'))
+            ->join('users as u', 'u.id', '=', 'e.actor_user_id')
+            ->where('e.tenant_id', $scope->tenantId)->whereBetween('e.occurred_at', $this->utcRange($filters))
+            ->when($filters['employee_id'] !== null, fn (Builder $q) => $q->where('e.employee_id', $filters['employee_id']))
+            ->selectRaw("'management_change' AS source_type, e.id AS source_id, e.tenant_id, e.occurred_at, u.id AS actor_user_id, u.name AS actor_name, e.employee_id AS employee_id, emp.name AS employee_name, e.outlet_id AS outlet_id, o.name AS outlet_name, CONCAT('management.', e.subject_type, '.', e.action) AS action, CONCAT('Perubahan ', REPLACE(e.subject_type, '_', ' '), ': ', e.action) AS summary, NULL AS reason, e.subject_type AS resource_type, e.subject_id AS resource_id");
+
+        return $this->scopeOutlet($query, 'e.outlet_id', $filters['outlet_ids'], $this->includeTenantLevel($scope, $filters));
+    }
+
     private function scopeOutlet(Builder $query, string $column, array $outletIds, bool $allowNull): Builder
     {
         if ($outletIds === []) {
@@ -254,7 +273,7 @@ final class AuditTrailQueryService
     {
         if ($source === 'attendance_event') {
             $event = DB::table('attendance_events')->where('tenant_id', $tenantId)->where('id', $id)
-                ->first(['attendance_session_id', 'event_type', 'origin', 'recorded_at']);
+                ->first(['attendance_session_id', 'event_type', 'origin', 'recorded_at', 'kiosk_device_id']);
             abort_if($event === null, 404);
 
             return [
@@ -262,6 +281,7 @@ final class AuditTrailQueryService
                 'event_type' => $event->event_type,
                 'origin' => $event->origin,
                 'recorded_at' => $event->recorded_at,
+                'kiosk_device_id' => $event->kiosk_device_id === null ? null : (int) $event->kiosk_device_id,
             ];
         }
 
@@ -327,6 +347,34 @@ final class AuditTrailQueryService
             abort_if($assignment === null, 404);
 
             return (array) $assignment;
+        }
+
+        if ($source === 'management_change') {
+            $event = DB::table('management_change_events')->where('tenant_id', $tenantId)->where('id', $id)
+                ->first(['subject_type', 'subject_id', 'action', 'occurred_at', 'changed_fields', 'actor_membership_id', 'outlet_id']);
+            abort_if($event === null, 404);
+            $fields = json_decode((string) $event->changed_fields, true);
+            $kiosk = [];
+            if ($event->subject_type === 'kiosk_device') {
+                $kiosk = ['kiosk_device_id' => (int) $event->subject_id, 'outcome' => 'succeeded'];
+            } elseif ($event->subject_type === 'kiosk_pairing') {
+                $pairing = DB::table('kiosk_pairing_codes')->where('tenant_id', $tenantId)->where('id', $event->subject_id)
+                    ->first(['device_id', 'renewal_device_id']);
+                $kiosk = ['pairing_id' => (int) $event->subject_id,
+                    'kiosk_device_id' => ($pairing?->device_id ?? $pairing?->renewal_device_id) === null ? null : (int) ($pairing->device_id ?? $pairing->renewal_device_id),
+                    'outcome' => 'succeeded'];
+            }
+
+            return [
+                'subject_type' => $event->subject_type,
+                'subject_id' => (int) $event->subject_id,
+                'action' => $event->action,
+                'occurred_at' => $event->occurred_at,
+                'changed_fields' => is_array($fields) ? array_values(array_filter($fields, fn ($field): bool => is_string($field) && preg_match('/^[a-z][a-z0-9_]{0,63}$/i', $field) === 1)) : [],
+                'actor_membership_id' => (int) $event->actor_membership_id,
+                'outlet_id' => $event->outlet_id === null ? null : (int) $event->outlet_id,
+                ...$kiosk,
+            ];
         }
 
         if ($source === 'report_export') {

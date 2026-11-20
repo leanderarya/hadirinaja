@@ -124,6 +124,8 @@ final class ReportingController extends Controller
 
             foreach ($rows as $row) {
                 $sessions = collect($row['sessions']);
+                $reconstructions = collect($row['reconstructions']);
+                $effectiveSources = $sessions->concat($reconstructions);
                 $leave = $row['approved_leave']['category'] ?? '';
                 $overtime = collect($row['overtime_requests']);
                 $this->csvRow($output, [
@@ -139,18 +141,18 @@ final class ReportingController extends Controller
                     $sessions->pluck('original.check_in_at')->filter()->implode(' | '),
                     $sessions->pluck('original.check_out_at')->filter()->implode(' | '),
                     $row['actual_duration_seconds'] ?? '',
-                    $sessions->pluck('effective.check_in_at')->filter()->implode(' | '),
-                    $sessions->pluck('effective.check_out_at')->filter()->implode(' | '),
+                    $effectiveSources->pluck('effective.check_in_at')->filter()->implode(' | '),
+                    $effectiveSources->pluck('effective.check_out_at')->filter()->implode(' | '),
                     $row['effective_duration_seconds'] ?? '',
                     $row['outcome'],
                     $row['review']['status'],
                     $leave,
                     $overtime->pluck('requested_minutes')->filter(fn ($value) => $value !== null)->sum(),
                     $overtime->pluck('approved_minutes')->filter(fn ($value) => $value !== null)->sum(),
-                    $row['finalization'] ? $row['finalization']['outcome'].' #'.$row['finalization']['revision'] : 'Belum difinalisasi',
+                    $row['is_finalized'] ? $row['finalization']['outcome'].' #'.$row['finalization']['revision'] : 'Belum difinalisasi',
                     $sessions->pluck('id')->implode(' | '),
                     $sessions->pluck('original.event_ids')->flatten()->implode(' | '),
-                    $sessions->pluck('correction.decision_id')->filter()->implode(' | '),
+                    $sessions->pluck('correction.decision_id')->concat($reconstructions->pluck('decision_id'))->filter()->implode(' | '),
                 ]);
             }
 

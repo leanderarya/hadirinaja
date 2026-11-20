@@ -389,6 +389,8 @@ export function InfrastructureSection() {
                   return (
                     <div
                       key={idx}
+                      role="img"
+                      aria-label={`${data.date}: Components $${data.dataTransfer.toFixed(2)}, Blocks $${data.objectStorage.toFixed(2)}`}
                       className="relative flex flex-col items-center group cursor-pointer"
                       style={{ height: "70%" }}
                       onMouseEnter={() => setHoveredBar(idx)}

@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { type AuthSession, apiRequest, type TenantMembership } from "@/lib/api"
+import { getAuthenticatedEntryPath } from "@/lib/auth-navigation"
 
 export const Route = createFileRoute("/select-tenant")({
   component: SelectTenantPage,
@@ -46,11 +47,15 @@ function SelectTenantPage() {
     setError("")
 
     try {
-      await apiRequest("/auth/tenant", {
+      const result = await apiRequest<{
+        active_membership: TenantMembership
+      }>("/auth/tenant", {
         method: "POST",
         body: { membership_id: membershipId },
       })
-      window.location.assign("/workspace")
+      window.location.assign(
+        getAuthenticatedEntryPath(result.active_membership)
+      )
     } catch {
       setError(
         "Organisasi tidak dapat dipilih. Muat ulang halaman dan coba lagi."
@@ -78,8 +83,8 @@ function SelectTenantPage() {
           ) : memberships.length === 0 ? (
             <div className="space-y-4">
               <p className="text-body text-muted-foreground">
-                Akun ini belum memiliki akses organisasi aktif. Hubungi Owner
-                organisasi Anda.
+                Akun ini belum memiliki akses ke organisasi yang tersedia.
+                Hubungi Owner organisasi Anda.
               </p>
               <Button
                 onClick={() => window.location.assign("/login")}

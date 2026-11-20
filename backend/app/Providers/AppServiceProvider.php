@@ -34,6 +34,16 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        RateLimiter::for('access-invitation', static function (Request $request): array {
+            $tokenKey = hash('sha256', (string) $request->input('token'));
+            $ipKey = hash('sha256', (string) $request->ip());
+
+            return [
+                Limit::perMinute(30)->by('access-invitation-ip:'.$ipKey),
+                Limit::perMinutes(15, 8)->by('access-invitation-token:'.$tokenKey.':'.$ipKey),
+            ];
+        });
+
         RateLimiter::for('kiosk-pair', static function (Request $request): array {
             $codeKey = hash('sha256', Str::upper(trim((string) $request->input('code'))));
             $ipKey = hash('sha256', (string) $request->ip());

@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\TenantMembership;
 use App\Models\User;
 use App\Support\IdentityNormalizer;
+use App\Services\TenantAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -45,6 +46,35 @@ final class AuthSessionController extends Controller
         }
 
         return $this->sessionResponse($request, $user, $memberships);
+    }
+
+    public function loginForInvitation(Request $request, TenantAccessService $access): JsonResponse
+    {
+        $credentials = $request->validate([
+            'token' => ['required', 'string', 'size:64'],
+            'identifier' => ['required', 'string', 'max:255'],
+            'password' => ['required', 'string', 'max:255'],
+        ]);
+
+        $user = $this->findUser($credentials['identifier']);
+        $passwordMatches = Hash::check(
+            $credentials['password'],
+            $user?->getAuthPassword() ?? $this->dummyPasswordHash(),
+        );
+
+        if (! $user || ! $passwordMatches || ! $access->matchesAuthenticatedRecipient($credentials['token'], $user)) {
+            return $this->invalidCredentials();
+        }
+
+        Auth::guard('web')->login($user);
+        $request->session()->regenerate();
+        $request->session()->forget('active_membership_id');
+        $memberships = $this->availableMemberships($user);
+        if ($memberships->count() === 1) {
+            $request->session()->put('active_membership_id', $memberships->first()->getKey());
+        }
+
+        return response()->json(['authenticated_for_invitation' => true]);
     }
 
     public function current(Request $request): JsonResponse

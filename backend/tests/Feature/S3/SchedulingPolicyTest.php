@@ -11,6 +11,7 @@ use App\Services\TenantMembershipService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\BuildsTenantFixtures;
 use Tests\TestCase;
@@ -92,6 +93,100 @@ class SchedulingPolicyTest extends TestCase
             ->assertJsonPath('schedule.conflicts', []);
 
         $this->assertDatabaseCount('scheduling_change_events', 5);
+    }
+
+    public function test_geofence_coordinates_require_a_complete_pair_without_partial_policy_writes(): void
+    {
+        [$user, , $owner] = $this->tenantWithOwner('Geofence validation tenant');
+        [, $outlet] = $this->unitWithOutlet($owner);
+        $this->loginAs($user);
+        $tenantPolicyCount = DB::table('tenant_attendance_policy_versions')->count();
+
+        $startDate = CarbonImmutable::today('UTC')->addDay();
+        $configuration = static fn (array $coordinates): array => [
+            'late_tolerance_minutes' => 5,
+            'check_in_window' => ['early_minutes' => 60, 'late_minutes' => 60],
+            'attendance_mode' => 'kiosk',
+            'personal_location_validation' => [
+                'required' => true,
+                'radius_meters' => 100,
+                ...$coordinates,
+            ],
+            'retroactive_request_limit_days' => 7,
+            'operational_review' => [
+                'schedule_change_reason_required' => true,
+                'minimum_notice_hours' => 24,
+            ],
+        ];
+        $submitTenantPolicy = fn (int $dayOffset, array $coordinates) => $this->browserRequest()->postJson(
+            '/api/v1/management/scheduling/policies/tenant',
+            [
+                'effective_from' => $startDate->addDays($dayOffset)->toDateString(),
+                'reason' => 'Validasi pasangan koordinat.',
+                'configuration' => $configuration($coordinates),
+            ],
+        );
+
+        $submitTenantPolicy(0, ['latitude' => 0, 'longitude' => 0])->assertCreated();
+        $submitTenantPolicy(1, ['latitude' => 90, 'longitude' => 180])->assertCreated();
+        $submitTenantPolicy(2, [])->assertCreated();
+        $submitTenantPolicy(3, ['latitude' => null, 'longitude' => null])->assertCreated();
+        $this->assertDatabaseCount('tenant_attendance_policy_versions', $tenantPolicyCount + 4);
+
+        $invalidCoordinates = [
+            [['latitude' => -6.2], ['configuration.personal_location_validation']],
+            [['longitude' => 106.8], ['configuration.personal_location_validation']],
+            [
+                ['latitude' => 'not-a-coordinate', 'longitude' => 106.8],
+                ['configuration.personal_location_validation.latitude'],
+            ],
+            [
+                ['latitude' => 91, 'longitude' => 181],
+                [
+                    'configuration.personal_location_validation.latitude',
+                    'configuration.personal_location_validation.longitude',
+                ],
+            ],
+        ];
+
+        foreach ($invalidCoordinates as $index => [$coordinates, $fields]) {
+            $submitTenantPolicy(4 + $index, $coordinates)
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors($fields);
+        }
+        $this->assertDatabaseCount('tenant_attendance_policy_versions', $tenantPolicyCount + 4);
+
+        $outletDate = $startDate->addDays(1)->toDateString();
+        $this->browserRequest()->postJson('/api/v1/management/scheduling/outlets/'.$outlet->getKey().'/policy', [
+            'effective_from' => $outletDate,
+            'reason' => 'Koordinat outlet yang valid.',
+            'overrides' => [
+                'personal_location_validation' => ['latitude' => 0, 'longitude' => 0],
+            ],
+        ])->assertCreated();
+        $this->assertDatabaseCount('outlet_attendance_policy_versions', 1);
+
+        $invalidOutletDate = $startDate->addDays(8)->toDateString();
+        $this->browserRequest()->postJson('/api/v1/management/scheduling/outlets/'.$outlet->getKey().'/policy', [
+            'effective_from' => $invalidOutletDate,
+            'reason' => 'Koordinat parsial harus ditolak.',
+            'overrides' => [
+                'personal_location_validation' => ['latitude' => -6.2],
+            ],
+        ])->assertUnprocessable()->assertJsonValidationErrors('overrides.personal_location_validation');
+
+        $this->assertDatabaseCount('outlet_attendance_policy_versions', 1);
+        $effectivePolicy = $this->browserRequest()->getJson(
+            '/api/v1/management/scheduling/policies?outlet_id='.$outlet->getKey().'&effective_date='.$invalidOutletDate,
+        )->assertOk();
+        $this->assertSame(
+            0.0,
+            (float) $effectivePolicy->json('effective.configuration.personal_location_validation.latitude'),
+        );
+        $this->assertSame(
+            0.0,
+            (float) $effectivePolicy->json('effective.configuration.personal_location_validation.longitude'),
+        );
     }
 
     public function test_tenant_isolation_supervisor_outlet_scopes_and_employee_read_only_access_are_enforced(): void
@@ -215,6 +310,10 @@ class SchedulingPolicyTest extends TestCase
             'name' => 'Durasi nol', 'start_time' => '09:00', 'end_time' => '09:00',
             'crosses_midnight' => false, 'effective_from' => $sunday->toDateString(), 'reason' => 'Uji batas durasi.',
         ])->assertUnprocessable()->assertJsonValidationErrors('end_time');
+        $this->assertDatabaseMissing('shift_templates', [
+            'tenant_id' => $owner->tenant_id,
+            'name' => 'Durasi nol',
+        ]);
     }
 
     private function loginAs(User $user): void

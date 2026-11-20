@@ -6,19 +6,37 @@ use App\Models\TenantMembership;
 use App\Models\User;
 use App\Services\ApprovalWorkflowService;
 use App\Services\AttendanceService;
+use App\Services\CorrectionEvidenceService;
+use Carbon\Carbon;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Tests\Support\DisposableTestDatabaseGuard;
 
 $backend = dirname(__DIR__, 2);
 chdir($backend);
 require $backend.'/vendor/autoload.php';
 $app = require $backend.'/bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
+DisposableTestDatabaseGuard::assertConfigured(config('database.connections.mysql'));
+DisposableTestDatabaseGuard::assertConnected(DB::connection());
 
 $connectionId = (int) DB::selectOne('SELECT CONNECTION_ID() AS id')->id;
-file_put_contents((string) getenv('S5_READY_FILE'), json_encode(['connection_id' => $connectionId], JSON_THROW_ON_ERROR));
+$readyFile = (string) getenv('S5_READY_FILE');
+$temporaryReadyFile = $readyFile.'.'.getmypid().'.tmp';
+$readyJson = json_encode(['connection_id' => $connectionId], JSON_THROW_ON_ERROR);
+try {
+    if (file_put_contents($temporaryReadyFile, $readyJson) !== strlen($readyJson)
+        || ! rename($temporaryReadyFile, $readyFile)) {
+        throw new RuntimeException('Unable to publish worker readiness.');
+    }
+} finally {
+    if (is_file($temporaryReadyFile)) {
+        unlink($temporaryReadyFile);
+    }
+}
 $startFile = (string) getenv('S5_START_FILE');
 $deadline = microtime(true) + 15;
 while (! is_file($startFile) && microtime(true) < $deadline) {
@@ -28,6 +46,9 @@ if (! is_file($startFile)) {
     throw new RuntimeException('Approval worker did not receive the concurrency release signal.');
 }
 
+if (getenv('S5_TEST_NOW')) {
+    Carbon::setTestNow(getenv('S5_TEST_NOW'));
+}
 file_put_contents((string) getenv('S5_ATTEMPT_FILE'), 'started');
 $tenantId = (int) getenv('S5_TENANT_ID');
 $employee = Employee::query()->forTenant($tenantId)->whereKey((int) getenv('S5_EMPLOYEE_ID'))->firstOrFail();
@@ -46,11 +67,31 @@ try {
             (string) getenv('S5_IDEMPOTENCY_KEY'),
         );
         $output = ['outcome' => 'decided', 'status' => $result->status];
+    } elseif ($operation === 'reverse') {
+        app(ApprovalWorkflowService::class)->reverse(
+            $membership, $user, (int) getenv('S5_REQUEST_ID'), (int) getenv('S5_DECISION'),
+            (string) getenv('S5_REASON'), (string) getenv('S5_IDEMPOTENCY_KEY'),
+        );
+        $output = ['outcome' => 'reversed'];
     } elseif ($operation === 'cancel') {
         $result = app(ApprovalWorkflowService::class)->cancel(
             $membership, $user, (int) getenv('S5_REQUEST_ID'), (string) getenv('S5_IDEMPOTENCY_KEY'),
         );
         $output = ['outcome' => 'cancelled', 'status' => $result->status];
+    } elseif ($operation === 'evidence_upload') {
+        app(CorrectionEvidenceService::class)->upload(
+            $membership, $user, (int) getenv('S5_REQUEST_ID'), UploadedFile::fake()->image('evidence.png', 10, 10),
+            (string) getenv('S5_IDEMPOTENCY_KEY'), null, null,
+        );
+        $output = ['outcome' => 'uploaded'];
+    } elseif ($operation === 'evidence_hold') {
+        app(CorrectionEvidenceService::class)->hold(
+            $membership, $user, (int) getenv('S5_REQUEST_ID'), (int) getenv('S5_DECISION'), 'request', (string) getenv('S5_REASON'),
+        );
+        $output = ['outcome' => 'held'];
+    } elseif ($operation === 'evidence_expire') {
+        $result = app(CorrectionEvidenceService::class)->expire(1, false);
+        $output = ['outcome' => $result['deleted'] === 1 ? 'expired' : ($result['protected'] === 1 ? 'protected' : 'unexpected')];
     } elseif ($operation === 'check_out') {
         $result = app(AttendanceService::class)->checkOut(
             AttendanceActor::personal($membership), $employee, (string) getenv('S5_IDEMPOTENCY_KEY'),

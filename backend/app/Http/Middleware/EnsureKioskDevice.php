@@ -31,10 +31,10 @@ final class EnsureKioskDevice
             ], 401);
         }
 
-        if ($device->revoked_at !== null) {
+        if ($device->revoked_at !== null || $device->credentialExpired()) {
             return response()->json([
-                'code' => 'kiosk_revoked',
-                'message' => 'Akses perangkat ini sudah dicabut.',
+                'code' => $device->revoked_at !== null ? 'kiosk_revoked' : 'kiosk_expired',
+                'message' => $device->revoked_at !== null ? 'Akses perangkat ini sudah dicabut.' : 'Akses perangkat kedaluwarsa. Minta Owner menerbitkan kode pembaruan.',
             ], 403)->withCookie(cookie(
                 'hadirinaja_kiosk', '', -262800, '/api/v1/kiosk', config('session.domain'),
                 (bool) config('session.secure'), true, false, config('session.same_site', 'lax'),

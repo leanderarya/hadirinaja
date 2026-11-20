@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Data\AttendanceActor;
 use App\Data\EffectiveScheduleResult;
 use App\Data\PreparedAttendanceEvidence;
+use App\Enums\TenantRole;
 use App\Models\AttendanceEvent;
 use App\Models\AttendanceEvidence;
 use App\Models\AttendanceIdempotencyRecord;
@@ -14,7 +15,10 @@ use App\Models\EmployeeOutletAssignment;
 use App\Models\EmployeePinCredential;
 use App\Models\KioskDevice;
 use App\Models\Outlet;
+use App\Models\OutletCalendarVersion;
+use App\Models\Tenant;
 use App\Models\TenantMembership;
+use App\Support\SchedulingDefaults;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
@@ -31,8 +35,12 @@ final class AttendanceService
     ) {}
 
     /** @return array<string, mixed> */
-    public function current(TenantMembership $membership, Employee $employee, ?int $requestedOutletId = null): array
-    {
+    public function current(
+        TenantMembership $membership,
+        Employee $employee,
+        ?int $requestedOutletId = null,
+        ?int $checkoutOutletId = null,
+    ): array {
         $tenantId = (int) $membership->tenant_id;
         $employeeId = (int) $employee->getKey();
         $now = CarbonImmutable::now('UTC');
@@ -59,6 +67,11 @@ final class AttendanceService
             throw new \LogicException('The active-session ownership row is inconsistent.');
         }
 
+        if ($checkoutOutletId !== null && (! $active || ! $outletIds->contains($checkoutOutletId))) {
+            throw new AuthorizationException('Outlet attendance access is not available.');
+        }
+        $destination = $active ? $outlets->find($checkoutOutletId ?? $active->outlet_id) : null;
+
         $schedule = null;
         $selectedOutlet = null;
 
@@ -80,7 +93,7 @@ final class AttendanceService
             }
         }
 
-        $history = AttendanceSession::query()->forTenant($tenantId)->with('outlet')
+        $history = AttendanceSession::query()->forTenant($tenantId)->with(['outlet', 'events.checkoutOutlet'])
             ->where('employee_id', $employeeId)
             ->orderByDesc('check_in_at')->limit(10)->get()
             ->map(fn (AttendanceSession $session): array => $this->sessionData($session, false))
@@ -108,8 +121,25 @@ final class AttendanceService
         $locationPolicy = is_array($effectiveConfiguration)
             ? ($effectiveConfiguration['personal_location_validation'] ?? [])
             : [];
+        $allowedOperation = is_array($effectiveConfiguration)
+            && $this->modeAllows($effectiveConfiguration, 'personal')
+            ? ($active ? 'check_out' : 'check_in')
+            : null;
+
+        if (! $active && $outlets->isEmpty()) {
+            $eligibilityStatus = 'assignment_unavailable';
+        } elseif (! is_array($effectiveConfiguration)) {
+            $eligibilityStatus = 'policy_unavailable';
+        } elseif ($allowedOperation === null) {
+            $eligibilityStatus = ($effectiveConfiguration['attendance_mode'] ?? null) === 'kiosk'
+                ? 'kiosk_only'
+                : 'personal_mode_unavailable';
+        } else {
+            $eligibilityStatus = 'eligible';
+        }
 
         return [
+            'eligibility' => ['status' => $eligibilityStatus],
             'server_time' => $this->iso($now),
             'employee' => ['id' => $employeeId, 'name' => $employee->name],
             'outlets' => $outlets->map(fn (Outlet $outlet): array => [
@@ -119,15 +149,10 @@ final class AttendanceService
             'selected_outlet_id' => $selectedOutlet,
             'schedule' => $schedule === null ? null : $this->publicSchedule($schedule),
             'active_session' => $activeData,
-            'allowed_next_operation' => is_array($effectiveConfiguration)
-                && $this->modeAllows($effectiveConfiguration, 'personal')
-                ? ($active ? 'check_out' : 'check_in')
-                : null,
-            'personal_location' => [
-                'required' => (bool) ($locationPolicy['required'] ?? false),
-                'radius_meters' => isset($locationPolicy['radius_meters']) ? (int) $locationPolicy['radius_meters'] : null,
-                'geofence_configured' => isset($locationPolicy['latitude'], $locationPolicy['longitude']),
-            ],
+            'checkout_destination' => $destination ? $this->checkoutDestinationPreview($destination, $now) : null,
+            'allowed_next_operation' => $allowedOperation,
+            'require_personal_photo' => (bool) config('attendance_evidence.require_personal_photo', false),
+            'personal_location' => $this->locationPreview($locationPolicy),
             'recent_history' => $history,
         ];
     }
@@ -151,8 +176,17 @@ final class AttendanceService
         string $key,
         ?array $location,
         ?UploadedFile $photo,
+        ?Outlet $destination = null,
+        ?int $expectedSessionId = null,
     ): array {
-        return $this->mutate($actor, $employee, 'check_out', $key, null, $location, $photo);
+        if ($destination && ($actor->origin !== 'personal' || (int) $destination->tenant_id !== $actor->tenantId)) {
+            throw new AuthorizationException('Outlet attendance access is not available.');
+        }
+        if ($actor->origin === 'personal' && $expectedSessionId !== null && $destination === null) {
+            throw ValidationException::withMessages(['checkout_outlet_id' => 'Pilih Outlet tujuan checkout.']);
+        }
+
+        return $this->mutate($actor, $employee, 'check_out', $key, $destination, $location, $photo, $expectedSessionId);
     }
 
     /** @return array<string, mixed> */
@@ -160,22 +194,28 @@ final class AttendanceService
     {
         $record = $this->idempotencyQuery($actor, $employeeId, $operation, $key)->first();
 
-        if (! $record) {
+        if (! $record || ($record->contract_version !== AttendanceIdempotencyRecord::LEGACY_CONTRACT
+            && $actor->origin === 'kiosk' && $record->checkout_outlet_id !== $actor->kioskOutletId)) {
             return ['state' => 'not_found', 'operation' => $operation];
         }
+        if ($record->contract_version === AttendanceIdempotencyRecord::VERIFIED_KIOSK_CHECKOUT_CONTRACT) {
+            $this->activeDevice($actor);
+        }
 
+        $checkout = $this->checkoutBinding($record);
         if ($record->status === 'pending' || $record->response_body === null) {
-            return ['state' => 'pending', 'operation' => $operation];
+            return ['state' => 'pending', 'operation' => $operation, ...$checkout];
         }
 
         return [
             'state' => $record->status,
             'operation' => $operation,
             'result' => $record->response_body,
+            ...$checkout,
         ];
     }
 
-    /** @return array{eligible: bool, next_operation: string|null, reason: string|null} */
+    /** @return array<string, mixed> */
     public function kioskNextOperation(KioskDevice $device, int $employeeId): array
     {
         $tenantId = (int) $device->tenant_id;
@@ -196,18 +236,21 @@ final class AttendanceService
                 throw new \LogicException('The active-session ownership row is inconsistent.');
             }
 
-            if ((int) $session->outlet_id !== (int) $device->outlet_id) {
-                return ['eligible' => false, 'next_operation' => null, 'reason' => 'session_at_origin_outlet'];
+            if (! $this->isAssignedAt($tenantId, $employeeId, (int) $device->outlet_id, $now)) {
+                return ['eligible' => false, 'next_operation' => null, 'reason' => 'outlet_assignment_required'];
             }
 
-            $timezone = (string) ($session->schedule_snapshot['timezone'] ?? 'UTC');
-            $policy = $this->policies->effective($tenantId, (int) $session->outlet_id, $now->setTimezone($timezone)->toDateString());
-            $configuration = $policy['configuration'] ?? null;
+            $destination = $this->checkoutDestinationPreview($device->outlet, $now, 'kiosk');
+            $reason = ! $destination['mode_allowed'] ? 'mode_not_allowed'
+                : (! $destination['personal_location']['geofence_configured'] ? 'location_geofence_unconfigured' : null);
 
             return [
-                'eligible' => is_array($configuration) && $this->modeAllows($configuration, 'kiosk'),
-                'next_operation' => is_array($configuration) && $this->modeAllows($configuration, 'kiosk') ? 'check_out' : null,
-                'reason' => is_array($configuration) && $this->modeAllows($configuration, 'kiosk') ? null : 'mode_not_allowed',
+                'eligible' => $reason === null,
+                'next_operation' => $reason === null ? 'check_out' : null,
+                'reason' => $reason,
+                'checkout_session_id' => (int) $session->getKey(),
+                'checkout_outlet_id' => $destination['id'],
+                'checkout_location' => $destination['personal_location'],
             ];
         }
 
@@ -267,13 +310,17 @@ final class AttendanceService
         ?Outlet $requestedOutlet,
         ?array $location,
         ?UploadedFile $photo,
+        ?int $expectedSessionId = null,
     ): array {
         if ((int) $employee->tenant_id !== $actor->tenantId) {
             throw new AuthorizationException('Employee attendance access is not available.');
         }
 
-        if (($actor->origin === 'kiosk') !== ($photo !== null)) {
+        if ($actor->origin === 'kiosk' && $photo === null) {
             throw ValidationException::withMessages(['photo' => 'Foto baru wajib disertakan untuk setiap operasi kiosk.']);
+        }
+        if ($actor->origin === 'personal' && (bool) config('attendance_evidence.require_personal_photo', false) && $photo === null) {
+            throw ValidationException::withMessages(['photo' => 'Foto wajib disertakan untuk setiap operasi kehadiran personal.']);
         }
 
         if ($actor->origin === 'personal' && $location === null) {
@@ -283,22 +330,21 @@ final class AttendanceService
         $normalizedLocation = $this->normalizeLocation($location);
         $prepared = $photo ? $this->evidenceStorage->prepare($photo, $actor->tenantId) : null;
         $outletId = $requestedOutlet ? (int) $requestedOutlet->getKey() : null;
-        $requestHash = $this->requestHash($actor, $employee, $operation, $outletId, $normalizedLocation, $prepared);
-
         try {
             $record = $this->idempotencyQuery($actor, (int) $employee->getKey(), $operation, $key)->first();
             if (! $record) {
+                $record = new AttendanceIdempotencyRecord([
+                    'tenant_id' => $actor->tenantId,
+                    'employee_id' => $employee->getKey(),
+                    ...$actor->eventColumns(),
+                    'operation' => $operation,
+                    'idempotency_key' => $key,
+                    'status' => 'pending',
+                    ...$this->newOperationContract($actor, (int) $employee->getKey(), $operation, $outletId, $expectedSessionId),
+                ]);
+                $record->request_hash = $this->requestHash($record, $actor, $outletId, $normalizedLocation, $prepared, $expectedSessionId);
                 try {
-                    $record = DB::transaction(fn (): AttendanceIdempotencyRecord => AttendanceIdempotencyRecord::query()->create([
-                        'tenant_id' => $actor->tenantId,
-                        'employee_id' => $employee->getKey(),
-                        'tenant_membership_id' => $actor->tenantMembershipId,
-                        'kiosk_device_id' => $actor->kioskDeviceId,
-                        'operation' => $operation,
-                        'idempotency_key' => $key,
-                        'request_hash' => $requestHash,
-                        'status' => 'pending',
-                    ]));
+                    $record->save();
                 } catch (QueryException $exception) {
                     if (! $this->isDuplicateKey($exception)) {
                         throw $exception;
@@ -310,7 +356,13 @@ final class AttendanceService
                 }
             }
 
+            // Hash retries against the recorded target, even after the employee has another active session.
+            $requestHash = $this->requestHash($record, $actor, $outletId, $normalizedLocation, $prepared, $expectedSessionId);
             if (! hash_equals($record->request_hash, $requestHash) || $record->status !== 'pending') {
+                if ($record->contract_version === AttendanceIdempotencyRecord::VERIFIED_KIOSK_CHECKOUT_CONTRACT) {
+                    $this->activeDevice($actor);
+                }
+
                 return $this->replay($record, $requestHash);
             }
 
@@ -322,10 +374,21 @@ final class AttendanceService
                     throw new \LogicException('The durable attendance idempotency record disappeared.');
                 }
                 if (! hash_equals($record->request_hash, $requestHash) || $record->status !== 'pending') {
+                    if ($record->contract_version === AttendanceIdempotencyRecord::VERIFIED_KIOSK_CHECKOUT_CONTRACT) {
+                        $this->activeDevice($actor, lock: true);
+                    }
+
                     return $this->replay($record, $requestHash);
                 }
 
-                $device = $actor->origin === 'kiosk' ? $this->lockActiveDevice($actor) : null;
+                try {
+                    $device = $actor->origin === 'kiosk' ? $this->activeDevice($actor, lock: true) : null;
+                } catch (AuthorizationException) {
+                    return $this->reject($record, 403, 'kiosk_unavailable', 'Akses perangkat tidak tersedia. Periksa pemasangan dengan Owner.');
+                }
+                if ($record->contract_version === AttendanceIdempotencyRecord::VERIFIED_PERSONAL_CHECKOUT_CONTRACT) {
+                    $this->assertCurrentPersonalActor($actor, (int) $employee->getKey());
+                }
                 $lockedEmployee = Employee::query()->forTenant($actor->tenantId)
                     ->whereKey($employee->getKey())->lockForUpdate()->first();
 
@@ -342,6 +405,20 @@ final class AttendanceService
                 $this->evidenceStorage->cleanup($prepared);
             }
         }
+    }
+
+    private function photoPreviouslyUsed(int $tenantId, int $employeeId, PreparedAttendanceEvidence $photo): bool
+    {
+        // The caller holds the employee lock, serializing image reuse across attendance operations.
+        return AttendanceEvidence::query()
+            ->join('attendance_events as events', function ($join): void {
+                $join->on('events.tenant_id', '=', 'attendance_evidence.tenant_id')
+                    ->on('events.id', '=', 'attendance_evidence.attendance_event_id');
+            })
+            ->where('attendance_evidence.tenant_id', $tenantId)
+            ->where('events.employee_id', $employeeId)
+            ->where('attendance_evidence.sha256', $photo->sha256)
+            ->exists();
     }
 
     /** @return array{status: int, body: array<string, mixed>} */
@@ -383,6 +460,13 @@ final class AttendanceService
         $locationResult = $actor->origin === 'personal'
             ? $this->evaluateLocation($location, $policy)
             : $this->emptyLocationResult();
+        if ($rejection = $this->locationRejection($record, $locationResult)) {
+            return $rejection;
+        }
+        if ($prepared && $this->photoPreviouslyUsed($actor->tenantId, (int) $employee->getKey(), $prepared)) {
+            return $this->reject($record, 422, 'photo_must_be_new', 'Ambil foto baru untuk setiap operasi kehadiran.');
+        }
+
         $indicators = $this->scheduleIndicators($schedule, $now, $policy);
         $indicators = $this->mergeIndicators($indicators, $locationResult['review_indicators']);
         $scheduleSnapshot = $schedule->toArray();
@@ -434,7 +518,12 @@ final class AttendanceService
         $owner = DB::table('attendance_active_session_owners')
             ->where('tenant_id', $tenantId)->where('employee_id', $employeeId)->first();
 
-        if (! $owner) {
+        $destinationBound = $record->contract_version !== AttendanceIdempotencyRecord::LEGACY_CONTRACT;
+        $verified = in_array($record->contract_version, [
+            AttendanceIdempotencyRecord::VERIFIED_PERSONAL_CHECKOUT_CONTRACT,
+            AttendanceIdempotencyRecord::VERIFIED_KIOSK_CHECKOUT_CONTRACT,
+        ], true);
+        if (! $owner || ($destinationBound && $record->checkout_session_id !== (int) $owner->attendance_session_id)) {
             return $this->reject($record, 409, 'no_active_attendance', 'Tidak ada sesi kehadiran aktif untuk ditutup.');
         }
 
@@ -454,14 +543,37 @@ final class AttendanceService
             throw new \LogicException('The active-session ownership row is inconsistent.');
         }
 
-        if ($actor->origin === 'kiosk' && (int) $session->outlet_id !== (int) $device?->outlet_id) {
+        if (! $destinationBound && ! $this->legacyCheckoutMatchesActiveSession($record, $session)) {
+            return $this->reject($record, 409, 'no_active_attendance', 'Sesi untuk percobaan checkout ini tidak dapat dipastikan.');
+        }
+
+        if (! $verified && $device && (int) $session->outlet_id !== (int) $device->outlet_id) {
             return $this->reject($record, 409, 'session_at_origin_outlet', 'Sesi ini hanya dapat ditutup melalui kiosk outlet asal.');
         }
 
+        if ($destinationBound && ! $verified && $record->checkout_outlet_id !== (int) $session->outlet_id) {
+            return $this->reject($record, 409, 'session_at_origin_outlet', 'Sesi ini hanya dapat ditutup di outlet asal.');
+        }
+
+        $outletId = $verified ? $record->checkout_outlet_id : (int) $session->outlet_id;
+        if ($verified) {
+            // Policy and calendar writers lock these roots. Assignment writers share the employee lock.
+            Tenant::query()->whereKey($tenantId)->sharedLock()->firstOrFail();
+            Outlet::query()->forTenant($tenantId)->whereKey($outletId)->sharedLock()->firstOrFail();
+        }
         $now = CarbonImmutable::now('UTC');
-        $timezone = (string) ($session->schedule_snapshot['timezone'] ?? 'UTC');
+        if ($verified && $device && $device->credentialExpired()) {
+            return $this->reject($record, 403, 'kiosk_unavailable', 'Akses perangkat tidak tersedia. Periksa pemasangan dengan Owner.');
+        }
+        $assignment = $verified ? $this->activeAssignment($tenantId, $employeeId, $outletId, $now, currentRead: true) : null;
+        if ($verified && ! $assignment) {
+            return $this->reject($record, 403, 'outlet_assignment_required', 'Anda tidak lagi memiliki penugasan aktif di Outlet tujuan.');
+        }
+        $timezone = $verified
+            ? $this->checkoutTimezone($tenantId, $outletId, $now, currentRead: true)
+            : (string) ($session->schedule_snapshot['timezone'] ?? 'UTC');
         $localDate = $now->setTimezone($timezone)->toDateString();
-        $policy = $this->policies->effective($tenantId, (int) $session->outlet_id, $localDate);
+        $policy = $this->policies->effective($tenantId, $outletId, $localDate, currentRead: $verified);
         $configuration = $policy['configuration'] ?? null;
 
         if (! is_array($configuration) || ! $this->modeAllows($configuration, $actor->origin)) {
@@ -473,15 +585,16 @@ final class AttendanceService
             return $this->reject($record, 409, 'server_time_inconsistent', 'Waktu server belum konsisten; sesi belum dapat ditutup.');
         }
 
-        if ($actor->origin === 'kiosk' && $prepared
-            && AttendanceEvidence::query()->where('tenant_id', $tenantId)
-                ->where('attendance_session_id', $session->getKey())->where('sha256', $prepared->sha256)->exists()) {
-            return $this->reject($record, 422, 'photo_must_be_new', 'Ambil foto baru untuk setiap operasi kehadiran kiosk.');
+        $locationResult = $verified || $actor->origin === 'personal'
+            ? $this->evaluateLocation($location, $configuration, required: $verified)
+            : $this->emptyLocationResult();
+        if ($rejection = $this->locationRejection($record, $locationResult)) {
+            return $rejection;
+        }
+        if ($prepared && $this->photoPreviouslyUsed($actor->tenantId, (int) $employee->getKey(), $prepared)) {
+            return $this->reject($record, 422, 'photo_must_be_new', 'Ambil foto baru untuk setiap operasi kehadiran.');
         }
 
-        $locationResult = $actor->origin === 'personal'
-            ? $this->evaluateLocation($location, $configuration)
-            : $this->emptyLocationResult();
         $indicators = $session->review_indicators ?? [];
         $indicators = $this->mergeIndicators($indicators, $locationResult['review_indicators']);
         $scheduledEnd = $session->schedule_snapshot['scheduled_end'] ?? null;
@@ -507,6 +620,31 @@ final class AttendanceService
         $event = $this->createEvent(
             $record, $actor, $employee, $session, 'check_out', $now, $locationResult,
             $session->schedule_snapshot, $policySnapshot, $indicators,
+            $assignment ? [
+                'verification' => 'verified',
+                'contract_version' => $record->contract_version,
+                'assignment' => [
+                    'id' => (int) $assignment->getKey(),
+                    'type' => $assignment->assignment_type->value,
+                    'effective_from' => $this->iso($assignment->effective_from),
+                    'effective_until' => $this->iso($assignment->effective_until),
+                ],
+                'policy' => [
+                    'tenant_version_id' => $policy['tenant_version_id'],
+                    'outlet_version_id' => $policy['outlet_version_id'],
+                    'attendance_mode' => $configuration['attendance_mode'],
+                    'timezone' => $timezone,
+                    'local_date' => $localDate,
+                ],
+                'location' => [
+                    'capture_status' => $locationResult['capture_status'],
+                    'verdict' => $locationResult['verdict'],
+                ],
+                'actor' => $device
+                    ? ['channel' => 'kiosk', 'kiosk_device_id' => (int) $device->getKey(), 'authenticated_outlet_id' => (int) $device->outlet_id]
+                    : ['channel' => 'personal', 'tenant_membership_id' => $actor->tenantMembershipId],
+                'recorded_at' => $this->iso($now),
+            ] : null,
         );
         if ($prepared) {
             $this->persistEvidence($prepared, $session, $event);
@@ -540,6 +678,7 @@ final class AttendanceService
         array $scheduleSnapshot,
         array $policySnapshot,
         array $indicators,
+        ?array $checkoutContext = null,
     ): AttendanceEvent {
         return AttendanceEvent::query()->create([
             'tenant_id' => $actor->tenantId,
@@ -561,6 +700,10 @@ final class AttendanceService
                 'policy' => $policySnapshot,
                 'review_indicators' => $indicators,
             ],
+            'checkout_outlet_id' => $record->checkout_outlet_id,
+            'authenticated_kiosk_outlet_id' => $record->checkout_outlet_id !== null ? $actor->kioskOutletId : null,
+            // Destination binding records where checkout ran under the existing policy.
+            'checkout_context' => $checkoutContext ?? ($record->checkout_outlet_id !== null ? ['verification' => 'legacy_policy'] : null),
             'created_at' => $recordedAt->format('Y-m-d H:i:s'),
         ]);
     }
@@ -576,15 +719,16 @@ final class AttendanceService
             'tenant_id' => $event->tenant_id,
             'attendance_session_id' => $session->getKey(),
             'attendance_event_id' => $event->getKey(),
-            'evidence_type' => 'kiosk_photo',
+            'evidence_type' => $event->origin === 'kiosk' ? 'kiosk_photo' : 'personal_photo',
             'storage_path' => $prepared->storagePath,
             'detected_mime_type' => $prepared->detectedMimeType,
-            'stored_mime_type' => 'image/jpeg',
+            'stored_mime_type' => $prepared->storedMimeType,
             'stored_size_bytes' => $prepared->storedSizeBytes,
             'image_width' => $prepared->width,
             'image_height' => $prepared->height,
             'sha256' => $prepared->sha256,
             'validation_status' => 'validated_normalized',
+            'expires_at' => $event->recorded_at->utc()->addDays(AttendanceEvidenceExpirationService::RETENTION_DAYS)->format('Y-m-d H:i:s'),
             'received_at' => now('UTC')->format('Y-m-d H:i:s'),
         ]);
     }
@@ -680,21 +824,35 @@ final class AttendanceService
             ->where('effective_until', '>', $at->format('Y-m-d H:i:s'))->exists();
     }
 
-    private function activeAssignment(int $tenantId, int $employeeId, int $outletId, CarbonImmutable $at): ?EmployeeOutletAssignment
+    private function activeAssignment(int $tenantId, int $employeeId, int $outletId, CarbonImmutable $at, bool $currentRead = false): ?EmployeeOutletAssignment
     {
         return EmployeeOutletAssignment::query()->forTenant($tenantId)
             ->where('employee_id', $employeeId)->where('outlet_id', $outletId)
             ->where('effective_from', '<=', $at->format('Y-m-d H:i:s'))
             ->where('effective_until', '>', $at->format('Y-m-d H:i:s'))
-            ->orderByDesc('effective_from')->first();
+            ->orderByDesc('effective_from')
+            ->when($currentRead, fn ($query) => $query->orderByDesc('id')->sharedLock())->first();
     }
 
-    private function lockActiveDevice(AttendanceActor $actor): KioskDevice
+    private function assertCurrentPersonalActor(AttendanceActor $actor, int $employeeId): void
+    {
+        $membership = TenantMembership::query()->forTenant($actor->tenantId)
+            ->whereKey($actor->tenantMembershipId)->sharedLock()->first();
+        if (! $membership || ! $membership->is_active || $membership->revoked_at !== null
+            || ! $membership->roles()->where('role', TenantRole::Employee->value)->sharedLock()->first()
+            || ! $membership->employeeUserLink()->where('employee_id', $employeeId)->sharedLock()->first()) {
+            throw new AuthorizationException('Employee attendance access is not available.');
+        }
+    }
+
+    private function activeDevice(AttendanceActor $actor, bool $lock = false): KioskDevice
     {
         $device = KioskDevice::query()->forTenant($actor->tenantId)
-            ->whereKey($actor->kioskDeviceId)->lockForUpdate()->first();
+            ->whereKey($actor->kioskDeviceId)->when($lock, fn ($query) => $query->lockForUpdate())->first();
 
-        if (! $device || $device->revoked_at !== null) {
+        if (! $device || $device->revoked_at !== null || $device->credentialExpired()
+            || (int) $device->outlet_id !== $actor->kioskOutletId
+            || ! hash_equals($device->credential_hash, (string) $actor->kioskCredentialHash)) {
             throw new AuthorizationException('Kiosk attendance access is not available.');
         }
 
@@ -718,9 +876,14 @@ final class AttendanceService
             throw ValidationException::withMessages(['location' => 'Koordinat dan akurasi lokasi belum lengkap.']);
         }
 
-        $latitude = round((float) $location['latitude'], 7);
-        $longitude = round((float) $location['longitude'], 7);
-        $accuracy = round((float) $location['accuracy_meters'], 2);
+        foreach (['latitude', 'longitude', 'accuracy_meters'] as $field) {
+            if (! is_numeric($location[$field]) || ! is_finite((float) $location[$field])) {
+                throw ValidationException::withMessages(['location' => 'Koordinat dan akurasi lokasi harus berupa angka yang valid.']);
+            }
+        }
+        $latitude = (float) $location['latitude'];
+        $longitude = (float) $location['longitude'];
+        $accuracy = (float) $location['accuracy_meters'];
 
         if ($latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180 || $accuracy <= 0 || $accuracy > 50000) {
             throw ValidationException::withMessages(['location' => 'Koordinat atau akurasi lokasi berada di luar batas yang valid.']);
@@ -730,10 +893,10 @@ final class AttendanceService
     }
 
     /** @return array<string, mixed> */
-    private function evaluateLocation(array $location, array $policy): array
+    private function evaluateLocation(array $location, array $policy, bool $required = false): array
     {
         $settings = $policy['personal_location_validation'] ?? [];
-        if (! ($settings['required'] ?? false)) {
+        if (! $required && ! ($settings['required'] ?? false)) {
             return $this->emptyLocationResult();
         }
 
@@ -747,7 +910,7 @@ final class AttendanceService
         } elseif ($captureStatus !== 'provided') {
             $verdict = 'unavailable';
             $indicators[] = 'location_unavailable';
-        } elseif (! isset($settings['latitude'], $settings['longitude'])) {
+        } elseif (! $this->hasConfiguredLocation($settings)) {
             $verdict = 'unconfigured';
             $indicators[] = 'location_geofence_unconfigured';
         } else {
@@ -761,7 +924,8 @@ final class AttendanceService
                     (float) $settings['latitude'], (float) $settings['longitude'],
                     (float) $location['latitude'], (float) $location['longitude'],
                 );
-                if ($distance > $radius) {
+                // ponytail: absorb floating-point error at the inclusive boundary, not GPS uncertainty.
+                if ($distance - $radius > 0.0000001) {
                     $verdict = 'outside_range';
                     $indicators[] = 'location_outside_range';
                 } else {
@@ -778,6 +942,91 @@ final class AttendanceService
             'accuracy_meters' => $location['accuracy_meters'],
             'review_indicators' => $indicators,
         ];
+    }
+
+    private function hasConfiguredLocation(array $settings): bool
+    {
+        foreach (['latitude', 'longitude', 'radius_meters'] as $field) {
+            if (! isset($settings[$field]) || ! is_numeric($settings[$field]) || ! is_finite((float) $settings[$field])) {
+                return false;
+            }
+        }
+
+        return abs((float) $settings['latitude']) <= 90
+            && abs((float) $settings['longitude']) <= 180
+            && (float) $settings['radius_meters'] >= 50
+            && (float) $settings['radius_meters'] <= 5000;
+    }
+
+    private function checkoutDestinationPreview(Outlet $outlet, CarbonImmutable $now, string $origin = 'personal'): array
+    {
+        $tenantId = (int) $outlet->tenant_id;
+        $outletId = (int) $outlet->getKey();
+        $timezone = $this->checkoutTimezone($tenantId, $outletId, $now);
+        $policy = $this->policies->effective($tenantId, $outletId, $now->setTimezone($timezone)->toDateString());
+        $configuration = $policy['configuration'];
+        $location = $this->locationPreview([
+            ...($configuration['personal_location_validation'] ?? []),
+            'required' => true,
+        ]);
+
+        return [
+            'id' => $outletId,
+            'name' => $outlet->name,
+            'timezone' => $timezone,
+            'mode_allowed' => is_array($configuration) && $this->modeAllows($configuration, $origin),
+            'personal_location' => $location,
+        ];
+    }
+
+    private function checkoutTimezone(int $tenantId, int $outletId, CarbonImmutable $now, bool $currentRead = false): string
+    {
+        // An effective date belongs to the destination calendar's local day.
+        $calendars = OutletCalendarVersion::query()->forTenant($tenantId)->where('outlet_id', $outletId)
+            ->where('effective_from', '<=', $now->addDay()->toDateString())->orderByDesc('effective_from')
+            ->when($currentRead, fn ($query) => $query->sharedLock())->get(['timezone', 'effective_from']);
+
+        foreach ($calendars as $calendar) {
+            if ($calendar->effective_from->toDateString() <= $now->setTimezone($calendar->timezone)->toDateString()) {
+                return $calendar->timezone;
+            }
+        }
+
+        return SchedulingDefaults::TIMEZONE;
+    }
+
+    private function locationPreview(array $settings): array
+    {
+        $configured = $this->hasConfiguredLocation($settings);
+
+        return [
+            'required' => (bool) ($settings['required'] ?? false),
+            'radius_meters' => isset($settings['radius_meters']) ? (int) $settings['radius_meters'] : null,
+            'geofence_configured' => $configured,
+            'latitude' => $configured ? (float) $settings['latitude'] : null,
+            'longitude' => $configured ? (float) $settings['longitude'] : null,
+            'max_accuracy_meters' => isset($settings['radius_meters']) ? (float) $settings['radius_meters'] : null,
+        ];
+    }
+
+    /** @return array{status: int, body: array<string, mixed>}|null */
+    private function locationRejection(AttendanceIdempotencyRecord $record, array $location): ?array
+    {
+        $messages = [
+            'permission_denied' => 'Izin lokasi ditolak. Aktifkan izin lokasi lalu coba kembali.',
+            'unavailable' => 'Lokasi belum tersedia. Dapatkan lokasi sebelum mengirim presensi.',
+            'unconfigured' => 'Titik dan radius Outlet belum valid. Hubungi pengelola.',
+            'low_accuracy' => 'Akurasi lokasi belum memadai. Perbarui lokasi lalu coba kembali.',
+            'outside_range' => 'Lokasi Anda berada di luar radius Outlet. Presensi ditolak.',
+        ];
+        $verdict = $location['verdict'];
+        if (! isset($messages[$verdict ?? ''])) {
+            return null;
+        }
+
+        $code = $verdict === 'unconfigured' ? 'location_geofence_unconfigured' : 'location_'.$verdict;
+
+        return $this->reject($record, 422, $code, $messages[$verdict]);
     }
 
     /** @return array<string, mixed> */
@@ -917,6 +1166,19 @@ final class AttendanceService
             $data['employee'] = ['id' => (int) $session->employee_id, 'name' => $session->employee?->name];
         }
 
+        $data['checkout_destination'] = null;
+        if ($session->check_out_at !== null) {
+            $session->loadMissing('events.checkoutOutlet');
+            $checkout = $session->events->firstWhere('event_type', 'check_out');
+            if ($checkout?->checkout_outlet_id !== null) {
+                $data['checkout_destination'] = [
+                    'id' => (int) $checkout->checkout_outlet_id,
+                    'name' => $checkout->checkoutOutlet?->name,
+                    'timezone' => $checkout->checkout_context['policy']['timezone'] ?? null,
+                ];
+            }
+        }
+
         return $data;
     }
 
@@ -930,7 +1192,11 @@ final class AttendanceService
         $session->loadMissing('outlet');
 
         return [
-            'operation' => ['key' => $record->idempotency_key, 'state' => 'completed', 'type' => $operation],
+            'operation' => [
+                'key' => $record->idempotency_key, 'state' => 'completed', 'type' => $operation,
+                ...($record->contract_version !== AttendanceIdempotencyRecord::LEGACY_CONTRACT
+                    ? $this->checkoutBinding($record) : []),
+            ],
             'event' => [
                 'id' => (int) $event->getKey(),
                 'type' => $event->event_type,
@@ -952,6 +1218,8 @@ final class AttendanceService
                 'key' => $record->idempotency_key,
                 'type' => $record->operation,
                 'state' => 'rejected',
+                ...($record->contract_version !== AttendanceIdempotencyRecord::LEGACY_CONTRACT
+                    ? $this->checkoutBinding($record) : []),
             ],
         ];
 
@@ -987,7 +1255,11 @@ final class AttendanceService
         if ($record->status === 'pending' || $record->response_status === null || $record->response_body === null) {
             return [
                 'status' => 202,
-                'body' => ['operation' => ['key' => $record->idempotency_key, 'type' => $record->operation, 'state' => 'pending']],
+                'body' => ['operation' => [
+                    'key' => $record->idempotency_key, 'type' => $record->operation, 'state' => 'pending',
+                    ...($record->contract_version !== AttendanceIdempotencyRecord::LEGACY_CONTRACT
+                        ? $this->checkoutBinding($record) : []),
+                ]],
             ];
         }
 
@@ -1008,24 +1280,101 @@ final class AttendanceService
         return $lock ? $query->lockForUpdate() : $query;
     }
 
+    private function newOperationContract(AttendanceActor $actor, int $employeeId, string $operation, ?int $outletId, ?int $expectedSessionId): array
+    {
+        if ($operation !== 'check_out') {
+            return ['contract_version' => AttendanceIdempotencyRecord::LEGACY_CONTRACT];
+        }
+
+        $session = DB::table('attendance_active_session_owners as owners')
+            ->join('attendance_sessions as sessions', function ($join): void {
+                $join->on('sessions.tenant_id', '=', 'owners.tenant_id')
+                    ->on('sessions.employee_id', '=', 'owners.employee_id')
+                    ->on('sessions.id', '=', 'owners.attendance_session_id');
+            })
+            ->where('owners.tenant_id', $actor->tenantId)->where('owners.employee_id', $employeeId)
+            ->first(['sessions.id', 'sessions.outlet_id']);
+
+        $sessionId = $session ? (int) $session->id : null;
+
+        return [
+            'contract_version' => match (true) {
+                $actor->origin === 'kiosk' => AttendanceIdempotencyRecord::VERIFIED_KIOSK_CHECKOUT_CONTRACT,
+                $outletId !== null => AttendanceIdempotencyRecord::VERIFIED_PERSONAL_CHECKOUT_CONTRACT,
+                default => AttendanceIdempotencyRecord::DESTINATION_BOUND_CONTRACT,
+            },
+            'checkout_session_id' => $expectedSessionId === null || $expectedSessionId === $sessionId ? $sessionId : null,
+            'checkout_outlet_id' => $actor->kioskOutletId ?? $outletId ?? $session?->outlet_id,
+        ];
+    }
+
+    private function legacyCheckoutMatchesActiveSession(AttendanceIdempotencyRecord $record, AttendanceSession $session): bool
+    {
+        if ($record->created_at === null || $session->check_in_at->greaterThan($record->created_at)) {
+            return false;
+        }
+
+        // Legacy attempts lack a target ID. Reject retries when the recorded second could refer to another session.
+        $recordedAt = $record->created_at->utc()->toDateTimeString();
+
+        return ! AttendanceSession::query()->forTenant((int) $session->tenant_id)
+            ->where('employee_id', $session->employee_id)->whereKeyNot($session->getKey())
+            ->where('check_in_at', '<=', $recordedAt)
+            ->where(function ($query) use ($recordedAt): void {
+                $query->where('check_out_at', '>=', $recordedAt)
+                    ->orWhere(fn ($resolved) => $resolved->where('status', 'administratively_resolved')
+                        ->where('updated_at', '>=', $recordedAt));
+            })->exists();
+    }
+
+    private function checkoutBinding(AttendanceIdempotencyRecord $record): array
+    {
+        if ($record->operation !== 'check_out') {
+            return [];
+        }
+
+        return [
+            'contract_version' => $record->contract_version,
+            'checkout_session_id' => $record->checkout_session_id,
+            'checkout_outlet_id' => $record->checkout_outlet_id,
+        ];
+    }
+
     private function requestHash(
+        AttendanceIdempotencyRecord $record,
         AttendanceActor $actor,
-        Employee $employee,
-        string $operation,
         ?int $outletId,
         array $location,
         ?PreparedAttendanceEvidence $prepared,
+        ?int $expectedSessionId,
     ): string {
-        return hash('sha256', json_encode([
+        $payload = [
             'tenant_id' => $actor->tenantId,
             'origin' => $actor->origin,
             'actor_id' => $actor->tenantMembershipId ?? $actor->kioskDeviceId,
-            'employee_id' => (int) $employee->getKey(),
-            'operation' => $operation,
+            'employee_id' => (int) $record->employee_id,
+            'operation' => $record->operation,
             'outlet_id' => $outletId,
             'location' => $location,
             'photo_sha256' => $prepared?->sha256,
-        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
+        ];
+
+        if ($record->contract_version !== AttendanceIdempotencyRecord::LEGACY_CONTRACT) {
+            $payload['outlet_id'] = null;
+            $payload = [
+                ...$payload,
+                ...$this->checkoutBinding($record),
+                'checkout_outlet_id' => $actor->kioskOutletId ?? $outletId ?? $record->checkout_outlet_id,
+            ];
+        }
+        if ($record->contract_version === AttendanceIdempotencyRecord::VERIFIED_PERSONAL_CHECKOUT_CONTRACT) {
+            $payload['checkout_outlet_id'] = $outletId;
+            $payload['checkout_session_id'] = $expectedSessionId ?? $record->checkout_session_id;
+        } elseif ($expectedSessionId !== null) {
+            $payload['checkout_session_id'] = $expectedSessionId;
+        }
+
+        return hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
     }
 
     private function isDuplicateKey(QueryException $exception): bool

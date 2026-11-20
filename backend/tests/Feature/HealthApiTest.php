@@ -70,7 +70,13 @@ class HealthApiTest extends TestCase
             'api/v1/auth/me',
             'api/v1/auth/tenant',
             'api/v1/auth/tenants',
+            'api/v1/correction-evidence/{approvalRequest}',
+            'api/v1/correction-evidence/{approvalRequest}/{evidence}',
             'api/v1/health',
+            'api/v1/invitations/accept',
+            'api/v1/invitations/activate',
+            'api/v1/invitations/inspect',
+            'api/v1/invitations/login',
             'api/v1/kiosk/attendance/check-in',
             'api/v1/kiosk/attendance/check-out',
             'api/v1/kiosk/attendance/employees',
@@ -80,24 +86,50 @@ class HealthApiTest extends TestCase
             'api/v1/kiosk/pin/enroll',
             'api/v1/kiosk/pin/verify',
             'api/v1/kiosk/status',
+            'api/v1/management/access',
+            'api/v1/management/access/invitations',
+            'api/v1/management/access/invitations/{invitation}/cancel',
+            'api/v1/management/access/invitations/{invitation}/reissue',
+            'api/v1/management/access/members/{membership}',
+            'api/v1/management/access/members/{membership}/employee-link',
+            'api/v1/management/access/members/{membership}/outlet-scope',
+            'api/v1/management/access/members/{membership}/password-reset',
+            'api/v1/management/access/members/{membership}/permanent-deletion',
+            'api/v1/management/access/members/{membership}/role',
+            'api/v1/management/access/password-resets/{reset}/revoke',
             'api/v1/management/approvals',
             'api/v1/management/approvals/{approvalRequest}',
             'api/v1/management/approvals/{approvalRequest}/decision',
+            'api/v1/management/approvals/{approvalRequest}/evidence/requirement',
+            'api/v1/management/approvals/{approvalRequest}/evidence/{evidence}/hold',
+            'api/v1/management/approvals/{approvalRequest}/reversal',
             'api/v1/management/attendance',
             'api/v1/management/attendance/effective',
             'api/v1/management/attendance/events/{event}/evidence',
+            'api/v1/management/attendance/events/{event}/legal-hold-requests',
             'api/v1/management/attendance/finalizations',
+            'api/v1/management/attendance/legal-hold-requests/{holdRequest}/approve',
+            'api/v1/management/attendance/legal-hold-requests/{holdRequest}/reject',
+            'api/v1/management/attendance/legal-holds',
+            'api/v1/management/attendance/legal-holds/{hold}/extension-requests',
+            'api/v1/management/attendance/legal-holds/{hold}/release',
+            'api/v1/management/attendance/reconstructions',
             'api/v1/management/attendance/reviews/discover',
             'api/v1/management/attendance/sessions/{session}/corrections',
             'api/v1/management/business-units',
+            'api/v1/management/business-units/{businessUnit}',
+            'api/v1/management/correction-evidence/retention',
             'api/v1/management/employees',
             'api/v1/management/employees/{employee}',
             'api/v1/management/employees/{employee}/pin-enrollment',
             'api/v1/management/kiosks',
             'api/v1/management/kiosks/pairing-codes',
             'api/v1/management/kiosks/{device}/revoke',
+            'api/v1/management/notifications',
+            'api/v1/management/notifications/{notification}/read',
             'api/v1/management/organization',
             'api/v1/management/outlets',
+            'api/v1/management/outlets/{outlet}',
             'api/v1/management/reports/approvals',
             'api/v1/management/reports/attendance',
             'api/v1/management/reports/attendance.csv',
@@ -111,8 +143,16 @@ class HealthApiTest extends TestCase
             'api/v1/management/scheduling/context',
             'api/v1/management/scheduling/exceptions',
             'api/v1/management/scheduling/holidays',
+            'api/v1/management/scheduling/me/changes',
+            'api/v1/management/scheduling/me/changes/options',
+            'api/v1/management/scheduling/me/changes/{change}/respond',
             'api/v1/management/scheduling/me/week',
             'api/v1/management/scheduling/outlets/{outlet}/policy',
+            'api/v1/management/scheduling/planner/outlets/{outlet}/weeks/{weekStart}',
+            'api/v1/management/scheduling/planner/outlets/{outlet}/weeks/{weekStart}/copy',
+            'api/v1/management/scheduling/planner/outlets/{outlet}/weeks/{weekStart}/draft',
+            'api/v1/management/scheduling/planner/outlets/{outlet}/weeks/{weekStart}/publish',
+            'api/v1/management/scheduling/planner/outlets/{outlet}/weeks/{weekStart}/validate',
             'api/v1/management/scheduling/policies',
             'api/v1/management/scheduling/policies/tenant',
             'api/v1/management/scheduling/resolve',
@@ -120,12 +160,35 @@ class HealthApiTest extends TestCase
             'api/v1/management/scheduling/shifts/{template}/versions',
             'api/v1/management/scheduling/week',
             'api/v1/management/scheduling/weekly-rules',
+            'api/v1/password-resets/complete',
+            'api/v1/password-resets/inspect',
         ], $apiRoutes->keys()->sort()->values()->all());
 
-        foreach ($apiRoutes->filter(fn ($route, $uri) => str_starts_with($uri, 'api/v1/management/')) as $route) {
+        foreach ($apiRoutes->filter(fn ($route, $uri) => str_starts_with($uri, 'api/v1/management/') || str_starts_with($uri, 'api/v1/correction-evidence/')) as $route) {
             $this->assertContains('auth:sanctum', $route->middleware());
             $this->assertContains('active-tenant', $route->middleware());
         }
+
+        foreach ([
+            'api/v1/invitations/inspect',
+            'api/v1/invitations/activate',
+            'api/v1/invitations/login',
+            'api/v1/invitations/accept',
+        ] as $uri) {
+            $route = $apiRoutes->get($uri);
+            $this->assertContains('no-store', $route->middleware());
+            $this->assertContains('throttle:access-invitation', $route->middleware());
+        }
+
+        foreach ([
+            'api/v1/invitations/inspect',
+            'api/v1/invitations/activate',
+            'api/v1/invitations/login',
+        ] as $uri) {
+            $this->assertNotContains('auth:sanctum', $apiRoutes->get($uri)->middleware());
+        }
+
+        $this->assertContains('auth:sanctum', $apiRoutes->get('api/v1/invitations/accept')->middleware());
 
         foreach ([
             'api/v1/kiosk/attendance/check-in',

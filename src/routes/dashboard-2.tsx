@@ -214,13 +214,13 @@ function CloudflareDashboard() {
           {/* Right Header Items */}
           <div className="flex items-center gap-3">
             {/* Ask AI */}
-            <button className="flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-[#f5f6f8] transition-colors">
+            <button type="button" className="flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-[#f5f6f8] transition-colors">
               <HugeiconsIcon icon={SparklesIcon} className="size-3.5 text-purple-600" />
               <span>Ask AI</span>
             </button>
 
             {/* Support */}
-            <button className="flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-[#f5f6f8] transition-colors">
+            <button type="button" className="flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-[#f5f6f8] transition-colors">
               <HugeiconsIcon icon={HelpCircleIcon} className="size-3.5" />
               <span>Support</span>
             </button>
@@ -241,7 +241,7 @@ function CloudflareDashboard() {
             </h2>
 
             {/* Time Filter Dropdown */}
-            <button className="flex items-center gap-1.5 rounded-md border bg-white px-2.5 py-1 text-[11px] font-semibold text-foreground shadow-xs hover:bg-[#f5f6f8]">
+            <button type="button" className="flex items-center gap-1.5 rounded-md border bg-white px-2.5 py-1 text-[11px] font-semibold text-foreground shadow-xs hover:bg-[#f5f6f8]">
               <HugeiconsIcon icon={Clock01Icon} className="size-3.5 text-muted-foreground" />
               <span>Last 24 hours</span>
             </button>
@@ -402,13 +402,13 @@ function CloudflareDashboard() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-muted-foreground">
-                    <button className="hover:text-foreground">
+                    <button type="button" className="hover:text-foreground">
                       <HugeiconsIcon icon={StarIcon} className="size-3.5" />
                     </button>
-                    <button className="hover:text-foreground">
+                    <button type="button" className="hover:text-foreground">
                       <HugeiconsIcon icon={Add01Icon} className="size-3.5" />
                     </button>
-                    <button className="hover:text-foreground">
+                    <button type="button" className="hover:text-foreground">
                       <HugeiconsIcon icon={ArrowRight01Icon} className="size-3.5" />
                     </button>
                   </div>
@@ -464,10 +464,10 @@ function CloudflareDashboard() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-muted-foreground">
-                    <button className="hover:text-foreground">
+                    <button type="button" className="hover:text-foreground">
                       <HugeiconsIcon icon={Add01Icon} className="size-3.5" />
                     </button>
-                    <button className="hover:text-foreground">
+                    <button type="button" className="hover:text-foreground">
                       <HugeiconsIcon icon={ArrowRight01Icon} className="size-3.5" />
                     </button>
                   </div>
@@ -489,7 +489,7 @@ function CloudflareDashboard() {
                       </div>
                       <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                         <span className="underline decoration-dotted">{work.time}</span>
-                        <button className="hover:text-foreground">
+                        <button type="button" className="hover:text-foreground">
                           <HugeiconsIcon icon={MoreHorizontalCircle01Icon} className="size-3.5" />
                         </button>
                       </div>
@@ -507,10 +507,10 @@ function CloudflareDashboard() {
                     Zero Trust security
                   </span>
                   <div className="flex items-center gap-2 text-muted-foreground">
-                    <button className="hover:text-foreground">
+                    <button type="button" className="hover:text-foreground">
                       <HugeiconsIcon icon={Add01Icon} className="size-3.5" />
                     </button>
-                    <button className="hover:text-foreground">
+                    <button type="button" className="hover:text-foreground">
                       <HugeiconsIcon icon={ArrowRight01Icon} className="size-3.5" />
                     </button>
                   </div>
@@ -548,7 +548,7 @@ function CloudflareDashboard() {
                 <span className="text-[11px] font-bold text-foreground">
                   Audit logs
                 </span>
-                <button className="text-muted-foreground hover:text-foreground">
+                <button type="button" className="text-muted-foreground hover:text-foreground">
                   <HugeiconsIcon icon={ArrowRight01Icon} className="size-3.5" />
                 </button>
               </div>
@@ -556,7 +556,7 @@ function CloudflareDashboard() {
               {/* Tabs */}
               <div className="flex gap-4 border-b text-[11px] font-semibold text-muted-foreground pt-2">
                 {(["All", "Dashboard", "API"] as const).map((tab) => (
-                  <button
+                  <button type="button"
                     key={tab}
                     onClick={() => setActiveTab(tab)}
                     className={cn(

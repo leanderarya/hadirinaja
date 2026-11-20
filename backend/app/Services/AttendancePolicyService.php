@@ -84,12 +84,14 @@ final class AttendancePolicyService
     }
 
     /** @return array<string, mixed> */
-    public function effective(int $tenantId, ?int $outletId, string $date): array
+    public function effective(int $tenantId, ?int $outletId, string $date, bool $currentRead = false): array
     {
         $tenantVersion = TenantAttendancePolicyVersion::query()->forTenant($tenantId)
-            ->where('effective_from', '<=', $date)->orderByDesc('effective_from')->first();
+            ->where('effective_from', '<=', $date)->orderByDesc('effective_from')
+            ->when($currentRead, fn ($query) => $query->sharedLock())->first();
         $outletVersion = $outletId === null ? null : OutletAttendancePolicyVersion::query()->forTenant($tenantId)
-            ->where('outlet_id', $outletId)->where('effective_from', '<=', $date)->orderByDesc('effective_from')->first();
+            ->where('outlet_id', $outletId)->where('effective_from', '<=', $date)->orderByDesc('effective_from')
+            ->when($currentRead, fn ($query) => $query->sharedLock())->first();
         $policy = $tenantVersion?->configuration;
 
         if ($policy !== null && $outletVersion !== null) {

@@ -10,6 +10,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Process\Process;
 use Tests\Support\BuildsTenantFixtures;
 use Tests\TestCase;
@@ -18,7 +19,13 @@ class WeeklyScheduleConcurrencyTest extends TestCase
 {
     use BuildsTenantFixtures, DatabaseMigrations;
 
-    public function test_concurrent_conflicting_weekly_rules_serialize_on_employee_row(): void
+    public static function operations(): array
+    {
+        return ['weekly rules' => ['weekly'], 'weekly and exception' => ['mixed'], 'exceptions' => ['exceptions']];
+    }
+
+    #[DataProvider('operations')]
+    public function test_concurrent_conflicting_weekly_rules_serialize_on_employee_row(string $mode): void
     {
         [, , $owner] = $this->tenantWithOwner('Concurrent scheduling tenant');
         [, $outlet] = $this->unitWithOutlet($owner, 'Operations', 'Concurrent outlet');
@@ -26,9 +33,10 @@ class WeeklyScheduleConcurrencyTest extends TestCase
         app(EmployeeOutletAssignmentService::class)->assignPrimaryOutlet($owner, $employee, $outlet, now()->subDay());
         $effectiveFrom = CarbonImmutable::today('UTC')->addDay();
         $shift = app(ShiftTemplateService::class)->create(
-            $owner, 'Concurrent shift', '09:00:00', '17:00:00', false,
+            $owner, 'Concurrent shift', '20:00:00', '04:00:00', true,
             $effectiveFrom->toDateString(), 'Concurrency fixture',
         )->versions->first();
+        $morning = app(ShiftTemplateService::class)->create($owner, 'Morning', '03:30', '09:00', false, $effectiveFrom->toDateString(), 'Concurrency fixture')->versions->first();
         $directory = sys_get_temp_dir().'/hadirinaja-s3-'.Str::uuid();
         mkdir($directory, 0700, true);
         $startPath = $directory.'/start';
@@ -58,7 +66,9 @@ class WeeklyScheduleConcurrencyTest extends TestCase
                         'S3_EMPLOYEE_ID' => (string) $employee->getKey(),
                         'S3_OUTLET_ID' => (string) $outlet->getKey(),
                         'S3_WEEKDAY' => (string) $effectiveFrom->isoWeekday(),
-                        'S3_SHIFT_VERSION_ID' => (string) $shift->getKey(),
+                        'S3_SHIFT_VERSION_ID' => (string) ($worker === 2 && $mode !== 'weekly' ? $morning->getKey() : $shift->getKey()),
+                        'S3_OPERATION' => $mode === 'exceptions' || ($mode === 'mixed' && $worker === 2) ? 'exception' : 'weekly',
+                        'S3_WORK_DATE' => ($worker === 2 && $mode !== 'weekly' ? $effectiveFrom->addDay() : $effectiveFrom)->toDateString(),
                         'S3_EFFECTIVE_FROM' => $effectiveFrom->toDateString(),
                     ],
                     null,
@@ -95,7 +105,8 @@ class WeeklyScheduleConcurrencyTest extends TestCase
             ];
             $this->assertEqualsCanonicalizing(['created', 'conflict'], array_column($results, 'status'));
             $this->assertGreaterThanOrEqual(500, min(array_column($results, 'elapsed_ms')));
-            $this->assertSame(1, DB::table('weekly_schedule_rules')->where('employee_id', $employee->getKey())->count());
+            $this->assertSame(1, DB::table('weekly_schedule_rules')->where('employee_id', $employee->getKey())->count()
+                + DB::table('schedule_exceptions')->where('employee_id', $employee->getKey())->count());
         } finally {
             if (DB::transactionLevel() > 0) {
                 DB::rollBack();

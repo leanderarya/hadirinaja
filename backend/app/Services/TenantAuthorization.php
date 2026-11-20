@@ -121,11 +121,13 @@ final class TenantAuthorization
             return Outlet::query()->forTenant($tenantId)->orderBy('id')->get();
         }
 
-        $outletIds = collect();
-
         if ($this->hasTenantRole($membership, TenantRole::Supervisor)) {
-            $outletIds = $outletIds->merge($membership->supervisorScopes()
-                ->where('tenant_id', $tenantId)->pluck('outlet_id'));
+            $outletIds = $membership->supervisorScopes()
+                ->where('tenant_id', $tenantId)->pluck('outlet_id');
+
+            return Outlet::query()->forTenant($tenantId)
+                ->whereIn('id', $outletIds)
+                ->orderBy('id')->get();
         }
 
         if ($this->hasTenantRole($membership, TenantRole::Employee)) {
@@ -135,8 +137,12 @@ final class TenantAuthorization
                 ->value('employee_id');
 
             if ($employeeId !== null) {
-                $outletIds = $outletIds->merge($this->currentAssignments($tenantId, (int) $employeeId)->pluck('outlet_id'));
+                $outletIds = $this->currentAssignments($tenantId, (int) $employeeId)->pluck('outlet_id');
+            } else {
+                $outletIds = collect();
             }
+        } else {
+            $outletIds = collect();
         }
 
         return Outlet::query()->forTenant($tenantId)
@@ -169,8 +175,6 @@ final class TenantAuthorization
             return Employee::query()->forTenant($tenantId)->orderBy('id')->get();
         }
 
-        $employees = collect();
-
         if ($this->hasTenantRole($membership, TenantRole::Supervisor)) {
             $outletIds = $membership->supervisorScopes()->where('tenant_id', $tenantId)->pluck('outlet_id');
             $assignedEmployeeIds = EmployeeOutletAssignment::query()
@@ -180,7 +184,7 @@ final class TenantAuthorization
                 ->where('effective_until', '>', now())
                 ->distinct()
                 ->pluck('employee_id');
-            $employees = $employees->merge(Employee::query()->forTenant($tenantId)->whereIn('id', $assignedEmployeeIds)->get());
+            return Employee::query()->forTenant($tenantId)->whereIn('id', $assignedEmployeeIds)->orderBy('id')->get();
         }
 
         if ($this->hasTenantRole($membership, TenantRole::Employee)) {
@@ -190,11 +194,11 @@ final class TenantAuthorization
                 ->value('employee_id');
 
             if ($employeeId !== null) {
-                $employees = $employees->merge(Employee::query()->forTenant($tenantId)->whereKey($employeeId)->get());
+                return Employee::query()->forTenant($tenantId)->whereKey($employeeId)->get();
             }
         }
 
-        return $employees->unique('id')->sortBy('id')->values();
+        return collect();
     }
 
     public function canAccessEmployee(User $user, int $tenantId, int $employeeId): bool

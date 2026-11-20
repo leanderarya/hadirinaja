@@ -19,7 +19,7 @@ final class AttendanceReportingService
     private const MAX_EXPORT_ROWS = 500;
 
     public function __construct(
-        private readonly EffectiveAttendanceProjectionService $projection,
+        private readonly EffectiveAttendanceReader $projection,
         private readonly ReportingAccessService $access,
     ) {}
 
@@ -49,7 +49,7 @@ final class AttendanceReportingService
         $outcomes = collect($rows)->countBy('outcome')->all();
         $approvalSummary = $this->approvalSummary($scope, $filters);
         $knownActualSeconds = $sessions->whereNotNull('actual_duration_seconds')->sum('actual_duration_seconds');
-        $knownEffectiveSeconds = $sessions->whereNotNull('effective_duration_seconds')->sum('effective_duration_seconds');
+        $knownEffectiveSeconds = $sessions->sum('effective_duration_seconds') + collect($rows)->pluck('reconstructions')->collapse()->sum('effective.duration_seconds');
 
         return [
             'metrics' => [
@@ -68,7 +68,7 @@ final class AttendanceReportingService
                 'employee_workdays_with_unresolved_review' => collect($rows)->where('review.status', 'pending')->count(),
                 'potential_absence_employee_workdays' => collect($rows)->where('outcome', 'potential_absence')->count(),
                 'finalized_absence_employee_workdays' => collect($rows)
-                    ->filter(fn (array $row): bool => ($row['finalization']['outcome'] ?? null) === 'absence')->count(),
+                    ->filter(fn (array $row): bool => $row['is_finalized'] && ($row['finalization']['outcome'] ?? null) === 'absence')->count(),
                 'known_actual_duration_seconds' => (int) $knownActualSeconds,
                 'known_effective_duration_seconds' => (int) $knownEffectiveSeconds,
             ],
@@ -219,12 +219,12 @@ final class AttendanceReportingService
             $sessions = $projection['sessions'];
             $requests = $projection['leave_requests'] !== [] || $projection['overtime_requests'] !== []
                 || $projection['pending_corrections'] !== [] || $projection['review']['cases'] !== [];
-            if (! $scheduled && $sessions === [] && ! $requests && ! $projection['is_finalized']) {
+            if (! $scheduled && $projection['sources'] === [] && ! $requests && $projection['finalization'] === null) {
                 continue;
             }
 
             $outletIds = collect([$projection['outlet']['id'] ?? null])
-                ->merge(collect($sessions)->pluck('effective.outlet_id'))
+                ->merge(collect($projection['sources'])->pluck('effective.outlet_id'))
                 ->filter()->map(fn ($id): int => (int) $id)->unique()->values();
             $outlets = $outletIds->map(function (int $id) use ($outletsById): ?array {
                 $outlet = $outletsById->get($id);
@@ -316,6 +316,7 @@ final class AttendanceReportingService
                     'provenance' => $projection['schedule']['provenance'],
                 ],
                 'sessions' => $rowSessions,
+                'reconstructions' => collect($projection['sources'])->where('source_kind', 'reconstruction')->values()->all(),
                 'actual_duration_seconds' => $projection['actual_duration_seconds'],
                 'effective_duration_seconds' => $projection['effective_duration_seconds'],
                 'approved_leave' => $projection['approved_leave'] ? [
@@ -333,6 +334,7 @@ final class AttendanceReportingService
                 ],
                 'outcome' => $projection['outcome'],
                 'is_finalized' => $projection['is_finalized'],
+                'requires_refinalization' => $projection['requires_refinalization'],
                 'finalization' => $finalization,
                 'correction_decision_ids' => $projection['projection_provenance']['correction_decision_ids'],
                 'source_attendance_event_ids' => $projection['original_attendance_references'],
@@ -486,7 +488,7 @@ final class AttendanceReportingService
             'unique_employees' => collect($rows)->pluck('employee.id')->unique()->count(),
             'attendance_sessions' => $sessions->count(),
             'known_actual_duration_seconds' => (int) $sessions->whereNotNull('actual_duration_seconds')->sum('actual_duration_seconds'),
-            'known_effective_duration_seconds' => (int) $sessions->whereNotNull('effective_duration_seconds')->sum('effective_duration_seconds'),
+            'known_effective_duration_seconds' => (int) ($sessions->sum('effective_duration_seconds') + collect($rows)->pluck('reconstructions')->collapse()->sum('effective.duration_seconds')),
         ];
     }
 }

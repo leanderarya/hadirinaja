@@ -74,9 +74,9 @@ Verified locally: Laravel 13.38.0, Composer 2.10.2 and backend tests on PHP 8.3.
 
 `GET /api/v1/health` returns HTTP 200 with `{"status":"healthy","checks":{"database":"available"}}` only after the configured MySQL connection completes `SELECT 1`. A database failure returns HTTP 503 with `{"status":"unhealthy","checks":{"database":"unavailable"}}`. Driver errors, credentials, paths, and stack traces are not returned.
 
-The browser client in `src/lib/api.ts` reads the public `VITE_API_BASE_URL`. Its local default is `/api/v1`, forwarded by Vite to `http://127.0.0.1:8000`. For split-origin deployment, set the frontend build variable to an absolute API base such as `https://api.example.com/api/v1`. A `VITE_` variable is included in the browser bundle; do not place credentials or server-only secrets there.
+The browser client in `src/lib/api.ts` reads the public `VITE_API_BASE_URL`. Its local default is `/api/v1`, forwarded by Nitro's development proxy to `http://127.0.0.1:8000`. For split-origin deployment, set the frontend build variable to an absolute API base such as `https://api.example.com/api/v1`. A `VITE_` variable is included in the browser bundle; do not place credentials or server-only secrets there.
 
-`CORS_ALLOWED_ORIGINS` is a comma-separated allowlist of exact frontend origins. It defaults to `http://localhost:3000`; production must replace it with the deployed frontend origin. Credentialed CORS is enabled for this allowlist only; wildcard origins are not used. The Vite development server forwards both `/api/*` and `/sanctum/*` to Laravel.
+`CORS_ALLOWED_ORIGINS` is a comma-separated allowlist of exact frontend origins. It defaults to `http://localhost:3000`; production must replace it with the deployed frontend origin. Credentialed CORS is enabled for this allowlist only; wildcard origins are not used. Nitro's development proxy forwards `/api/*` and `/sanctum/*` to Laravel.
 
 ## S1 organization and identity foundation
 
@@ -106,6 +106,12 @@ CACHE_STORE=database
 The frontend's public `VITE_API_BASE_URL` may point to `https://api.example.com/api/v1`. Do not put credentials in `VITE_` variables. Cross-subdomain cookies require HTTPS and a shared registrable domain. Production domain, certificate, hosting configuration, and browser behavior have not been deployed or verified.
 
 Run `php artisan hadirinaja:bootstrap-owner` from `backend/` once from a trusted interactive server session to create the first Owner and Tenant. It confirms before writing, accepts the password only through hidden prompts, validates the identity and password, and refuses to run when a tenant already exists. Do not pass passwords as command arguments. The command creates no default account during migrations or startup.
+
+### Internal development organization provisioning
+
+`php artisan organization:provision-development` is a read-only dry run by default. It checks the effective local MySQL connection, `hadirinaja_dev`, User ID 2, the target-name collision, required InnoDB tables, and the approved policy/calendar defaults before describing the intended organization. It also supports the isolated `hadirinaja_test` environment for dry-run tests only; write mode is rejected outside `local`.
+
+Actual writes are not authorized by the existence of this command. A future run requires separate Owner authorization, `--execute-write`, `--owner-authorized`, the exact confirmation phrase `CREATE-OPERASIONAL-CEPAT-KOPI-TEH-POCI`, and interactive confirmation. The command uses the existing `OrganizationService`, creates the seven management change events through the shared `ManagementChangeRecorder`, and wraps all service calls in one MySQL transaction under a named connection lock. It stops on a collision or any failure and never deletes partial data. Do not retry after an uncertain result; inspect persisted state first. This workflow has not provisioned the development tenant.
 
 ## S2 API inventory
 

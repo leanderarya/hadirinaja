@@ -113,8 +113,11 @@ export function FormsSection() {
         </FieldGroup>
       </UiKitSection>
 
-      <UiKitSection id="input" importPath="@/components/ui/input" title="Input">
-        <Input className="max-w-sm" placeholder="Enter text" />
+      <UiKitSection id="input" importPath="@/components/ui/input" title="Input · Pen control">
+        <div className="grid max-w-xl gap-3 sm:grid-cols-2">
+          <Input aria-label="Outlet" placeholder="Pilih outlet" />
+          <Input aria-invalid="true" aria-label="Nilai yang perlu diperiksa" defaultValue="Periksa nilai" />
+        </div>
       </UiKitSection>
 
       <UiKitSection

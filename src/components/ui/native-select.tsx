@@ -1,5 +1,4 @@
-import { UnfoldMoreIcon } from "@hugeicons/core-free-icons"
-import { HugeiconsIcon } from "@hugeicons/react"
+import { ChevronDown } from "lucide-react"
 import type * as React from "react"
 import { cn } from "@/lib/utils"
 
@@ -24,12 +23,10 @@ function NativeSelect({
       <select
         data-slot="native-select"
         data-size={size}
-        className="h-9 w-full min-w-0 appearance-none rounded-3xl border border-transparent bg-input/50 py-1 pr-8 pl-3 text-sm transition-[color,box-shadow,background-color] outline-none select-none selection:bg-primary selection:text-primary-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:pointer-events-none disabled:cursor-not-allowed aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-[size=sm]:h-8 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40"
+        className="h-11 w-full min-w-0 appearance-none rounded-[var(--radius-input)] border border-border bg-canvas py-1 pr-9 pl-3 text-sm outline-none select-none selection:bg-primary selection:text-primary-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20 disabled:pointer-events-none disabled:cursor-not-allowed aria-invalid:border-danger-strong aria-invalid:ring-2 aria-invalid:ring-destructive/15 data-[size=sm]:h-8"
         {...props}
       />
-      <HugeiconsIcon
-        icon={UnfoldMoreIcon}
-        strokeWidth={2}
+      <ChevronDown
         className="pointer-events-none absolute top-1/2 right-2.5 size-4 -translate-y-1/2 text-muted-foreground select-none"
         aria-hidden="true"
         data-slot="native-select-icon"

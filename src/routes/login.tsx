@@ -12,6 +12,7 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { type AuthSession, apiRequest } from "@/lib/api"
+import { getAuthenticatedEntryPath } from "@/lib/auth-navigation"
 
 export const Route = createFileRoute("/login")({ component: LoginPage })
 
@@ -31,7 +32,7 @@ function LoginPage() {
       .then((session) => {
         if (active) {
           window.location.assign(
-            session.active_membership ? "/workspace" : "/select-tenant"
+            getAuthenticatedEntryPath(session.active_membership)
           )
         }
       })
@@ -56,7 +57,7 @@ function LoginPage() {
         body: { identifier, password },
       })
       window.location.assign(
-        session.active_membership ? "/workspace" : "/select-tenant"
+        getAuthenticatedEntryPath(session.active_membership)
       )
     } catch {
       setError("Email/nomor telepon atau kata sandi tidak valid. Coba lagi.")

@@ -51,29 +51,29 @@ function ApiHealthPage() {
         : "outline"
 
   const statusLabel = {
-    idle: "Not checked",
-    checking: "Checking",
-    healthy: "Healthy",
-    unhealthy: "Unhealthy",
-    unreachable: "Unreachable",
+    idle: "Belum diperiksa",
+    checking: "Sedang diperiksa",
+    healthy: "Berfungsi",
+    unhealthy: "Bermasalah",
+    unreachable: "Tidak terjangkau",
   }[check.status]
 
   const statusMessage = {
-    idle: "Run a browser-side check against the configured Laravel API.",
-    checking: "Checking the API and its database connection…",
-    healthy: "Laravel responded and its read-only database check succeeded.",
-    unhealthy: "The API responded, but its database health check failed.",
+    idle: "Periksa koneksi browser ke API dan basis data.",
+    checking: "Memeriksa koneksi API dan basis data…",
+    healthy: "API merespons dan pemeriksaan koneksi basis data berhasil.",
+    unhealthy: "API merespons, tetapi pemeriksaan koneksi basis data gagal.",
     unreachable:
-      "The browser could not receive a valid response. Check the API server, URL, and CORS configuration.",
+      "Browser tidak menerima respons yang valid. Periksa server API, alamat, dan konfigurasi CORS.",
   }[check.status]
 
   return (
     <main className="mx-auto flex w-full max-w-3xl justify-center px-6 py-16">
       <Card className="w-full">
         <CardHeader>
-          <CardTitle>API connection</CardTitle>
+          <CardTitle>Koneksi API</CardTitle>
           <CardDescription>
-            Verify browser access to Laravel and its configured database.
+            Periksa akses browser ke API dan basis datanya.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
@@ -94,7 +94,7 @@ function ApiHealthPage() {
               onClick={checkApi}
               type="button"
             >
-              {check.status === "checking" ? "Checking…" : "Check API"}
+              {check.status === "checking" ? "Memeriksa…" : "Periksa koneksi"}
             </Button>
           </div>
         </CardContent>

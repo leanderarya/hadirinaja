@@ -102,11 +102,11 @@ export function NewsSection() {
 
   const handlePrev = React.useCallback(() => {
     setActiveIndex((prev) => (prev - 1 + total) % total)
-  }, [total])
+  }, [])
 
   const handleNext = React.useCallback(() => {
     setActiveIndex((prev) => (prev + 1) % total)
-  }, [total])
+  }, [])
 
   // Helper to calculate circular distance and offset
   const getCircularOffset = React.useCallback((index: number, active: number) => {
@@ -114,7 +114,7 @@ export function NewsSection() {
     while (diff < -total / 2) diff += total
     while (diff > total / 2) diff -= total
     return diff
-  }, [total])
+  }, [])
 
   return (
     <section className="mx-auto w-full overflow-x-clip py-16 md:py-24">
@@ -165,7 +165,7 @@ export function NewsSection() {
             let x = 0
             let z = 0
             let opacity = 1
-            let zIndex = 10 - absOffset
+            const zIndex = 10 - absOffset
 
             if (reduced) {
               // Flat layout for reduced motion
@@ -295,14 +295,14 @@ export function NewsSection() {
 
         {/* Navigation Controls */}
         <div className="mt-8 flex items-center justify-center gap-3">
-          <button
+          <button type="button"
             onClick={handlePrev}
             className="flex size-10 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm transition-transform active:scale-[0.96] hover:bg-muted/50"
             aria-label="Previous slide"
           >
             <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} className="size-5" />
           </button>
-          <button
+          <button type="button"
             onClick={handleNext}
             className="flex size-10 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm transition-transform active:scale-[0.96] hover:bg-muted/50"
             aria-label="Next slide"

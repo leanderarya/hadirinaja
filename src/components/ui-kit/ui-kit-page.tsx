@@ -1,7 +1,6 @@
 "use client"
 
 import { Link } from "@tanstack/react-router"
-import { ThemeProvider, useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import {
   Select,
@@ -23,22 +22,21 @@ import { FormsSection } from "@/components/ui-kit/sections/forms"
 import { LayoutSection } from "@/components/ui-kit/sections/layout"
 import { NavigationSection } from "@/components/ui-kit/sections/navigation"
 import { OverlaysSection } from "@/components/ui-kit/sections/overlays"
+import { R2cOperationsSection } from "@/components/ui-kit/sections/r2c-operations"
+import { R2cScreensSection } from "@/components/ui-kit/sections/r2c-screens"
+import { R2cSection } from "@/components/ui-kit/sections/r2c"
 import { UiKitSidebar } from "@/components/ui-kit/ui-kit-sidebar"
 
 export function UiKitPage() {
   return (
-    <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
-      <TooltipProvider>
-        <UiKitPageContent />
-        <Toaster />
-      </TooltipProvider>
-    </ThemeProvider>
+    <TooltipProvider>
+      <UiKitPageContent />
+      <Toaster />
+    </TooltipProvider>
   )
 }
 
 function UiKitPageContent() {
-  const { resolvedTheme, setTheme } = useTheme()
-
   const jumpLinks = catalogCategories.flatMap((category) =>
     category.items.map((item) => ({
       ...item,
@@ -86,14 +84,6 @@ function UiKitPageContent() {
             >
               Back to home
             </Button>
-            <Button
-              onClick={() =>
-                setTheme(resolvedTheme === "dark" ? "light" : "dark")
-              }
-              variant="outline"
-            >
-              Toggle theme
-            </Button>
           </div>
         </div>
         <div className="border-t px-4 py-3 lg:hidden">
@@ -130,6 +120,12 @@ function UiKitPageContent() {
         </aside>
 
         <main className="flex min-w-0 flex-1 flex-col gap-16">
+          <section className="flex flex-col gap-6"><h2 className="text-subtitle">R2C · Jadwal & Persetujuan</h2><R2cOperationsSection /></section>
+          <section className="flex flex-col gap-6"><h2 className="text-subtitle">R2C · Blok layar Ringkasan & Tim</h2><R2cScreensSection /></section>
+          <section className="flex flex-col gap-6" id="r2c-foundations">
+            <h2 className="text-subtitle">R2C · Fondasi & komponen native</h2>
+            <R2cSection />
+          </section>
           <section className="flex flex-col gap-6">
             <h2 className="text-subtitle">Design Tokens</h2>
             <DesignTokensSection />

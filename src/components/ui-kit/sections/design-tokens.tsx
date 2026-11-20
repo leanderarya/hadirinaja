@@ -195,7 +195,7 @@ export function DesignTokensSection() {
           </p>
           {typographyScale.map((item) => (
             <div className="flex flex-col gap-1" key={item.label}>
-              <p className={item.className}>{item.label} — Geist Variable</p>
+            <p className={item.className}>{item.label} — Inter Variable</p>
               <p className="font-mono text-muted-foreground text-xs">
                 {item.token}
               </p>
@@ -332,8 +332,8 @@ export function DesignTokensSection() {
             ))}
           </div>
           <p className="text-muted-foreground text-xs">
-            Logo colors adapt in <code className="text-xs">.dark</code> via
-            semantic <code className="text-xs">--logo-*</code> aliases.
+            Logo colors use the fixed light-mode semantic{" "}
+            <code className="text-xs">--logo-*</code> aliases.
           </p>
         </div>
       </UiKitSection>

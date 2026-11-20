@@ -108,14 +108,14 @@ export function DataDisplaySection() {
         </div>
       </UiKitSection>
 
-      <UiKitSection id="card" importPath="@/components/ui/card" title="Card">
+      <UiKitSection id="card" importPath="@/components/ui/card" title="Card · Pen surface">
         <Card className="max-w-sm">
           <CardHeader>
             <CardTitle>Card title</CardTitle>
             <CardDescription>Card description</CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm">Card content goes here.</p>
+            <p className="text-body">Surface cards use a 16px radius, a quiet border, and 16px inner spacing.</p>
           </CardContent>
           <CardFooter>
             <Button>Action</Button>

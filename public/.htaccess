@@ -1,0 +1,22 @@
+# Static frontend only. Laravel must use its own document root and origin.
+Options -Indexes -MultiViews
+DirectoryIndex _shell.html
+
+RewriteEngine On
+
+# These paths must never return the SPA shell.
+RewriteRule ^(?:api|sanctum|_serverFn)(?:/|$) - [R=404,L]
+
+# Serve existing assets and directories normally.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [END]
+
+# Missing assets must remain 404.
+RewriteRule ^assets(?:/|$) - [R=404,L]
+
+# Only browser document navigation may fall back to the shell.
+RewriteCond %{REQUEST_METHOD} ^(?:GET|HEAD)$
+RewriteCond %{HTTP_ACCEPT} text/html [NC]
+RewriteCond %{REQUEST_URI} !\.[^/]+$
+RewriteRule ^ _shell.html [END]

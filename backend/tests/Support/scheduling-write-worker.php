@@ -3,10 +3,15 @@
 use App\Models\Employee;
 use App\Models\TenantMembership;
 use App\Services\EmployeeScheduleService;
+use App\Services\PlannerNotificationService;
+use App\Services\ShiftChangeService;
+use App\Services\WeeklyPlannerService;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 $basePath = dirname(__DIR__, 2);
 require $basePath.'/vendor/autoload.php';
@@ -44,18 +49,39 @@ $startedAt = hrtime(true);
 try {
     $membership = TenantMembership::query()->findOrFail((int) getenv('S3_MEMBERSHIP_ID'));
     $employee = Employee::query()->findOrFail((int) getenv('S3_EMPLOYEE_ID'));
-    app(EmployeeScheduleService::class)->createWeeklyRule(
-        $membership,
-        (int) $employee->getKey(),
-        (int) getenv('S3_OUTLET_ID'),
-        (int) getenv('S3_WEEKDAY'),
-        (int) getenv('S3_SHIFT_VERSION_ID'),
-        (string) getenv('S3_EFFECTIVE_FROM'),
-        null,
-        'Concurrent schedule test.',
-    );
+    if (getenv('S3_OPERATION') === 'notification_dispatch') {
+        app(PlannerNotificationService::class)->remindDue(CarbonImmutable::parse((string) getenv('S5_NOW')));
+        app(PlannerNotificationService::class)->dispatch();
+    } elseif (getenv('S3_OPERATION') === 'shift_change_accept') {
+        app(ShiftChangeService::class)->respond($membership, (int) getenv('S3_REQUEST_ID'), 'accept');
+    } elseif (getenv('S3_OPERATION') === 'planner_publish') {
+        app(WeeklyPlannerService::class)->publish($membership, (int) getenv('S3_OUTLET_ID'), (string) getenv('S3_EFFECTIVE_FROM'), [
+            'expected_version' => 1, 'expected_published_revision_id' => null, 'activate_cutover' => true, 'reason' => 'Concurrent publication', 'warnings_checksum' => (string) getenv('S3_WARNINGS_CHECKSUM'),
+        ], (string) getenv('S3_KEY'));
+    } elseif (getenv('S3_OPERATION') === 'exception') {
+        app(EmployeeScheduleService::class)->createException(
+            $membership, (int) $employee->getKey(), (int) getenv('S3_OUTLET_ID'),
+            (string) getenv('S3_WORK_DATE'), 'work', (int) getenv('S3_SHIFT_VERSION_ID'), 'Concurrent exception test.',
+        );
+    } else {
+        app(EmployeeScheduleService::class)->createWeeklyRule(
+            $membership,
+            (int) $employee->getKey(),
+            (int) getenv('S3_OUTLET_ID'),
+            (int) getenv('S3_WEEKDAY'),
+            (int) getenv('S3_SHIFT_VERSION_ID'),
+            (string) getenv('S3_EFFECTIVE_FROM'),
+            null,
+            'Concurrent schedule test.',
+        );
+    }
     $status = 'created';
 } catch (ValidationException) {
+    $status = 'conflict';
+} catch (HttpException $exception) {
+    if ($exception->getStatusCode() !== 409) {
+        throw $exception;
+    }
     $status = 'conflict';
 } catch (QueryException $exception) {
     file_put_contents($resultPath, json_encode([

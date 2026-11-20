@@ -111,15 +111,15 @@ export function ActionsSection() {
       <UiKitSection
         id="button"
         importPath="@/components/ui/button"
-        title="Button"
+        title="Button · Pen foundation"
       >
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-2">
-            <p className="font-medium text-sm">Variants</p>
-            <div className="flex flex-wrap gap-2">
+            <p className="text-caption">Primary, secondary, quiet, and danger use the approved Pen action language.</p>
+        <div className="flex flex-wrap items-center gap-3">
               {buttonVariants.map((variant) => (
                 <Button key={variant} variant={variant}>
-                  {variant}
+              {variant === "default" ? "Primary" : variant === "secondary" ? "Quiet" : variant === "destructive" ? "Danger" : variant}
                 </Button>
               ))}
             </div>

@@ -23,8 +23,16 @@ final class KioskAccessController extends Controller
         $validated = $request->validate(['code' => ['required', 'string', 'max:64']]);
 
         try {
-            $result = $this->pairing->redeemPairingCode($validated['code']);
-        } catch (ValidationException) {
+            $previous = $request->cookie('hadirinaja_kiosk');
+            $result = $this->pairing->redeemPairingCode($validated['code'], is_string($previous) ? $previous : null);
+        } catch (ValidationException $exception) {
+            if (isset($exception->errors()['device'])) {
+                return response()->json([
+                    'code' => 'kiosk_renewal_required',
+                    'message' => 'Perangkat masih terdaftar. Gunakan kode pembaruan untuk perangkat ini atau minta Owner mencabut akses lama sebelum memasangkan ulang.',
+                ], 409);
+            }
+
             return response()->json([
                 'code' => 'pairing_code_invalid',
                 'message' => 'Kode pemasangan tidak valid atau kedaluwarsa.',
@@ -34,7 +42,7 @@ final class KioskAccessController extends Controller
         $cookie = cookie(
             'hadirinaja_kiosk',
             $result['token'],
-            60 * 24 * 365,
+            60 * 24 * KioskDevice::CREDENTIAL_LIFETIME_DAYS,
             '/api/v1/kiosk',
             config('session.domain'),
             (bool) config('session.secure'),
@@ -56,6 +64,7 @@ final class KioskAccessController extends Controller
             'device' => ['id' => (int) $device->getKey(), 'name' => $device->name],
             'tenant' => ['id' => (int) $device->tenant_id, 'name' => $device->tenant->name],
             'outlet' => ['id' => (int) $device->outlet_id, 'name' => $device->outlet->name],
+            'credential_expires_at' => $device->credential_expires_at?->toIso8601String(),
         ]);
     }
 

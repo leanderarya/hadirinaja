@@ -1,15 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import { ManagementSidebar } from "@/components/management-sidebar"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
+import { ManagementSidebar, ManagementTopbar } from "@/components/management-sidebar"
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-} from "@/components/ui/breadcrumb"
+  PageHeading,
+  ReportSectionNavigation,
+  ScopeBanner,
+  WorkDateRangeControl,
+} from "@/components/r2c/screen-blocks"
+import { StatusBadge, type StatusTone } from "@/components/r2c/components"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -21,7 +21,7 @@ import {
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
+import { SidebarProvider } from "@/components/ui/sidebar"
 import {
   Table,
   TableBody,
@@ -36,7 +36,6 @@ import {
   apiRequest,
   downloadApiFile,
 } from "@/lib/api"
-import { REPORT_DATE_PRESETS, reportDateRange } from "@/lib/report-date-presets"
 
 export const Route = createFileRoute("/reports/attendance")({
   component: AttendanceReportPage,
@@ -44,6 +43,7 @@ export const Route = createFileRoute("/reports/attendance")({
 
 type Options = {
   business_units: Array<{ id: number; name: string }>
+  maximum_days: number
   outlets: Array<{
     id: number
     name: string
@@ -88,6 +88,11 @@ type ReportRow = {
       reason: string
     } | null
     review_indicators: string[]
+  }>
+  reconstructions?: Array<{
+    source_id: number
+    decision_id: number
+    effective: { check_in_at: string; check_out_at: string; timezone: string; outlet_id: number }
   }>
   actual_duration_seconds: number | null
   effective_duration_seconds: number | null
@@ -172,21 +177,66 @@ function instant(value: string | null, timezone: string | null) {
     timeStyle: "short",
   }).format(new Date(value))
 }
+function clockTime(value: string, timezone: string | null) {
+  return new Intl.DateTimeFormat("id-ID", {
+    timeZone: timezone || "Asia/Jakarta",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value))
+}
+function timeRange(
+  start: string | null,
+  end: string | null,
+  timezone: string | null
+) {
+  if (!start && !end) return "Belum tercatat"
+  return `${start ? clockTime(start, timezone) : "—"}–${end ? clockTime(end, timezone) : "—"}`
+}
+function formatReportDate(value: string) {
+  return new Date(`${value}T12:00:00`).toLocaleDateString("id-ID", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  })
+}
+function formatReportRange(from: string, to: string) {
+  const format = (value: string) =>
+    new Date(`${value}T12:00:00`).toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    })
+  return from === to ? format(from) : `${format(from)}–${format(to)}`
+}
 function statusLabel(value: string) {
   const labels: Record<string, string> = {
     present: "Hadir",
     leave: "Cuti",
     sick: "Sakit",
     permission: "Izin",
-    potential_absence: "Potensi absen",
-    confirmed_absence_pending_finalization: "Absen menunggu finalisasi",
+    potential_absence: "Potensi tidak hadir",
+    confirmed_absence_pending_finalization:
+      "Ketidakhadiran terkonfirmasi · menunggu penetapan hasil",
     exceptional_attendance: "Kehadiran khusus",
-    no_recorded_outcome: "Belum ada hasil",
+    no_recorded_outcome: "Belum ada hasil kehadiran",
   }
   return labels[value] ?? value.replaceAll("_", " ")
 }
 
-async function ensureManagementAccess() {
+function statusTone(value: string): StatusTone {
+  if (value === "present") return "success"
+  if (value === "potential_absence") return "warning"
+  if (value === "confirmed_absence_pending_finalization") return "danger"
+  if (["leave", "sick", "permission", "exceptional_attendance"].includes(value))
+    return "info"
+  return "neutral"
+}
+
+function hasEffectiveCorrection(row: ReportRow) {
+  return row.sessions.some((session) => session.correction !== null)
+}
+
+async function ensureManagementAccess(onSession?: (session: AuthSession) => void) {
   const session = await apiRequest<AuthSession>("/auth/me")
   if (!session.active_membership) {
     window.location.assign("/select-tenant")
@@ -200,6 +250,7 @@ async function ensureManagementAccess() {
     window.location.assign("/attendance")
     return false
   }
+  onSession?.(session)
   return true
 }
 
@@ -227,6 +278,7 @@ function reportQuery(filters: {
 }
 
 function AttendanceReportPage() {
+  const [navigationSession, setNavigationSession] = useState<AuthSession | null>(null)
   const [options, setOptions] = useState<Options | null>(null)
   const [result, setResult] = useState<ReportResult | null>(null)
   const [selected, setSelected] = useState<ReportRow | null>(null)
@@ -236,11 +288,15 @@ function AttendanceReportPage() {
   const [outletId, setOutletId] = useState("")
   const [employeeId, setEmployeeId] = useState("")
   const [status, setStatus] = useState("")
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState("")
   const initialLoad = useRef(false)
+  const mobileDetailTrigger = useRef<HTMLButtonElement | null>(null)
+  const mobileDetailBack = useRef<HTMLButtonElement | null>(null)
 
   const visibleOutlets =
     options?.outlets.filter(
@@ -248,18 +304,27 @@ function AttendanceReportPage() {
         !businessUnitId || String(outlet.business_unit_id) === businessUnitId
     ) ?? []
 
+  const pageRows = result?.data ?? []
+  const resultOutletCount = new Set(
+    pageRows.flatMap((row) => row.outlets.map((outlet) => outlet.id))
+  ).size
+
   const load = useCallback(
-    async (targetPage = 1, includeOptions = false) => {
+    async (
+      targetPage = 1,
+      includeOptions = false,
+      dateRange?: { from: string; to: string }
+    ) => {
       setLoading(true)
       setError("")
       try {
-        if (!(await ensureManagementAccess())) return
+        if (!(await ensureManagementAccess(setNavigationSession))) return
         if (includeOptions || !options)
           setOptions(await apiRequest<Options>("/management/reports/filters"))
         const next = await apiRequest<ReportResult>(
           `/management/reports/attendance?${reportQuery({
-            from,
-            to,
+            from: dateRange?.from ?? from,
+            to: dateRange?.to ?? to,
             page: targetPage,
             businessUnitId,
             outletId,
@@ -304,20 +369,27 @@ function AttendanceReportPage() {
   useEffect(() => {
     if (!initialLoad.current) {
       initialLoad.current = true
-      void load(1, true)
+      const range = window.matchMedia("(max-width: 767px)").matches
+        ? { from: today(), to: today() }
+        : { from, to }
+      if (range.from !== from || range.to !== to) {
+        setFrom(range.from)
+        setTo(range.to)
+      }
+      void load(1, true, range)
     }
     const expireSession = () => window.location.assign("/login?expired=1")
     window.addEventListener("hadirinaja:session-expired", expireSession)
     return () =>
       window.removeEventListener("hadirinaja:session-expired", expireSession)
     // Load once; filter changes are applied only after submit.
-  }, [load])
+  }, [from, load, to])
 
   async function exportCsv() {
     setExporting(true)
     setError("")
     try {
-      if (!(await ensureManagementAccess())) return
+      if (!(await ensureManagementAccess(setNavigationSession))) return
       await downloadApiFile(
         `/management/reports/attendance.csv?${reportQuery({
           from,
@@ -354,100 +426,90 @@ function AttendanceReportPage() {
       setOutletId("")
   }
 
-  return (
-    <SidebarProvider>
-      <ManagementSidebar activePage="reports" />
-      <main className="min-w-0 flex-1 bg-muted/20">
-        <header className="flex items-center gap-3 border-b bg-background px-4 py-3 md:px-8">
-          <SidebarTrigger />
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbPage>Laporan detail</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-        </header>
-        <div className="mx-auto flex max-w-7xl flex-col gap-6 p-4 md:gap-8 md:p-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h1 className="text-title">Laporan kehadiran</h1>
-              <p className="text-body text-muted-foreground">
-                Bandingkan jadwal, catatan asli, dan nilai efektif S5.
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" render={<a href="/reports" />}>
-                Ringkasan
-              </Button>
-              <Button variant="outline" render={<a href="/reports/audit" />}>
-                Audit aktivitas
-              </Button>
-            </div>
-          </div>
+  function selectReportRow(row: ReportRow, trigger?: HTMLButtonElement) {
+    setSelected(row)
+    if (window.matchMedia("(max-width: 1279px)").matches) {
+      mobileDetailTrigger.current = trigger ?? null
+      setMobileDetailOpen(true)
+      requestAnimationFrame(() => mobileDetailBack.current?.focus())
+    }
+  }
 
-          <Card>
+  function closeMobileDetail() {
+    setMobileDetailOpen(false)
+    requestAnimationFrame(() => mobileDetailTrigger.current?.focus())
+  }
+
+  const navigationContext = navigationSession?.active_membership ? { tenantName: navigationSession.active_membership.tenant.name, roles: navigationSession.active_membership.roles, userName: navigationSession.user.name } : null
+  const membershipRoles = navigationSession?.active_membership?.roles ?? []
+  const isSupervisor =
+    membershipRoles.includes("supervisor") && !membershipRoles.includes("owner")
+  const scopeTitle = isSupervisor
+    ? "Supervisor · Outlet yang dapat Anda akses"
+    : "Owner · seluruh Outlet dalam organisasi aktif"
+
+  return (
+    <SidebarProvider className="pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">
+      <ManagementSidebar activePage="attendance-report" context={navigationContext} />
+      <main className="min-w-0 flex-1 bg-canvas">
+        <ManagementTopbar context={navigationContext} />
+        <div
+          className={`owner-report-page mx-auto flex max-w-7xl flex-col gap-6 p-4 md:gap-8 md:p-8 ${mobileDetailOpen ? "is-detail-open" : ""}`}
+        >
+          <div className="owner-attendance-report-heading-row">
+            <PageHeading
+              className="owner-attendance-report-heading"
+              description="Kehadiran diringkas per karyawan dan tanggal kerja, terpisah dari pengelolaan Tim."
+              role={isSupervisor ? "Supervisor" : "Owner"}
+              mobileTitle="Laporan"
+              title="Laporan"
+            />
+          </div>
+          <ReportSectionNavigation active="attendance" />
+          {navigationSession?.active_membership ? (
+            <div className="owner-attendance-workdate-banner">
+              <ScopeBanner title={`Tanggal kerja Outlet · ${formatReportRange(from, to)}`}>
+                Waktu sesi mengikuti zona waktu lokal Outlet; laporan menampilkan nilai efektif saat ini.
+              </ScopeBanner>
+            </div>
+          ) : null}
+          {navigationSession?.active_membership && isSupervisor ? (
+            <ScopeBanner title={scopeTitle}>
+              Data dan pilihan Outlet mengikuti izin akses Anda.
+            </ScopeBanner>
+          ) : null}
+
+          <Card
+            className={`owner-attendance-report-filters ${mobileFiltersOpen ? "" : "owner-mobile-filters-collapsed"}`}
+            id="attendance-report-filters"
+          >
             <CardHeader>
               <CardTitle>Filter laporan</CardTitle>
               <CardDescription>
-                Work date mengikuti label tanggal lokal Outlet. Maksimal 31
-                hari dan 5.000 employee-workdays per laporan. CSV memuat
-                maksimal 500 baris setelah filter; ekspor yang melewati batas
-                ditolak, tidak dipotong diam-diam.
+                Tanggal kerja memakai zona waktu lokal masing-masing Outlet.
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <div
-                className="mb-4 flex flex-wrap items-center gap-2"
-                role="group"
-                aria-label="Preset periode laporan"
-              >
-                {REPORT_DATE_PRESETS.map((preset) => (
-                  <Button
-                    key={preset.value}
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      const range = reportDateRange(preset.value)
-                      setFrom(range.from)
-                      setTo(range.to)
-                    }}
-                  >
-                    {preset.label}
-                  </Button>
-                ))}
+            <CardContent className="owner-attendance-report-filters-content">
+              <div className="owner-attendance-report-date-filter">
+                <WorkDateRangeControl
+                  disabled={loading}
+                  from={from}
+                  maximumDays={options?.maximum_days ?? 31}
+                  onApply={(range) => {
+                    setFrom(range.from)
+                    setTo(range.to)
+                  }}
+                  to={to}
+                />
               </div>
               <form
-                className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+                className="owner-attendance-report-filter-form grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
                 onSubmit={(event) => {
                   event.preventDefault()
+                  setMobileFiltersOpen(false)
                   void load(1)
                 }}
               >
-                <Field>
-                  <FieldLabel htmlFor="attendance-from">
-                    Dari tanggal
-                  </FieldLabel>
-                  <Input
-                    id="attendance-from"
-                    type="date"
-                    value={from}
-                    onChange={(event) => setFrom(event.target.value)}
-                    required
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="attendance-to">
-                    Sampai tanggal
-                  </FieldLabel>
-                  <Input
-                    id="attendance-to"
-                    type="date"
-                    value={to}
-                    onChange={(event) => setTo(event.target.value)}
-                    required
-                  />
-                </Field>
                 <Field>
                   <FieldLabel htmlFor="attendance-unit">Unit bisnis</FieldLabel>
                   <NativeSelect
@@ -456,7 +518,7 @@ function AttendanceReportPage() {
                     onChange={(event) => updateBusinessUnit(event.target.value)}
                   >
                     <NativeSelectOption value="">
-                      Semua unit dalam cakupan
+                      Semua unit bisnis yang dapat Anda akses
                     </NativeSelectOption>
                     {options?.business_units.map((unit) => (
                       <NativeSelectOption key={unit.id} value={String(unit.id)}>
@@ -473,7 +535,7 @@ function AttendanceReportPage() {
                     onChange={(event) => setOutletId(event.target.value)}
                   >
                     <NativeSelectOption value="">
-                      Semua Outlet dalam cakupan
+                      Semua Outlet yang dapat Anda akses
                     </NativeSelectOption>
                     {visibleOutlets.map((outlet) => (
                       <NativeSelectOption
@@ -531,17 +593,6 @@ function AttendanceReportPage() {
                     {loading ? "Memuat…" : "Terapkan filter"}
                   </Button>
                 </div>
-                <div className="flex items-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={exporting || loading}
-                    onClick={() => void exportCsv()}
-                    className="w-full"
-                  >
-                    {exporting ? "Menyiapkan…" : "Unduh CSV"}
-                  </Button>
-                </div>
               </form>
             </CardContent>
           </Card>
@@ -552,37 +603,171 @@ function AttendanceReportPage() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : null}
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {[
-              ["Hari kerja", result?.totals.employee_workdays ?? 0],
-              ["Karyawan unik", result?.totals.unique_employees ?? 0],
-              ["Sesi attendance", result?.totals.attendance_sessions ?? 0],
-              [
-                "Durasi efektif diketahui",
-                duration(
-                  result?.totals.known_effective_duration_seconds ?? null
-                ),
-              ],
-            ].map(([label, value]) => (
-              <Card key={label}>
-                <CardHeader className="pb-2">
-                  <CardDescription>{label}</CardDescription>
-                  <CardTitle className="text-title">
-                    {typeof value === "number" ? count(value) : value}
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-            ))}
-          </div>
+          <section
+            aria-label="Hasil laporan kehadiran"
+            className={`owner-attendance-mobile-results ${mobileDetailOpen ? "is-detail-open" : ""}`}
+          >
+            <div className="owner-attendance-mobile-results-heading">
+              <div>
+                <h2 className="sr-only">Baris laporan</h2>
+                <p className="text-caption text-muted-foreground">
+                  {result
+                    ? `${count(result.pagination.total)} hasil · ${resultOutletCount} Outlet`
+                    : "Data akan tampil setelah laporan dimuat."}
+                </p>
+              </div>
+              <Button
+                aria-controls="attendance-report-filters"
+                aria-expanded={mobileFiltersOpen && !mobileDetailOpen}
+                className="owner-mobile-report-filter-toggle"
+                disabled={mobileDetailOpen}
+                onClick={() => setMobileFiltersOpen((open) => !open)}
+                type="button"
+                variant="outline"
+              >
+                Filter
+              </Button>
+            </div>
+            {loading && !result ? (
+              <p className="text-body text-muted-foreground" role="status">
+                Memuat laporan…
+              </p>
+            ) : pageRows.length ? (
+              <div className="owner-attendance-mobile-cards">
+                {pageRows.map((row) => {
+                  const session = row.sessions[0]
+                  const timezone = session?.timezone ?? row.schedule.timezone
+                  const selectedRow =
+                    selected?.employee.id === row.employee.id &&
+                    selected.work_date === row.work_date
+                  return (
+                    <article
+                      className="owner-attendance-mobile-card"
+                      key={`${row.employee.id}-${row.work_date}`}
+                    >
+                      <div className="owner-attendance-mobile-card-heading">
+                        <div>
+                          <h3 className="text-subtitle">{row.employee.name}</h3>
+                          <p className="text-body text-muted-foreground">
+                            {row.outlets
+                              .map((outlet) => `${outlet.business_unit_name} · ${outlet.name}`)
+                              .join(", ") || "Tanpa Outlet"}
+                            {` · ${formatReportDate(row.work_date)}`}
+                          </p>
+                        </div>
+                        <StatusBadge
+                          tone={
+                            row.review.status === "pending"
+                              ? "warning"
+                              : statusTone(row.outcome)
+                          }
+                        >
+                          {row.review.status === "pending"
+                            ? "Perlu tinjauan"
+                            : statusLabel(row.outcome)}
+                        </StatusBadge>
+                        {hasEffectiveCorrection(row) ? (
+                          <StatusBadge tone="info">
+                            Koreksi efektif
+                          </StatusBadge>
+                        ) : null}
+                      </div>
+                      <div className="owner-attendance-mobile-card-times">
+                        <p className="text-body">
+                          Asli: {timeRange(
+                            session?.original.check_in_at ?? null,
+                            session?.original.check_out_at ?? null,
+                            timezone
+                          )}
+                        </p>
+                        <p className="text-body">
+                          Efektif: {timeRange(
+                            session?.effective.check_in_at ?? null,
+                            session?.effective.check_out_at ?? null,
+                            timezone
+                          )}
+                        </p>
+                        <p className="text-caption text-muted-foreground">
+                          Durasi asli {duration(row.actual_duration_seconds)} · efektif {duration(row.effective_duration_seconds)}
+                          {timezone ? ` · ${timezone}` : ""}
+                          {row.is_finalized ? " · Hasil ditetapkan" : ""}
+                        </p>
+                      </div>
+                      <Button
+                        aria-label={`Lihat rincian ${row.employee.name}, ${row.work_date}`}
+                        aria-controls="owner-attendance-report-detail"
+                        aria-expanded={mobileDetailOpen && selectedRow}
+                        className="owner-attendance-mobile-detail-action"
+                        onClick={(event) =>
+                          selectReportRow(row, event.currentTarget)
+                        }
+                        type="button"
+                        variant="outline"
+                      >
+                        Rincian
+                      </Button>
+                    </article>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="owner-attendance-mobile-empty text-body text-muted-foreground">
+                Tidak ada hari kerja karyawan yang cocok dengan filter ini.
+              </p>
+            )}
+            {result ? (
+              <div className="owner-attendance-mobile-pagination">
+                <p className="text-caption text-muted-foreground">
+                  {pageRows.length} baris di halaman ini · {count(result.pagination.total)} hasil
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    aria-label="Halaman sebelumnya"
+                    disabled={page <= 1 || loading}
+                    onClick={() => void load(page - 1)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Sebelumnya
+                  </Button>
+                  <Button
+                    aria-label="Halaman berikutnya"
+                    disabled={!result.pagination.has_more || loading}
+                    onClick={() => void load(page + 1)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Berikutnya
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            {result ? (
+              <p className="owner-attendance-report-aggregate text-caption text-muted-foreground">
+                {count(result.totals.unique_employees)} karyawan unik · {count(result.totals.attendance_sessions)} sesi · durasi asli {duration(result.totals.known_actual_duration_seconds)} · durasi efektif {duration(result.totals.known_effective_duration_seconds)}
+              </p>
+            ) : null}
+          </section>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Baris laporan</CardTitle>
-              <CardDescription>
-                {result
-                  ? `${count(result.pagination.total)} hari kerja karyawan · halaman ${result.pagination.current_page} dari ${result.pagination.last_page}`
-                  : "Data akan tampil setelah laporan dimuat."}
-              </CardDescription>
+          <Card className="owner-attendance-report-desktop-results">
+            <CardHeader className="owner-attendance-results-heading">
+              <div>
+                <CardTitle>Baris laporan</CardTitle>
+                <CardDescription>
+                  {result
+                    ? `${count(result.pagination.total)} hasil · ${resultOutletCount} Outlet`
+                    : "Data akan tampil setelah laporan dimuat."}
+                </CardDescription>
+              </div>
+              {result ? (
+                <Button
+                  disabled={exporting || loading}
+                  onClick={() => void exportCsv()}
+                  type="button"
+                >
+                  {exporting ? "Menyiapkan…" : "Ekspor CSV"}
+                </Button>
+              ) : null}
             </CardHeader>
             <CardContent>
               {loading && !result ? (
@@ -593,12 +778,10 @@ function AttendanceReportPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Tanggal</TableHead>
                       <TableHead>Karyawan</TableHead>
-                      <TableHead>Outlet</TableHead>
-                      <TableHead>Jadwal</TableHead>
-                      <TableHead>Kehadiran efektif</TableHead>
-                      <TableHead>Hasil</TableHead>
+                      <TableHead>Tanggal kerja Outlet</TableHead>
+                      <TableHead>Durasi asli</TableHead>
+                      <TableHead>Durasi efektif</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -614,76 +797,65 @@ function AttendanceReportPage() {
                       >
                         <TableCell>
                           <Button
+                            aria-label={`Lihat rincian ${row.employee.name}, ${row.work_date}`}
+                            aria-pressed={
+                              selected?.employee.id === row.employee.id &&
+                              selected.work_date === row.work_date
+                            }
                             variant="ghost"
-                            className="h-auto p-1"
-                            onClick={() => setSelected(row)}
+                            className="owner-report-row-select"
+                            onClick={() => selectReportRow(row)}
                           >
-                            {new Date(
-                              `${row.work_date}T12:00:00`
-                            ).toLocaleDateString("id-ID", {
-                              dateStyle: "medium",
-                            })}
+                            <span className="font-medium">
+                              {row.employee.name}
+                            </span>
+                            <span className="text-caption text-muted-foreground">
+                              ID {row.employee.id}
+                            </span>
                           </Button>
                         </TableCell>
                         <TableCell>
-                          <div className="font-medium">{row.employee.name}</div>
-                          <div className="text-caption text-muted-foreground">
-                            ID {row.employee.id}
+                          <div className="font-medium">
+                            {new Date(`${row.work_date}T12:00:00`).toLocaleDateString(
+                              "id-ID",
+                              { dateStyle: "medium" }
+                            )}
                           </div>
-                        </TableCell>
-                        <TableCell>
                           {row.outlets
                             .map((outlet) => outlet.name)
                             .join(", ") || "—"}
-                        </TableCell>
-                        <TableCell>
-                          {row.schedule.status === "scheduled"
-                            ? `${row.schedule.shift?.name ?? "Terjadwal"} · ${instant(row.schedule.scheduled_start, row.schedule.timezone)}`
-                            : row.schedule.status === "rest"
-                              ? "Hari istirahat"
-                              : "Tidak terjadwal"}
-                        </TableCell>
-                        <TableCell>
-                          {row.sessions.length
-                            ? row.sessions.map((session) => (
-                                <div key={session.id}>
-                                  {instant(
-                                    session.effective.check_in_at,
-                                    session.timezone
-                                  )}{" "}
-                                  –{" "}
-                                  {instant(
-                                    session.effective.check_out_at,
-                                    session.timezone
-                                  )}
-                                </div>
-                              ))
-                            : "Belum ada sesi"}
                           <div className="text-caption text-muted-foreground">
-                            {duration(row.effective_duration_seconds)}
+                            {row.sessions[0]?.timezone ?? row.schedule.timezone ?? "Zona waktu Outlet"}
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex flex-col items-start gap-1">
-                            <Badge
-                              variant={
+                          {duration(row.actual_duration_seconds)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span>{duration(row.effective_duration_seconds)}</span>
+                            <StatusBadge
+                              tone={
                                 row.review.status === "pending"
-                                  ? "outline"
-                                  : "secondary"
+                                  ? "warning"
+                                  : statusTone(row.outcome)
                               }
                             >
-                              {statusLabel(row.outcome)}
-                            </Badge>
-                            {row.review.status === "pending" ? (
-                              <span className="text-caption text-muted-foreground">
-                                Review menunggu
-                              </span>
-                            ) : row.is_finalized ? (
-                              <span className="text-caption text-muted-foreground">
-                                Difinalisasi
-                              </span>
+                              {row.review.status === "pending"
+                                ? "Perlu tinjauan"
+                                : statusLabel(row.outcome)}
+                            </StatusBadge>
+                            {hasEffectiveCorrection(row) ? (
+                              <StatusBadge tone="info">
+                                Koreksi efektif
+                              </StatusBadge>
                             ) : null}
                           </div>
+                          {row.is_finalized ? (
+                            <span className="text-caption text-muted-foreground">
+                              Hasil ditetapkan
+                            </span>
+                          ) : null}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -694,16 +866,11 @@ function AttendanceReportPage() {
                   Tidak ada hari kerja karyawan yang cocok dengan filter ini.
                 </p>
               )}
-              <div className="mt-4 flex items-center justify-between border-t pt-4">
+              <div className="owner-attendance-report-pagination mt-4 flex items-center justify-between border-t pt-4">
                 <p className="text-caption text-muted-foreground">
-                  Durasi asli diketahui:{" "}
-                  {duration(
-                    result?.totals.known_actual_duration_seconds ?? null
-                  )}{" "}
-                  · durasi efektif:{" "}
-                  {duration(
-                    result?.totals.known_effective_duration_seconds ?? null
-                  )}
+                  {result
+                    ? `Menampilkan ${((result.pagination.current_page - 1) * result.pagination.per_page) + 1}–${Math.min(result.pagination.current_page * result.pagination.per_page, result.pagination.total)} dari ${count(result.pagination.total)} hasil`
+                    : ""}
                 </p>
                 <div className="flex gap-2">
                   <Button
@@ -722,18 +889,38 @@ function AttendanceReportPage() {
                   </Button>
                 </div>
               </div>
+              <p className="owner-attendance-report-aggregate text-caption text-muted-foreground">
+                {result
+                  ? `${count(result.totals.unique_employees)} karyawan unik · ${count(result.totals.attendance_sessions)} sesi · durasi asli ${duration(result.totals.known_actual_duration_seconds)} · durasi efektif ${duration(result.totals.known_effective_duration_seconds)}`
+                  : "Ringkasan totals tampil setelah laporan dimuat."}
+              </p>
             </CardContent>
           </Card>
 
           {selected ? (
-            <Card>
+            <Card
+              className={`owner-attendance-report-detail ${mobileDetailOpen ? "is-open" : ""}`}
+              id="owner-attendance-report-detail"
+            >
               <CardHeader>
-                <CardTitle>
-                  Rincian: {selected.employee.name} ·{" "}
-                  {new Date(
-                    `${selected.work_date}T12:00:00`
-                  ).toLocaleDateString("id-ID", { dateStyle: "long" })}
-                </CardTitle>
+                <div className="flex items-start justify-between gap-3">
+                  <CardTitle>
+                    Rincian: {selected.employee.name} ·{" "}
+                    {new Date(
+                      `${selected.work_date}T12:00:00`
+                    ).toLocaleDateString("id-ID", { dateStyle: "long" })}
+                  </CardTitle>
+                  <Button
+                    aria-label="Kembali ke laporan"
+                    className="owner-mobile-detail-close"
+                    onClick={closeMobileDetail}
+                    ref={mobileDetailBack}
+                    type="button"
+                    variant="ghost"
+                  >
+                    Kembali ke laporan
+                  </Button>
+                </div>
                 <CardDescription>
                   {selected.outlets
                     .map(
@@ -743,9 +930,31 @@ function AttendanceReportPage() {
                     .join(" · ") || "Tanpa Outlet teratribusi"}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-6 md:grid-cols-2">
-                <section className="space-y-2">
+              <CardContent className="owner-attendance-report-detail-grid">
+                <section className="owner-attendance-detail-section">
                   <h2 className="text-label">Jadwal dan waktu</h2>
+                  {selected.sessions.map((session) => (
+                    <div className="owner-attendance-detail-session-values" key={session.id}>
+                      <p className="text-caption text-muted-foreground">
+                        Catatan asli: {instant(session.original.check_in_at, session.timezone)}{" – "}
+                        {instant(session.original.check_out_at, session.timezone)}
+                      </p>
+                      <p className="text-caption text-muted-foreground">
+                        Efektif saat ini: {instant(session.effective.check_in_at, session.timezone)}{" – "}
+                        {instant(session.effective.check_out_at, session.timezone)}
+                      </p>
+                    </div>
+                  ))}
+                  {selected.reconstructions?.map(({ source_id, effective }) => (
+                    <div key={source_id}>
+                      <p className="text-label">Rekonstruksi presensi #{source_id}</p>
+                      <p className="text-caption text-muted-foreground">
+                        {selected.outlets.find((outlet) => outlet.id === effective.outlet_id)?.name} ·{" "}
+                        {instant(effective.check_in_at, effective.timezone)} –{" "}
+                        {instant(effective.check_out_at, effective.timezone)}
+                      </p>
+                    </div>
+                  ))}
                   <p className="text-body">
                     {selected.schedule.status === "scheduled"
                       ? `${selected.schedule.shift?.name ?? "Shift"}: ${instant(selected.schedule.scheduled_start, selected.schedule.timezone)} – ${instant(selected.schedule.scheduled_end, selected.schedule.timezone)}`
@@ -759,10 +968,10 @@ function AttendanceReportPage() {
                     Waktu ditampilkan memakai zona waktu Outlet terkait.
                   </p>
                 </section>
-                <section className="space-y-2">
-                  <h2 className="text-label">Review dan finalisasi</h2>
+                <section className="owner-attendance-detail-section">
+                  <h2 className="text-label">Tinjauan dan penetapan hasil</h2>
                   <p className="text-body">
-                    Status review:{" "}
+                    Status tinjauan:{" "}
                     {selected.review.status === "pending"
                       ? "Menunggu"
                       : selected.review.status === "resolved"
@@ -774,13 +983,13 @@ function AttendanceReportPage() {
                     {selected.review.indicators.join(", ") || "Tidak ada"}
                   </p>
                   <p className="text-body">
-                    Finalisasi:{" "}
+                    Penetapan hasil:{" "}
                     {selected.finalization
-                      ? `${statusLabel(selected.finalization.outcome)} · revisi ${selected.finalization.revision} · oleh User ${selected.finalization.actor_user_id}`
-                      : "Belum difinalisasi"}
+                      ? `${statusLabel(selected.finalization.outcome)} · revisi ${selected.finalization.revision} · oleh pengguna ${selected.finalization.actor_user_id}`
+                      : "Belum ditetapkan"}
                   </p>
                 </section>
-                <section className="space-y-2 md:col-span-2">
+                <section className="owner-attendance-detail-section">
                   <h2 className="text-label">Sesi, koreksi, dan sumber</h2>
                   {selected.sessions.length ? (
                     selected.sessions.map((session) => (
@@ -818,7 +1027,7 @@ function AttendanceReportPage() {
                           )}
                         </p>
                         <p className="text-caption text-muted-foreground">
-                          Event sumber:{" "}
+                          Peristiwa sumber:{" "}
                           {session.original.event_ids.join(", ") || "Tidak ada"}{" "}
                           · indikator:{" "}
                           {session.review_indicators.join(", ") || "Tidak ada"}
@@ -827,7 +1036,7 @@ function AttendanceReportPage() {
                           <p className="mt-2 text-caption">
                             Koreksi disetujui #{session.correction.request_id} ·
                             keputusan #{session.correction.decision_id} oleh
-                            User {session.correction.actor_user_id} pada{" "}
+                            Pengguna {session.correction.actor_user_id} pada{" "}
                             {instant(session.correction.decided_at, "UTC")}.
                             Alasan: {session.correction.reason}
                           </p>
@@ -840,7 +1049,7 @@ function AttendanceReportPage() {
                     ))
                   ) : (
                     <p className="text-body text-muted-foreground">
-                      Belum ada sesi attendance.
+                      Belum ada sesi presensi.
                     </p>
                   )}
                   {selected.leave_requests.length ? (
@@ -867,7 +1076,7 @@ function AttendanceReportPage() {
                     </p>
                   ) : null}
                   <p className="text-caption text-muted-foreground">
-                    Referensi event:{" "}
+                    Referensi peristiwa:{" "}
                     {selected.source_attendance_event_ids.join(", ") || "—"} ·
                     keputusan koreksi:{" "}
                     {selected.correction_decision_ids.join(", ") || "—"}
@@ -876,6 +1085,26 @@ function AttendanceReportPage() {
               </CardContent>
             </Card>
           ) : null}
+          <div className="owner-attendance-report-footer">
+            <ScopeBanner title="Batas laporan dan ekspor">
+              {`Rentang maksimal ${options?.maximum_days ?? 31} hari · detail maksimal 5.000 hari kerja karyawan · CSV maksimal 500 baris. Ekspor di atas batas ditolak tanpa pemotongan.`}
+            </ScopeBanner>
+            <div className="owner-attendance-mobile-export-row">
+              {result ? (
+                <Button
+                  className="owner-mobile-report-export"
+                  disabled={exporting || loading}
+                  onClick={() => void exportCsv()}
+                  type="button"
+                >
+                  {exporting ? "Menyiapkan…" : "Ekspor CSV"}
+                </Button>
+              ) : null}
+            </div>
+            <p className="owner-attendance-export-note text-caption text-muted-foreground">
+              Ekspor tercatat di audit. Waktu audit memakai UTC; tanggal kerja mengikuti zona waktu lokal Outlet.
+            </p>
+          </div>
           {result ? (
             <p className="text-caption text-muted-foreground">
               {new Date(result.provenance.generated_at).toLocaleString(

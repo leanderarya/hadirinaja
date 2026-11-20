@@ -5,7 +5,6 @@ import { YoutubeIcon } from "@/components/youtube-icon";
 import { Logo } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { StatusIndicator } from "@/components/indicator";
-import { ToggleTheme } from "@/components/toggle-theme";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
 
@@ -72,9 +71,7 @@ export function Footer() {
 	return (
 		<footer
 			className={cn(
-				"mx-auto max-w-5xl px-6 lg:px-8",
-				// Radial gradient background for dark mode to give a premium feel
-				"dark:bg-[radial-gradient(35%_128px_at_50%_0%,--theme(--color-foreground/.1),transparent)]"
+				"mx-auto max-w-5xl px-6 lg:px-8"
 			)}
 		>
 			<div className="h-px w-full bg-linear-to-r via-border" />
@@ -126,13 +123,8 @@ export function Footer() {
 
 			<div className="h-px w-full bg-linear-to-r via-border" />
 
-			{/* Middle Section: Theme toggle and Social media links */}
+			{/* Social media links */}
 			<div className="flex flex-col justify-between gap-6 py-6 md:flex-row md:items-center">
-				<div className="flex items-center gap-2">
-					<span className="font-medium text-foreground text-sm">Theme:</span>
-					<ToggleTheme />
-				</div>
-
 				<div className="flex items-center gap-2">
 					<span className="font-medium text-foreground text-sm">
 						Follow us on:

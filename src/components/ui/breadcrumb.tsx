@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils"
 function Breadcrumb({ className, ...props }: React.ComponentProps<"nav">) {
   return (
     <nav
-      aria-label="breadcrumb"
+      aria-label="Jejak navigasi"
       data-slot="breadcrumb"
       className={cn(className)}
       {...props}
@@ -109,7 +109,7 @@ function BreadcrumbEllipsis({
       {...props}
     >
       <HugeiconsIcon icon={MoreHorizontalCircle01Icon} strokeWidth={2} />
-      <span className="sr-only">More</span>
+      <span className="sr-only">Lainnya</span>
     </span>
   )
 }

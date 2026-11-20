@@ -14,11 +14,13 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { ApiError, apiRequest } from "@/lib/api"
+import { type LocationEvidence, locationEligibility } from "@/lib/geofence"
 
 export const Route = createFileRoute("/kiosk")({ component: KioskPage })
 
 type KioskStatus = {
   status: "ready"
+  credential_expires_at: string
   device: { id: number; name: string }
   tenant: { id: number; name: string }
   outlet: { id: number; name: string }
@@ -30,12 +32,17 @@ type KioskNextOperation = {
   eligible: boolean
   next_operation: AttendanceOperation | null
   reason: string | null
+  checkout_session_id?: number
+  checkout_outlet_id?: number
+  checkout_location?: Parameters<typeof locationEligibility>[0]
 }
+type KioskCheckoutTarget = { tenantId: number; outletId: number; sessionId: number }
 type PendingKioskOperation = {
   key: string
   operation: AttendanceOperation
   employeeId: number
   deviceId: number
+  checkout?: KioskCheckoutTarget
 }
 
 const pendingStorageKey = "hadirinaja.kiosk.attendance.pending"
@@ -63,13 +70,19 @@ function KioskPage() {
     "checking" | "pending" | "not_found"
   >("checking")
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null)
+  const [checkoutCapture, setCheckoutCapture] = useState<{
+    target: KioskCheckoutTarget
+    location: LocationEvidence
+  } | null>(null)
   const [photoUrl, setPhotoUrl] = useState("")
   const [cameraError, setCameraError] = useState("")
+  const [cameraRetry, setCameraRetry] = useState(0)
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const cameraRef = useRef<MediaStream | null>(null)
+  const checkingOperation = useRef(false)
 
   const stopCamera = useCallback(() => {
     cameraRef.current?.getTracks().forEach((track) => {
@@ -98,6 +111,10 @@ function KioskPage() {
       if (caught instanceof ApiError && caught.code === "kiosk_revoked") {
         setState("revoked")
       } else {
+        if (caught instanceof ApiError && caught.code === "kiosk_expired")
+          setError(
+            "Akses perangkat kedaluwarsa. Minta Owner membuat kode pembaruan lalu masukkan di bawah."
+          )
         setState("unpaired")
       }
     }
@@ -109,10 +126,11 @@ function KioskPage() {
       setPending(null)
       setAttendancePin("")
       setPhotoBlob(null)
+      setCheckoutCapture(null)
       setSelectedEmployeeId(null)
       setOperation(null)
       setMessage(
-        `${action === "check_in" ? "Check-in" : "Check-out"} terkonfirmasi oleh server${recordedAt ? ` · ${new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" }).format(new Date(recordedAt))}` : ""}.`
+        `${action === "check_in" ? "Presensi masuk" : "Presensi keluar"} dikonfirmasi oleh server${recordedAt ? ` · ${new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" }).format(new Date(recordedAt))}` : ""}.`
       )
       setError("")
       setWorkflow("success")
@@ -122,14 +140,28 @@ function KioskPage() {
 
   const recoverOperation = useCallback(
     async (target: PendingKioskOperation) => {
+      if (target.checkout && !matchesPairedKiosk(target, status)) {
+        setError("Operasi sebelumnya tersimpan untuk pemasangan kiosk lain. Pulihkan pemasangan tersebut untuk memeriksa hasilnya.")
+        return "unknown"
+      }
+      if (checkingOperation.current) return "unknown"
+      checkingOperation.current = true
       setRecoveryState("checking")
       try {
         const result = await apiRequest<{
           state: "not_found" | "pending" | "completed" | "rejected"
+          contract_version?: number
+          checkout_session_id?: number | null
+          checkout_outlet_id?: number | null
           result?: { event?: { recorded_at?: string }; message?: string }
         }>(
-          `/kiosk/attendance/operations/${target.operation}/${target.key}?employee_id=${target.employeeId}`
+          `/kiosk/attendance/operations/${target.operation}/${target.key}?employee_id=${target.employeeId}${target.checkout ? `&expected_kiosk_device_id=${target.deviceId}` : ""}`
         )
+        if (result.state !== "not_found" && !matchesCheckoutTarget(target, result)) {
+          setRecoveryState("pending")
+          setError("Sesi atau Outlet pada hasil server berbeda. Periksa kembali status operasi ini.")
+          return "unknown"
+        }
         if (result.state === "completed") {
           window.sessionStorage.removeItem(pendingStorageKey)
           finishSuccess(target.operation, result.result?.event?.recorded_at)
@@ -137,21 +169,31 @@ function KioskPage() {
           window.sessionStorage.removeItem(pendingStorageKey)
           setPending(null)
           setAttendancePin("")
+          setPhotoBlob(null)
+          setCheckoutCapture(null)
           setWorkflow("select")
           setError(
             result.result?.message ??
-              "Kehadiran ditolak. Periksa status sebelum mencoba lagi."
+              "Presensi ditolak. Periksa status sebelum mencoba lagi."
           )
         } else {
           setRecoveryState(
             result.state === "not_found" ? "not_found" : "pending"
           )
         }
-      } catch {
+        return result.state
+      } catch (caught) {
         setRecoveryState("pending")
+        if (caught instanceof ApiError && kioskPairingError(caught)) {
+          setError(caught.message)
+          void loadStatus()
+        }
+        return "unknown"
+      } finally {
+        checkingOperation.current = false
       }
     },
-    [finishSuccess]
+    [finishSuccess, loadStatus, status]
   )
 
   useEffect(() => {
@@ -207,7 +249,7 @@ function KioskPage() {
       cancelled = true
       stopCamera()
     }
-  }, [workflow, stopCamera])
+  }, [workflow, stopCamera, cameraRetry])
 
   useEffect(() => {
     if (!photoBlob) {
@@ -226,6 +268,13 @@ function KioskPage() {
     try {
       const saved: unknown = JSON.parse(serialized)
       if (isPendingKioskOperation(saved)) {
+        if (saved.checkout && !matchesPairedKiosk(saved, status)) {
+          setPending(saved)
+          setRecoveryState("pending")
+          setWorkflow("recovery")
+          setError("Operasi sebelumnya tersimpan untuk pemasangan kiosk lain. Pulihkan pemasangan tersebut untuk memeriksa hasilnya.")
+          return
+        }
         if (saved.deviceId !== status?.device.id) {
           window.sessionStorage.removeItem(pendingStorageKey)
           return
@@ -242,7 +291,7 @@ function KioskPage() {
     } catch {
       window.sessionStorage.removeItem(pendingStorageKey)
     }
-  }, [state, status?.device.id, workflow, recoverOperation])
+  }, [state, status, workflow, recoverOperation])
 
   useEffect(() => {
     if (workflow !== "success") return
@@ -266,8 +315,12 @@ function KioskPage() {
       setPairingCode("")
       setMessage("Perangkat berhasil dipasangkan.")
       await loadStatus()
-    } catch {
-      setError("Kode pemasangan tidak valid atau sudah kedaluwarsa.")
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError && caught.code === "kiosk_renewal_required"
+          ? "Perangkat masih terdaftar. Minta Owner membuat kode pembaruan untuk perangkat ini atau mencabut akses lama sebelum memasangkan ulang."
+          : "Kode pemasangan tidak valid atau sudah kedaluwarsa."
+      )
     } finally {
       setBusy(false)
     }
@@ -290,11 +343,11 @@ function KioskPage() {
       setEnrollmentCode("")
       setNewPin("")
       setPinConfirmation("")
-      setMessage("PIN berhasil diatur. Karyawan dapat menutup layar ini.")
+      setMessage("PIN berhasil dibuat. Anda dapat menutup halaman ini.")
       await loadEmployees()
     } catch {
       setError(
-        "PIN belum dapat diatur. Periksa kode, format PIN, dan kecocokan kedua PIN."
+        "PIN belum dapat dibuat. Periksa kode pendaftaran, format PIN, dan kecocokan kedua PIN."
       )
     } finally {
       setBusy(false)
@@ -318,9 +371,31 @@ function KioskPage() {
       if (!next.eligible || !next.next_operation) {
         setAttendancePin("")
         setError(
-          "Kehadiran belum dapat dilakukan untuk karyawan ini pada outlet kiosk."
+          next.reason === "location_geofence_unconfigured"
+            ? "Titik atau radius Outlet belum valid. Hubungi pengelola sebelum mencatat presensi keluar."
+            : "Presensi belum dapat dilakukan untuk karyawan ini di Outlet ini."
         )
         return
+      }
+      if (next.next_operation === "check_out") {
+        if (!status || !next.checkout_session_id || next.checkout_outlet_id !== status.outlet.id || !next.checkout_location?.required) {
+          setError("Sesi atau lokasi Outlet belum dapat dipastikan. Periksa status kiosk kembali.")
+          return
+        }
+        const location = await captureCheckoutLocation()
+        const eligibility = locationEligibility(next.checkout_location, location)
+        if (!eligibility.eligible) {
+          setError(location.status === "permission_denied"
+            ? 'Izin lokasi ditolak. Izinkan lokasi untuk situs ini di pengaturan browser, lalu pilih "Lanjutkan ke kamera".'
+            : eligibility.message)
+          return
+        }
+        setCheckoutCapture({
+          target: { tenantId: status.tenant.id, outletId: status.outlet.id, sessionId: next.checkout_session_id },
+          location,
+        })
+      } else {
+        setCheckoutCapture(null)
       }
       setOperation(next.next_operation)
       setWorkflow("camera")
@@ -329,7 +404,7 @@ function KioskPage() {
       setError(
         caught instanceof ApiError && caught.status === 403
           ? "Akses kiosk tidak tersedia atau telah dicabut."
-          : "Status kehadiran belum dapat diperiksa."
+          : "Status presensi belum dapat diperiksa."
       )
     } finally {
       setBusy(false)
@@ -337,9 +412,16 @@ function KioskPage() {
   }
 
   async function capturePhoto() {
+    setError("")
     const video = videoRef.current
-    if (!video || video.videoWidth < 320 || video.videoHeight < 240) {
-      setCameraError("Kamera belum siap. Tunggu gambar tampil, lalu coba lagi.")
+    if (
+      !video ||
+      video.readyState < 2 ||
+      video.currentTime <= 0 ||
+      video.videoWidth < 320 ||
+      video.videoHeight < 240
+    ) {
+      setError("Kamera belum siap. Tunggu gambar tampil, lalu coba lagi.")
       return
     }
 
@@ -347,7 +429,7 @@ function KioskPage() {
     const width = Math.round(video.videoWidth * scale)
     const height = Math.round(video.videoHeight * scale)
     if (width < 320 || height < 240) {
-      setCameraError("Resolusi kamera terlalu kecil untuk bukti kehadiran.")
+      setCameraError("Resolusi kamera terlalu kecil untuk bukti presensi.")
       return
     }
 
@@ -370,6 +452,13 @@ function KioskPage() {
       return
     }
 
+    if (blob.size < 10 * 1024) {
+      setError(
+        "Foto terlalu kecil. Arahkan kamera ke objek yang jelas, lalu ambil ulang (minimum 10 KB)."
+      )
+      return
+    }
+
     stopCamera()
     setPhotoBlob(blob)
     setCameraError("")
@@ -381,7 +470,9 @@ function KioskPage() {
       selectedEmployeeId === null ||
       !operation ||
       !photoBlob ||
-      attendancePin.length < 6
+      attendancePin.length < 6 ||
+      !status ||
+      (operation === "check_out" && !checkoutCapture)
     )
       return
     const nextPending: PendingKioskOperation =
@@ -391,25 +482,45 @@ function KioskPage() {
             key: window.crypto.randomUUID(),
             operation,
             employeeId: selectedEmployeeId,
-            deviceId: status?.device.id ?? 0,
+            deviceId: status.device.id,
+            checkout: checkoutCapture?.target,
           }
+    if (retry && await recoverOperation(nextPending) !== "not_found") return
+
     const body = new FormData()
     body.set("employee_id", String(nextPending.employeeId))
     body.set("pin", attendancePin)
     body.set("photo", photoBlob, "kiosk-capture.jpg")
+    if (nextPending.checkout && checkoutCapture) {
+      const location = checkoutCapture.location
+      body.set("expected_kiosk_device_id", String(nextPending.deviceId))
+      body.set("checkout_session_id", String(nextPending.checkout.sessionId))
+      body.set("location[status]", location.status)
+      body.set("location[latitude]", String(location.latitude))
+      body.set("location[longitude]", String(location.longitude))
+      body.set("location[accuracy_meters]", String(location.accuracy_meters))
+    }
+
+    try {
+      window.sessionStorage.setItem(pendingStorageKey, JSON.stringify(nextPending))
+    } catch {
+      setError("Status pemulihan tidak dapat disimpan. Presensi belum dikirim.")
+      return
+    }
 
     setBusy(true)
     setError("")
     setMessage("")
     setPending(nextPending)
     setWorkflow("sending")
-    window.sessionStorage.setItem(
-      pendingStorageKey,
-      JSON.stringify(nextPending)
-    )
     try {
       const result = await apiRequest<{
-        operation?: { state: "completed" | "pending" }
+        operation?: {
+          state: "completed" | "pending"
+          contract_version?: number
+          checkout_session_id?: number | null
+          checkout_outlet_id?: number | null
+        }
         event?: { recorded_at: string }
       }>(
         `/kiosk/attendance/${nextPending.operation === "check_in" ? "check-in" : "check-out"}`,
@@ -419,7 +530,7 @@ function KioskPage() {
           body,
         }
       )
-      if (result.operation?.state === "pending") {
+      if (result.operation?.state !== "completed" || !matchesCheckoutTarget(nextPending, result.operation)) {
         setRecoveryState("pending")
         setWorkflow("recovery")
         void recoverOperation(nextPending)
@@ -430,27 +541,37 @@ function KioskPage() {
       if (
         caught instanceof ApiError &&
         caught.status < 500 &&
+        (!nextPending.checkout || caught.code === "kiosk_pairing_changed") &&
+        !retry &&
         caught.code !== "idempotency_key_conflict"
       ) {
         window.sessionStorage.removeItem(pendingStorageKey)
         setPending(null)
         setAttendancePin("")
         setPhotoBlob(null)
+        setCheckoutCapture(null)
         setOperation(null)
         setWorkflow("select")
         setError(
           caught.message ||
             "Kehadiran ditolak. Coba lagi setelah memeriksa status."
         )
-        if (caught.code === "kiosk_revoked") void loadStatus()
+        if (kioskPairingError(caught)) void loadStatus()
       } else {
         setAttendancePin("")
         setRecoveryState("checking")
         setWorkflow("recovery")
-        void recoverOperation(nextPending)
         setError(
-          "Respons belum diterima. Status akan diperiksa menggunakan kunci yang sama."
+          caught instanceof ApiError
+            ? caught.message
+            : "Respons belum diterima. Status akan diperiksa menggunakan kunci yang sama."
         )
+        if (caught instanceof ApiError && kioskPairingError(caught)) {
+          setRecoveryState("pending")
+          void loadStatus()
+        } else {
+          void recoverOperation(nextPending)
+        }
       }
     } finally {
       setBusy(false)
@@ -464,9 +585,17 @@ function KioskPage() {
     setOperation(null)
     setPending(null)
     setPhotoBlob(null)
+    setCheckoutCapture(null)
     setCameraError("")
     setError("")
     setWorkflow("select")
+  }
+
+  async function restartMissingOperation(target: PendingKioskOperation) {
+    if (await recoverOperation(target) === "not_found") {
+      window.sessionStorage.removeItem(pendingStorageKey)
+      resetAttendance()
+    }
   }
 
   const selectedEmployee = employees.find(
@@ -477,10 +606,10 @@ function KioskPage() {
     <main className="mx-auto flex min-h-svh w-full max-w-5xl flex-col gap-5 bg-muted/20 px-4 py-6 sm:px-8 sm:py-10">
       <header className="space-y-2 text-center">
         <p className="text-label text-muted-foreground">HadirinAja · Kiosk</p>
-        <h1 className="text-title">Kehadiran outlet</h1>
+        <h1 className="text-title">Presensi di Outlet</h1>
         <p className="text-body text-muted-foreground">
-          Waktu dicatat oleh server. Setiap operasi membutuhkan PIN karyawan dan
-          foto kamera baru.
+          Waktu dicatat oleh server. Setiap presensi memerlukan PIN karyawan dan
+          foto baru.
         </p>
       </header>
 
@@ -517,13 +646,13 @@ function KioskPage() {
           </CardHeader>
         </Card>
       ) : null}
-      {state === "unpaired" ? (
+      {state === "unpaired" || state === "revoked" ? (
         <Card>
           <CardHeader>
             <CardTitle>Pasangkan perangkat</CardTitle>
             <CardDescription>
-              Minta Owner membuat kode pemasangan sekali pakai untuk outlet.
-              Kode berlaku lima menit.
+              Minta Owner membuat kode pemasangan atau pembaruan sekali pakai
+              untuk Outlet. Kode berlaku lima menit.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -557,6 +686,28 @@ function KioskPage() {
         </Card>
       ) : null}
 
+      {state === "ready" &&
+      status &&
+      (workflow === "select" || workflow === "success") ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-caption">
+            Akses berlaku sampai{" "}
+            {new Date(status.credential_expires_at).toLocaleString("id-ID")}.
+          </p>
+          <Button
+            variant="outline"
+            disabled={busy || pending !== null}
+            onClick={() => {
+              setState("unpaired")
+              setPairingCode("")
+              setMessage("")
+              setError("")
+            }}
+          >
+            Perbarui akses perangkat
+          </Button>
+        </div>
+      ) : null}
       {state === "ready" && status ? (
         <div className="space-y-5">
           <Card>
@@ -580,8 +731,8 @@ function KioskPage() {
                   </p>
                   {employees.length === 0 ? (
                     <p className="rounded-xl border p-4 text-body">
-                      Belum ada karyawan aktif dengan PIN dan penugasan di
-                      outlet ini.
+                      Belum ada karyawan dengan PIN dan penugasan yang berlaku
+                      di Outlet ini.
                     </p>
                   ) : null}
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -589,6 +740,7 @@ function KioskPage() {
                       <Button
                         key={employee.id}
                         className="h-14 justify-start text-label"
+                        disabled={busy}
                         onClick={() => {
                           setSelectedEmployeeId(employee.id)
                           setError("")
@@ -617,6 +769,7 @@ function KioskPage() {
                         <Input
                           autoComplete="off"
                           className="h-12 text-center font-mono text-title tracking-[0.35em]"
+                          disabled={busy}
                           id="attendance-pin"
                           inputMode="numeric"
                           maxLength={8}
@@ -636,7 +789,7 @@ function KioskPage() {
                         size="lg"
                         type="submit"
                       >
-                        Lanjutkan ke kamera
+                        {busy ? "Memeriksa presensi…" : "Lanjutkan ke kamera"}
                       </Button>
                     </form>
                   ) : null}
@@ -648,8 +801,8 @@ function KioskPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-label">
                       {operation === "check_in"
-                        ? "Foto check-in baru"
-                        : "Foto check-out baru"}
+                        ? "Foto baru untuk presensi masuk"
+                        : "Foto baru untuk presensi keluar"}
                     </p>
                     <Badge>{selectedEmployee?.name ?? "Karyawan"}</Badge>
                   </div>
@@ -657,6 +810,10 @@ function KioskPage() {
                     <Alert variant="destructive">
                       <AlertTitle>Kamera belum siap</AlertTitle>
                       <AlertDescription>{cameraError}</AlertDescription>
+                      <Button type="button" variant="outline" onClick={() => {
+                        setCameraError("")
+                        setCameraRetry((value) => value + 1)
+                      }}>Coba kamera lagi</Button>
                     </Alert>
                   ) : null}
                   <video
@@ -691,13 +848,13 @@ function KioskPage() {
                 <div className="mx-auto w-full max-w-2xl space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-label">
-                      Konfirmasi{" "}
-                      {operation === "check_in" ? "check-in" : "check-out"}
+                      Konfirmasi presensi{" "}
+                      {operation === "check_in" ? "masuk" : "keluar"}
                     </p>
                     <Badge>{selectedEmployee?.name ?? "Karyawan"}</Badge>
                   </div>
                   <img
-                    alt="Foto baru untuk bukti kehadiran"
+                    alt="Foto baru sebagai bukti presensi"
                     className="aspect-[4/3] w-full rounded-2xl bg-black object-contain"
                     src={photoUrl}
                   />
@@ -741,19 +898,22 @@ function KioskPage() {
                   <p className="text-label">
                     Status{" "}
                     {pending.operation === "check_in"
-                      ? "check-in"
-                      : "check-out"}{" "}
+                      ? "presensi masuk"
+                      : "presensi keluar"}{" "}
                     belum pasti
                   </p>
                   <p className="text-body text-muted-foreground">
                     {recoveryState === "checking"
-                      ? "Memeriksa kunci operasi ke server…"
+                      ? "Memeriksa status operasi…"
                       : recoveryState === "pending"
-                        ? "Server menyimpan operasi ini dan masih memprosesnya. Jangan mulai operasi baru."
+                        ? "Server masih memproses operasi ini. Jangan mulai operasi baru."
                         : photoBlob
-                          ? "Belum ada hasil tersimpan. Anda dapat mengirim ulang foto yang sama dengan kunci yang sama."
-                          : "Belum ada hasil tersimpan. Foto percobaan sebelumnya tidak tersedia setelah halaman dibuka ulang; periksa status lagi sebelum memulai operasi baru."}
+                          ? "Belum ada hasil tersimpan. Anda dapat mengirim ulang operasi yang sama dengan foto yang sama."
+                          : "Belum ada hasil tersimpan. Foto percobaan sebelumnya tidak tersedia setelah halaman dibuka ulang. Periksa status lagi sebelum melakukan presensi baru."}
                   </p>
+                  {pending.checkout && matchesPairedKiosk(pending, status) ? (
+                    <p className="text-caption text-muted-foreground">Outlet tujuan: {status?.outlet.name}</p>
+                  ) : null}
                   {photoBlob && recoveryState === "not_found" ? (
                     <Field>
                       <FieldLabel htmlFor="retry-attendance-pin">
@@ -776,7 +936,7 @@ function KioskPage() {
                   ) : null}
                   <div className="flex flex-wrap gap-3">
                     <Button
-                      disabled={busy}
+                      disabled={busy || recoveryState === "checking" || !matchesPairedKiosk(pending, status)}
                       isLoading={busy && recoveryState === "checking"}
                       onClick={() => {
                         if (pending) void recoverOperation(pending)
@@ -790,7 +950,12 @@ function KioskPage() {
                         disabled={busy || attendancePin.length < 6}
                         onClick={() => void submitAttendance(true)}
                       >
-                        Kirim ulang dengan kunci yang sama
+                        Kirim ulang operasi yang sama
+                      </Button>
+                    ) : null}
+                    {pending.checkout && recoveryState === "not_found" ? (
+                      <Button onClick={() => void restartMissingOperation(pending)}>
+                        Periksa lalu mulai ulang
                       </Button>
                     ) : null}
                   </div>
@@ -813,10 +978,10 @@ function KioskPage() {
           {workflow === "select" ? (
             <Card>
               <CardHeader>
-                <CardTitle>Atur PIN karyawan</CardTitle>
+                <CardTitle>Buat PIN pribadi</CardTitle>
                 <CardDescription>
-                  Karyawan memasukkan PIN baru sendiri menggunakan kode aktivasi
-                  sekali pakai dari Owner.
+                  Gunakan kode pendaftaran sekali pakai dari Owner untuk membuat
+                  PIN pribadi.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -824,7 +989,7 @@ function KioskPage() {
                   <FieldGroup className="gap-4">
                     <Field>
                       <FieldLabel htmlFor="enrollment-code">
-                        Kode aktivasi
+                        Kode pendaftaran PIN
                       </FieldLabel>
                       <Input
                         autoComplete="one-time-code"
@@ -905,9 +1070,58 @@ function isPendingKioskOperation(
     typeof pending.deviceId === "number" &&
     Number.isInteger(pending.deviceId) &&
     (pending.operation === "check_in" || pending.operation === "check_out") &&
+    (pending.checkout === undefined ||
+      (pending.operation === "check_out" && isKioskCheckoutTarget(pending.checkout))) &&
     typeof pending.key === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       pending.key
     )
   )
+}
+
+function isKioskCheckoutTarget(value: unknown): value is KioskCheckoutTarget {
+  if (typeof value !== "object" || value === null) return false
+  const target = value as Record<string, unknown>
+  return [target.tenantId, target.outletId, target.sessionId].every(
+    (id) => typeof id === "number" && Number.isSafeInteger(id) && id > 0
+  )
+}
+
+function kioskPairingError(error: ApiError) {
+  return ["kiosk_revoked", "kiosk_expired", "kiosk_not_paired", "kiosk_pairing_changed"].includes(error.code ?? "")
+}
+
+function matchesPairedKiosk(operation: PendingKioskOperation, status: KioskStatus | null) {
+  return status !== null && operation.deviceId === status.device.id &&
+    (!operation.checkout || (
+      operation.checkout.tenantId === status.tenant.id &&
+      operation.checkout.outletId === status.outlet.id
+    ))
+}
+
+function matchesCheckoutTarget(
+  operation: PendingKioskOperation,
+  result?: { state: string; contract_version?: number; checkout_session_id?: number | null; checkout_outlet_id?: number | null }
+) {
+  return !operation.checkout || (
+    result?.contract_version === 4 &&
+    result.checkout_outlet_id === operation.checkout.outletId &&
+    (result.checkout_session_id === operation.checkout.sessionId ||
+      (result.state === "rejected" && result.checkout_session_id === null))
+  )
+}
+
+function captureCheckoutLocation(): Promise<LocationEvidence> {
+  if (!navigator.geolocation) return Promise.resolve({ status: "unavailable" })
+
+  return new Promise((resolve) => navigator.geolocation.getCurrentPosition(
+    ({ coords }) => resolve({
+      status: "provided",
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+      accuracy_meters: coords.accuracy,
+    }),
+    (error) => resolve({ status: error.code === error.PERMISSION_DENIED ? "permission_denied" : "unavailable" }),
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+  ))
 }

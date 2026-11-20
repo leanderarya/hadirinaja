@@ -10,7 +10,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable([
     'tenant_id', 'attendance_session_id', 'attendance_event_id', 'evidence_type', 'storage_path', 'detected_mime_type',
     'stored_mime_type', 'stored_size_bytes', 'image_width', 'image_height', 'sha256',
-    'validation_status', 'received_at',
+    'validation_status', 'received_at', 'lifecycle_state', 'expires_at', 'deletion_attempts',
+    'deletion_last_attempt_at', 'deletion_retry_at', 'deletion_last_error_code', 'legal_hold_lease_consumed_at',
 ])]
 class AttendanceEvidence extends Model
 {
@@ -26,6 +27,11 @@ class AttendanceEvidence extends Model
             'image_height' => 'integer',
             'received_at' => 'immutable_datetime',
             'created_at' => 'immutable_datetime',
+            'expires_at' => 'immutable_datetime',
+            'deletion_attempts' => 'integer',
+            'deletion_last_attempt_at' => 'immutable_datetime',
+            'deletion_retry_at' => 'immutable_datetime',
+            'legal_hold_lease_consumed_at' => 'immutable_datetime',
         ];
     }
 

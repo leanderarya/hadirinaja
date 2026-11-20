@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['tenant_id', 'outlet_id', 'issued_by_membership_id', 'device_id', 'device_name', 'code_hash', 'expires_at', 'redeemed_at'])]
+#[Fillable(['tenant_id', 'outlet_id', 'issued_by_membership_id', 'device_id', 'renewal_device_id', 'device_name', 'code_hash', 'expires_at', 'redeemed_at'])]
 #[Hidden(['code_hash'])]
 class KioskPairingCode extends Model
 {

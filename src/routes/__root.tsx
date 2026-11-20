@@ -1,13 +1,14 @@
 import { TanStackDevtools } from "@tanstack/react-devtools"
-import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router"
+import { ClientOnly, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import { Agentation } from "agentation"
-import { ThemeProvider } from "next-themes"
 
+import { Toaster } from "@/components/ui/sonner"
+import { documentTitle } from "@/lib/document-title"
 import appCss from "../styles.css?url"
 
 export const Route = createRootRoute({
-  head: () => ({
+  head: ({ matches }) => ({
     meta: [
       {
         charSet: "utf-8",
@@ -17,12 +18,20 @@ export const Route = createRootRoute({
         content: "width=device-width, initial-scale=1",
       },
       {
-        title: "Faiz UI — Premium UI Kit & Starter Kit for shadcn/ui",
+        name: "color-scheme",
+        content: "light",
+      },
+      {
+        name: "theme-color",
+        content: "#F7F7FB",
+      },
+      {
+        title: documentTitle(matches.at(-1)?.pathname ?? "/"),
       },
       {
         name: "description",
         content:
-          "Faiz UI is a premium, production-ready UI kit and boilerplate built on shadcn/ui and Tailwind CSS. 60+ components, ready-made blocks, and sensible defaults so you ship polished interfaces faster.",
+          "HadirinAja membantu organisasi mengelola kehadiran dan operasional karyawan.",
       },
     ],
     links: [
@@ -45,7 +54,7 @@ export const Route = createRootRoute({
   notFoundComponent: () => (
     <main className="container mx-auto p-4 pt-16">
       <h1>404</h1>
-      <p>The requested page could not be found.</p>
+      <p>Halaman yang diminta tidak ditemukan.</p>
     </main>
   ),
   shellComponent: RootDocument,
@@ -53,18 +62,18 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html className="light" lang="id" style={{ colorScheme: "light" }}>
       <head>
         <HeadContent />
       </head>
       <body>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          {children}
-        </ThemeProvider>
-        {import.meta.env.DEV && <Agentation />}
+        <ClientOnly fallback={null}>{children}</ClientOnly>
+        <Toaster />
+        {import.meta.env.DEV && <Agentation className="employee-review-feedback" />}
         <TanStackDevtools
           config={{
             position: "bottom-left",
+            triggerHidden: true,
           }}
           plugins={[
             {

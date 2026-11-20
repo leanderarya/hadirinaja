@@ -1,5 +1,7 @@
 # HadirinAja — Pilot Readiness
 
+> Pembaruan2November2026: Owner telah menerima UX **B3C Outlet Calendar** dan **B3D Kiosk Devices**. Persetujuan tidak diperluas ke modul lain atau produksi. Lihat [ledger dan gate operasional terbaru](/Users/aryaajisadda/Development/hadirinaja/docs/v1-operational-readiness.md). Assessment23 Oktober di bawah dipertahankan sebagai bukti historis, bukan status hosting/runtime terkini.
+
 **Assessment date:** 2026-10-23
 
 **Scope:** S7 local readiness only. No Hostinger account, live domain, production data, deployment, remote Git, or physical tablet was accessed.

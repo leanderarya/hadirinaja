@@ -31,8 +31,8 @@ function Command({
 }
 
 function CommandDialog({
-  title = "Command Palette",
-  description = "Search for a command to run...",
+  title = "Daftar perintah",
+  description = "Cari perintah…",
   children,
   className,
   showCloseButton = false,

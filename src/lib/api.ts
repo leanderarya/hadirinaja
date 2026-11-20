@@ -1,3 +1,5 @@
+import { prepareAttendanceIdentityChange } from "@/lib/attendance-photo-recovery"
+
 export type ApiHealthResponse = {
   status: "healthy" | "unhealthy"
   checks: {
@@ -14,6 +16,10 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(
   ""
 )
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
+
+export function apiUrl(path: string): string {
+  return `${API_BASE_URL}${path}`
+}
 
 export type TenantMembership = {
   id: number
@@ -41,6 +47,7 @@ export type KioskDevice = {
   outlet_id: number
   outlet_name: string
   paired_at: string
+  credential_expires_at: string | null
   last_seen_at: string | null
   revoked_at: string | null
 }
@@ -49,7 +56,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
-    readonly code?: string
+    readonly code?: string,
+    readonly errors?: Record<string, string[]>
   ) {
     super(message)
     this.name = "ApiError"
@@ -58,10 +66,23 @@ export class ApiError extends Error {
 
 export async function apiRequest<T>(
   path: string,
-  options: { method?: string; body?: unknown; headers?: HeadersInit } = {}
+  options: {
+    method?: string
+    body?: unknown
+    headers?: HeadersInit
+    signal?: AbortSignal
+    responseType?: "json" | "blob"
+  } = {}
 ): Promise<T> {
   const method = (options.method || "GET").toUpperCase()
   const unsafe = !SAFE_METHODS.has(method)
+
+  if (
+    method === "POST" &&
+    ["/auth/login", "/auth/logout", "/auth/tenant"].includes(path.split("?")[0])
+  ) {
+    await prepareAttendanceIdentityChange()
+  }
 
   if (unsafe) {
     await ensureCsrfCookie()
@@ -81,23 +102,51 @@ export async function apiRequest<T>(
     window.dispatchEvent(new Event("hadirinaja:session-expired"))
   }
 
+  if (response.ok && options.responseType === "blob") {
+    return (await response.blob()) as T
+  }
+
   const payload: unknown = await response.json().catch(() => null)
 
   if (!response.ok) {
     const error =
       typeof payload === "object" && payload !== null
-        ? (payload as { message?: unknown; code?: unknown })
+        ? (payload as { message?: unknown; code?: unknown; errors?: unknown })
         : {}
+    const fieldErrors = parseValidationErrors(error.errors)
     throw new ApiError(
       typeof error.message === "string"
         ? error.message
         : "Permintaan tidak dapat diproses.",
       response.status,
-      typeof error.code === "string" ? error.code : undefined
+      typeof error.code === "string" ? error.code : undefined,
+      fieldErrors
     )
   }
 
   return payload as T
+}
+
+function parseValidationErrors(
+  value: unknown
+): Record<string, string[]> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined
+  }
+
+  const errors: Record<string, string[]> = {}
+  for (const [field, messages] of Object.entries(value)) {
+    if (
+      Array.isArray(messages) &&
+      messages.every(
+        (message): message is string => typeof message === "string"
+      )
+    ) {
+      errors[field] = messages
+    }
+  }
+
+  return Object.keys(errors).length ? errors : undefined
 }
 
 let csrfRequest: Promise<void> | undefined
@@ -140,7 +189,7 @@ async function ensureCsrfCookie(force = false): Promise<void> {
 async function sendRequest(
   path: string,
   method: string,
-  options: { body?: unknown; headers?: HeadersInit }
+  options: { body?: unknown; headers?: HeadersInit; signal?: AbortSignal }
 ): Promise<Response> {
   const headers = new Headers(options.headers)
   headers.set("Accept", "application/json")
@@ -150,6 +199,7 @@ async function sendRequest(
     credentials: "include",
     cache: "no-store",
     headers,
+    signal: options.signal,
   }
 
   if (options.body !== undefined) {
@@ -177,12 +227,13 @@ async function sendRequest(
 
 export async function downloadApiFile(
   path: string,
-  filename: string
+  filename: string,
+  accept = "text/csv"
 ): Promise<void> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     credentials: "include",
     cache: "no-store",
-    headers: { Accept: "text/csv" },
+    headers: { Accept: accept },
   })
 
   if (
@@ -199,7 +250,7 @@ export async function downloadApiFile(
       payload !== null &&
       typeof (payload as { message?: unknown }).message === "string"
         ? (payload as { message: string }).message
-        : "Ekspor laporan belum dapat dibuat."
+        : accept === "text/csv" ? "Ekspor laporan belum dapat dibuat." : "Berkas belum dapat diunduh."
     throw new ApiError(message, response.status)
   }
 

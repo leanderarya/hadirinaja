@@ -15,12 +15,15 @@ use LogicException;
     'tenant_membership_id', 'kiosk_device_id', 'event_type', 'origin', 'recorded_at',
     'location_capture_status', 'location_verdict', 'location_latitude', 'location_longitude',
     'location_accuracy_meters', 'context_snapshot', 'created_at',
+    'checkout_outlet_id', 'authenticated_kiosk_outlet_id', 'checkout_context',
 ])]
 class AttendanceEvent extends Model
 {
     use BelongsToTenant;
 
     public $timestamps = false;
+
+    protected $hidden = ['kiosk_binding_outlet_id'];
 
     protected function casts(): array
     {
@@ -30,6 +33,9 @@ class AttendanceEvent extends Model
             'location_longitude' => 'decimal:7',
             'location_accuracy_meters' => 'decimal:2',
             'context_snapshot' => 'array',
+            'checkout_outlet_id' => 'integer',
+            'authenticated_kiosk_outlet_id' => 'integer',
+            'checkout_context' => 'array',
             'created_at' => 'immutable_datetime',
         ];
     }
@@ -58,5 +64,10 @@ class AttendanceEvent extends Model
     public function evidence(): HasOne
     {
         return $this->hasOne(AttendanceEvidence::class);
+    }
+
+    public function checkoutOutlet(): BelongsTo
+    {
+        return $this->belongsTo(Outlet::class, 'checkout_outlet_id');
     }
 }

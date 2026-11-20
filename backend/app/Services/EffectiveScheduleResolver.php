@@ -17,6 +17,7 @@ use App\Models\WeeklyScheduleRule;
 use App\Support\SchedulingDefaults;
 use Carbon\CarbonImmutable;
 use DateTimeImmutable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 final class EffectiveScheduleResolver
@@ -93,10 +94,22 @@ final class EffectiveScheduleResolver
             ->where('effective_until', '>', $start->subDays(2)->startOfDay()->utc())
             ->get()->groupBy('employee_id');
 
+        $plannerEntries = DB::table('schedule_entries as pe')
+            ->join('schedule_weeks as pw', function ($join): void {
+                $join->on('pw.tenant_id', '=', 'pe.tenant_id')->on('pw.published_revision_id', '=', 'pe.revision_id');
+            })
+            ->join('outlets as po', fn ($join) => $join->on('po.tenant_id', '=', 'pw.tenant_id')->on('po.id', '=', 'pw.outlet_id'))
+            ->where('pe.tenant_id', $tenantId)->whereIn('pe.employee_id', $employeeIds)
+            ->whereBetween('pe.work_date', [$firstDate, $lastDate])->whereNotNull('po.weekly_planner_start_on')
+            ->whereColumn('pe.work_date', '>=', 'po.weekly_planner_start_on')
+            ->when($outletScopeIds !== null, fn ($query) => $query->whereIn('pw.outlet_id', $outletScopeIds))
+            ->select('pe.*', 'pw.id as week_id', 'pw.outlet_id')->get()
+            ->groupBy(fn ($entry) => $entry->employee_id.'|'.$entry->work_date);
         $outletIds = collect([$outletContext])
             ->merge($outletScopeIds ?? [])
             ->merge($rules->flatten()->pluck('outlet_id'))
             ->merge($exceptions->flatten()->pluck('outlet_id'))
+            ->merge($plannerEntries->flatten()->pluck('outlet_id'))
             ->filter()->map(fn ($id): int => (int) $id)->unique()->values();
         $outlets = Outlet::query()->forTenant($tenantId)->whereIn('id', $outletIds)->get()->keyBy('id');
         $calendarVersions = OutletCalendarVersion::query()->forTenant($tenantId)
@@ -116,7 +129,7 @@ final class EffectiveScheduleResolver
 
         $context = compact(
             'tenantId', 'dates', 'employees', 'rules', 'exceptions', 'assignments', 'outlets',
-            'calendarVersions', 'calendarExceptions', 'tenantPolicies', 'outletPolicies', 'holidays', 'outletContext'
+            'calendarVersions', 'calendarExceptions', 'tenantPolicies', 'outletPolicies', 'holidays', 'outletContext', 'plannerEntries'
         );
         $results = [];
 
@@ -135,11 +148,15 @@ final class EffectiveScheduleResolver
         $tenantId = (int) $context['tenantId'];
         $dateKey = $date->toDateString();
         $weekday = (int) $date->isoWeekday();
+        $legacyAllowed = fn ($row): bool => ! ($context['outlets']->get($row->outlet_id)?->weekly_planner_start_on)
+            || $dateKey < $context['outlets']->get($row->outlet_id)->weekly_planner_start_on;
         $workRules = ($context['rules']->get($employee->getKey()) ?? collect())
-            ->filter(fn (WeeklyScheduleRule $rule): bool => (int) $rule->weekday === $weekday
+            ->filter(fn (WeeklyScheduleRule $rule): bool => $legacyAllowed($rule) && (int) $rule->weekday === $weekday
                 && $rule->effective_from->toDateString() <= $dateKey
                 && ($rule->effective_until === null || $rule->effective_until->toDateString() > $dateKey));
-        $activeExceptions = $context['exceptions']->get($employee->getKey().'|'.$dateKey) ?? collect();
+        $activeExceptions = ($context['exceptions']->get($employee->getKey().'|'.$dateKey) ?? collect())->filter($legacyAllowed);
+        $published = $context['plannerEntries']->get($employee->getKey().'|'.$dateKey) ?? collect();
+        $plannerEntry = null;
         $conflicts = [];
         $provenance = ['source' => 'none', 'schedule_rule_id' => null, 'exception_id' => null, 'exception_revision' => null];
         $status = 'unscheduled';
@@ -169,18 +186,41 @@ final class EffectiveScheduleResolver
             $shiftVersion = $rule->shiftVersion;
         }
 
+        $publishedWork = $published->where('status', 'work');
+        if ($published->isNotEmpty() && ($publishedWork->isNotEmpty() || $status !== 'scheduled')) {
+            if ($publishedWork->count() > 1 || ($publishedWork->isNotEmpty() && $status === 'scheduled') || $conflicts !== []) {
+                $status = 'unscheduled';
+                $shiftVersion = null;
+                $conflicts[] = 'contradictory_schedule_rules';
+            } else {
+                $plannerEntry = $publishedWork->first() ?? $published->firstWhere('outlet_id', $context['outletContext']) ?? $published->first();
+                $status = $plannerEntry->status === 'work' ? 'scheduled' : $plannerEntry->status;
+                $outletId = (int) $plannerEntry->outlet_id;
+                $shiftVersion = null;
+                $provenance = ['source' => 'published_roster', 'schedule_rule_id' => null, 'exception_id' => null, 'exception_revision' => null,
+                    'schedule_week_id' => (int) $plannerEntry->week_id, 'published_revision_id' => (int) $plannerEntry->revision_id, 'entry_id' => (int) $plannerEntry->id];
+            }
+        }
+
         $selectedOutlet = $context['outletContext'];
 
         if ($selectedOutlet !== null && $outletId !== null && $outletId !== (int) $selectedOutlet) {
             $status = 'unscheduled';
             $outletId = (int) $selectedOutlet;
             $shiftVersion = null;
+            $plannerEntry = null;
             $conflicts = [];
             $provenance = ['source' => 'outlet_filter', 'schedule_rule_id' => null, 'exception_id' => null, 'exception_revision' => null];
         } elseif ($selectedOutlet !== null && $outletId === null && in_array($status, ['rest', 'unscheduled'], true)) {
             $outletId = (int) $selectedOutlet;
         }
 
+        if ($status === 'unscheduled' && $outletId !== null && $published->isEmpty()) {
+            $cutover = $context['outlets']->get($outletId)?->weekly_planner_start_on;
+            if ($cutover !== null && $dateKey >= $cutover) {
+                $provenance['source'] = 'planner_unpublished';
+            }
+        }
         $outlet = $outletId === null ? null : $context['outlets']->get($outletId);
         $calendar = $outletId === null ? null : $this->effectiveVersion($context['calendarVersions']->get($outletId) ?? collect(), $dateKey);
         $timezone = $calendar?->timezone ?? SchedulingDefaults::TIMEZONE;
@@ -220,6 +260,19 @@ final class EffectiveScheduleResolver
                 } catch (ValidationException) {
                     $conflicts[] = 'invalid_local_time';
                 }
+            }
+        }
+
+        if ($plannerEntry !== null) {
+            $snapshot = json_decode($plannerEntry->schedule_snapshot, true, flags: JSON_THROW_ON_ERROR);
+            $provenance['published_calendar_version_id'] = $snapshot['calendar_version_id'];
+            $timezone = $snapshot['timezone'];
+            $shift = $snapshot['shift'];
+            $scheduledStart = $snapshot['scheduled_start'];
+            $scheduledEnd = $snapshot['scheduled_end'];
+            if ($status === 'scheduled' && ! $this->hasAssignment($context['assignments']->get($employee->getKey()) ?? collect(), $outletId,
+                new DateTimeImmutable($scheduledStart), new DateTimeImmutable($scheduledEnd))) {
+                $conflicts[] = 'employee_not_assigned_to_outlet';
             }
         }
 

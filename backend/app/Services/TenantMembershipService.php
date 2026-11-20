@@ -8,6 +8,7 @@ use App\Models\EmployeeUserLink;
 use App\Models\Outlet;
 use App\Models\SupervisorOutletScope;
 use App\Models\Tenant;
+use App\Models\TenantAccessInvitation;
 use App\Models\TenantMembership;
 use App\Models\TenantRoleAssignment;
 use App\Models\User;
@@ -144,8 +145,13 @@ final class TenantMembershipService
                 throw ValidationException::withMessages(['employee' => 'The Employee must belong to the actor tenant.']);
             }
 
-            if (! $target->hasRole(TenantRole::Employee)) {
-                throw ValidationException::withMessages(['membership' => 'The membership must have the Employee role before linking.']);
+            $hasEligibleRole = TenantRoleAssignment::query()->forTenant((int) $owner->tenant_id)
+                ->where('tenant_membership_id', $target->getKey())
+                ->whereIn('role', [TenantRole::Owner->value, TenantRole::Supervisor->value, TenantRole::Employee->value])
+                ->exists();
+
+            if (! $hasEligibleRole) {
+                throw ValidationException::withMessages(['membership' => 'The membership must have an active tenant role before linking.']);
             }
 
             if (EmployeeUserLink::query()->forTenant((int) $owner->tenant_id)
@@ -154,11 +160,87 @@ final class TenantMembershipService
                 throw ValidationException::withMessages(['employee' => 'The membership or Employee is already linked.']);
             }
 
+            if (! TenantRoleAssignment::query()->forTenant((int) $owner->tenant_id)
+                ->where('tenant_membership_id', $target->getKey())
+                ->where('role', TenantRole::Employee->value)->exists()) {
+                TenantRoleAssignment::query()->create([
+                    'tenant_id' => $owner->tenant_id,
+                    'tenant_membership_id' => $target->getKey(),
+                    'role' => TenantRole::Employee->value,
+                ]);
+            }
+
             return EmployeeUserLink::query()->create([
                 'tenant_id' => $owner->tenant_id,
                 'tenant_membership_id' => $target->getKey(),
                 'employee_id' => $tenantEmployee->getKey(),
             ]);
+        });
+    }
+
+    public function provisionFromInvitation(TenantAccessInvitation $invitation, User $user): TenantMembership
+    {
+        return DB::transaction(function () use ($invitation, $user): TenantMembership {
+            $tenantId = (int) $invitation->tenant_id;
+            Tenant::query()->whereKey($tenantId)->lockForUpdate()->firstOrFail();
+
+            if (! in_array($invitation->role, [TenantRole::Employee, TenantRole::Supervisor], true)) {
+                throw ValidationException::withMessages(['invitation' => 'This invitation role cannot be provisioned.']);
+            }
+
+            $membership = TenantMembership::query()->forTenant($tenantId)
+                ->where('user_id', $user->getKey())->lockForUpdate()->first();
+
+            if ($membership && ($membership->is_active || $membership->revoked_at === null || $membership->roles()->exists())) {
+                throw ValidationException::withMessages(['invitation' => 'The invitation cannot create a conflicting membership.']);
+            }
+
+            if (! $membership) {
+                $membership = TenantMembership::query()->create([
+                    'tenant_id' => $tenantId,
+                    'user_id' => $user->getKey(),
+                    'is_active' => true,
+                ]);
+            } else {
+                $membership->forceFill(['is_active' => true, 'revoked_at' => null])->save();
+            }
+
+            TenantRoleAssignment::query()->create([
+                'tenant_id' => $tenantId,
+                'tenant_membership_id' => $membership->getKey(),
+                'role' => $invitation->role->value,
+            ]);
+
+            if ($invitation->role === TenantRole::Employee) {
+                if ($invitation->employee_id === null) {
+                    throw ValidationException::withMessages(['invitation' => 'The Employee invitation has no Employee identity.']);
+                }
+
+                EmployeeUserLink::query()->create([
+                    'tenant_id' => $tenantId,
+                    'tenant_membership_id' => $membership->getKey(),
+                    'employee_id' => $invitation->employee_id,
+                ]);
+            } else {
+                $outletIds = DB::table('tenant_access_invitation_outlet_scopes')
+                    ->where('tenant_id', $tenantId)
+                    ->where('invitation_id', $invitation->getKey())
+                    ->orderBy('outlet_id')->pluck('outlet_id');
+
+                if ($outletIds->isEmpty()) {
+                    throw ValidationException::withMessages(['invitation' => 'The Supervisor invitation has no explicit Outlet scope.']);
+                }
+
+                foreach ($outletIds as $outletId) {
+                    SupervisorOutletScope::query()->create([
+                        'tenant_id' => $tenantId,
+                        'tenant_membership_id' => $membership->getKey(),
+                        'outlet_id' => $outletId,
+                    ]);
+                }
+            }
+
+            return $membership;
         });
     }
 

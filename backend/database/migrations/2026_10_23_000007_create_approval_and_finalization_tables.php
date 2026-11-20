@@ -139,7 +139,8 @@ return new class extends Migration
         Schema::dropIfExists('attendance_corrections');
         Schema::dropIfExists('approval_decisions');
         Schema::dropIfExists('approval_requests');
-        DB::statement('ALTER TABLE attendance_sessions DROP CHECK attendance_session_state_check');
+        $checkConstraint = DB::connection()->isMaria() ? 'CONSTRAINT' : 'CHECK';
+        DB::statement("ALTER TABLE attendance_sessions DROP {$checkConstraint} attendance_session_state_check");
         DB::table('attendance_sessions')->where('status', 'administratively_resolved')->update([
             'status' => 'closed',
             'check_out_at' => DB::raw('check_in_at'),

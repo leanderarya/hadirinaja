@@ -35,7 +35,7 @@ const pricingPlans: PricingPlan[] = [
     features: [
       "60+ shadcn/ui components",
       "20+ ready-made blocks",
-      "Light & dark themes",
+      "Consistent light-mode design tokens",
       "Lifetime updates",
       "Single project license",
     ],

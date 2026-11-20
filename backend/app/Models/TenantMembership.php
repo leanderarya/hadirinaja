@@ -17,7 +17,7 @@ class TenantMembership extends Model
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return ['is_active' => 'boolean', 'revoked_at' => 'immutable_datetime'];
     }
 
     public function user(): BelongsTo

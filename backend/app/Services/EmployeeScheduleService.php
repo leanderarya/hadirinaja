@@ -8,6 +8,7 @@ use App\Models\Outlet;
 use App\Models\OutletCalendarVersion;
 use App\Models\ScheduleException;
 use App\Models\ShiftTemplateVersion;
+use App\Models\Tenant;
 use App\Models\TenantMembership;
 use App\Models\WeeklyScheduleRule;
 use App\Support\SchedulingDefaults;
@@ -24,6 +25,7 @@ final class EmployeeScheduleService
         private readonly TenantAuthorization $authorization,
         private readonly LocalTimeResolver $localTime,
         private readonly SchedulingChangeRecorder $changes,
+        private readonly PlannerNotificationService $notifications,
     ) {}
 
     public function createWeeklyRule(
@@ -44,6 +46,7 @@ final class EmployeeScheduleService
         }
 
         return DB::transaction(function () use ($actor, $tenantId, $employeeId, $outletId, $weekday, $shiftVersionId, $effectiveFrom, $effectiveUntil, $reason): WeeklyScheduleRule {
+            Tenant::query()->whereKey($tenantId)->lockForUpdate()->firstOrFail();
             $employee = Employee::query()->forTenant($tenantId)->whereKey($employeeId)->lockForUpdate()->first();
             $outlet = Outlet::query()->forTenant($tenantId)->whereKey($outletId)->first();
 
@@ -55,6 +58,8 @@ final class EmployeeScheduleService
                 throw new AuthorizationException('Pengguna tidak memiliki cakupan pengelolaan outlet ini.');
             }
 
+            $this->assertLegacyWritable($outlet, $effectiveUntil);
+            $this->assertLocalDate($tenantId, $outletId, $effectiveFrom, 'effective_from');
             $shift = $this->tenantShift($tenantId, $shiftVersionId);
             if ($shift && $shift->effective_from->toDateString() > $effectiveFrom) {
                 throw ValidationException::withMessages(['shift_template_version_id' => 'Versi shift belum berlaku pada awal jadwal.']);
@@ -109,6 +114,8 @@ final class EmployeeScheduleService
                 'effective_until' => $effectiveUntil,
             ]);
 
+            $this->notifications->employees($tenantId, [$employeeId], 'assignment_changed', 'legacy-rule:'.$rule->id, ['week_start' => CarbonImmutable::parse($effectiveFrom)->startOfWeek()->toDateString()]);
+
             return $rule->load(['employee', 'outlet', 'shiftVersion.template']);
         });
     }
@@ -126,6 +133,7 @@ final class EmployeeScheduleService
         $this->assertDateRange($workDate, null);
 
         return DB::transaction(function () use ($actor, $tenantId, $employeeId, $outletId, $workDate, $status, $shiftVersionId, $reason): ScheduleException {
+            Tenant::query()->whereKey($tenantId)->lockForUpdate()->firstOrFail();
             $employee = Employee::query()->forTenant($tenantId)->whereKey($employeeId)->lockForUpdate()->first();
             $outlet = Outlet::query()->forTenant($tenantId)->whereKey($outletId)->first();
 
@@ -137,10 +145,9 @@ final class EmployeeScheduleService
                 throw new AuthorizationException('Pengguna tidak memiliki cakupan pengelolaan outlet ini.');
             }
 
-            $timezone = $this->timezoneAt($tenantId, $outletId, CarbonImmutable::now('UTC')->toDateString());
-            if ($workDate < CarbonImmutable::now($timezone)->toDateString()) {
-                throw ValidationException::withMessages(['work_date' => 'Pengecualian jadwal tidak boleh mengubah tanggal yang sudah lewat.']);
-            }
+            $this->assertLegacyWritable($outlet, CarbonImmutable::parse($workDate)->addDay()->toDateString());
+            $this->assertLocalDate($tenantId, $outletId, $workDate, 'work_date');
+            $timezone = $this->timezoneAt($tenantId, $outletId, $workDate);
 
             if (! in_array($status, ['work', 'rest'], true)) {
                 throw ValidationException::withMessages(['status' => 'Pilih bekerja atau libur.']);
@@ -160,7 +167,10 @@ final class EmployeeScheduleService
                 throw ValidationException::withMessages(['outlet_id' => 'Karyawan tidak memiliki penugasan outlet yang mencakup seluruh shift.']);
             }
             if ($interval) {
-                $this->assertNoAdjacentWeeklyOverlap($tenantId, $employeeId, $workDate, $interval);
+                $this->assertNoEffectiveOverlap(new ScheduleException([
+                    'tenant_id' => $tenantId, 'employee_id' => $employeeId, 'outlet_id' => $outletId,
+                    'work_date' => $workDate, 'status' => $status, 'shift_template_version_id' => $shiftVersionId,
+                ]), $shift, $workDate, CarbonImmutable::parse($workDate)->addDay()->toDateString(), 'work_date');
             }
 
             $previous = ScheduleException::query()->forTenant($tenantId)->where('employee_id', $employeeId)
@@ -196,115 +206,136 @@ final class EmployeeScheduleService
                 'shift_template_version_id' => $shift?->getKey(),
             ]);
 
+            $this->notifications->employees($tenantId, [$employeeId], 'assignment_changed', 'exception:'.$exception->id, ['week_start' => CarbonImmutable::parse($workDate)->startOfWeek()->toDateString()]);
+
             return $exception->load(['shiftVersion.template']);
         });
     }
 
     private function assertNoRecurringOverlap(WeeklyScheduleRule $candidate, ?ShiftTemplateVersion $shift): void
     {
+        $this->assertNoEffectiveOverlap($candidate, $shift, $candidate->effective_from->toDateString(),
+            $candidate->effective_until?->toDateString(), 'shift_template_version_id');
+    }
+
+    private function assertNoEffectiveOverlap(
+        WeeklyScheduleRule|ScheduleException $candidate,
+        ?ShiftTemplateVersion $shift,
+        string $from,
+        ?string $until,
+        string $field,
+    ): void {
         if (! $shift) {
             return;
         }
 
         $tenantId = (int) $candidate->tenant_id;
-        $start = $candidate->effective_from->toDateString();
-        $end = $candidate->effective_until?->toDateString();
-        $expandedStart = CarbonImmutable::parse($start)->subDay()->toDateString();
-        $expandedEnd = $end === null ? '9999-12-31' : CarbonImmutable::parse($end)->addDay()->toDateString();
         $rules = WeeklyScheduleRule::query()->forTenant($tenantId)->where('employee_id', $candidate->employee_id)
-            ->whereNotNull('shift_template_version_id')
-            ->where('effective_from', '<', $expandedEnd)
-            ->where(fn ($query) => $query->whereNull('effective_until')->orWhere('effective_until', '>', $expandedStart))
-            ->with(['outlet', 'shiftVersion'])->get();
-
-        foreach ($rules as $existing) {
-            if ($existing->getKey() === $candidate->getKey()) {
-                continue;
+            ->with('shiftVersion')->get();
+        $exceptions = ScheduleException::query()->forTenant($tenantId)->where('employee_id', $candidate->employee_id)
+            ->whereNull('superseded_at')->with('shiftVersion')->get()->keyBy(fn ($item) => $item->work_date->toDateString());
+        $candidate->setRelation('shiftVersion', $shift);
+        if ($candidate instanceof WeeklyScheduleRule) {
+            $rules->push($candidate);
+        } else {
+            $exceptions->put($from, $candidate);
+        }
+        $outletIds = $rules->pluck('outlet_id')->merge($exceptions->pluck('outlet_id'))->filter()->unique();
+        $calendars = OutletCalendarVersion::query()->forTenant($tenantId)->whereIn('outlet_id', $outletIds)
+            ->orderBy('effective_from')->get();
+        $timezoneAt = fn ($outletId, $date) => $calendars->last(fn ($calendar) => (int) $calendar->outlet_id === (int) $outletId
+            && $calendar->effective_from->toDateString() <= $date)?->timezone ?? SchedulingDefaults::TIMEZONE;
+        $cutovers = Outlet::query()->forTenant($tenantId)->pluck('weekly_planner_start_on', 'id');
+        $legacyAllowed = fn ($row, $date) => ! $cutovers->get($row->outlet_id) || $date < $cutovers->get($row->outlet_id);
+        $published = DB::table('schedule_entries as pe')->join('schedule_weeks as pw', fn ($join) => $join->on('pw.tenant_id', '=', 'pe.tenant_id')->on('pw.published_revision_id', '=', 'pe.revision_id'))
+            ->join('outlets as po', fn ($join) => $join->on('po.tenant_id', '=', 'pw.tenant_id')->on('po.id', '=', 'pw.outlet_id'))
+            ->where('pe.tenant_id', $tenantId)->where('pe.employee_id', $candidate->employee_id)->where('pe.status', 'work')
+            ->whereNotNull('po.weekly_planner_start_on')->whereColumn('pe.work_date', '>=', 'po.weekly_planner_start_on')
+            ->get(['pe.work_date', 'pe.schedule_snapshot']);
+        $effective = function (string $date) use ($exceptions, $rules, $legacyAllowed) {
+            if ($exceptions->has($date) && $legacyAllowed($exceptions->get($date), $date)) {
+                return $exceptions->get($date);
             }
 
-            $candidateFirstDate = CarbonImmutable::parse($start);
-            $existingFirstPossible = CarbonImmutable::parse($existing->effective_from->toDateString())->subDay();
-            $testStart = $candidateFirstDate->greaterThan($existingFirstPossible) ? $candidateFirstDate : $existingFirstPossible;
-            $testLast = $testStart->addDays(13);
-            if ($end !== null && $testLast->toDateString() >= $end) {
-                $testLast = CarbonImmutable::parse($end)->subDay();
-            }
-            if ($existing->effective_until !== null && $testLast->toDateString() > $existing->effective_until->toDateString()) {
-                $testLast = $existing->effective_until;
-            }
+            return $rules->first(fn ($rule) => $legacyAllowed($rule, $date) && (int) $rule->weekday === CarbonImmutable::parse($date)->isoWeekday()
+                && $this->inRange($date, $rule->effective_from->toDateString(), $rule->effective_until?->toDateString()));
+        };
 
-            for ($candidateDate = $testStart; $candidateDate->toDateString() <= $testLast->toDateString(); $candidateDate = $candidateDate->addDay()) {
-                if ((int) $candidateDate->isoWeekday() !== (int) $candidate->weekday
-                    || ! $this->inRange($candidateDate->toDateString(), $start, $end)) {
+        $end = $until ?? '9999-12-31';
+        $boundaries = [$from, $end];
+        // ponytail: Within each segment, rules, overrides and UTC offsets are stable;
+        // one seven-day cycle is sufficient. Split around neighbour dates as well.
+        $split = function (string $date) use (&$boundaries, $from, $end): void {
+            for ($offset = -3; $offset <= 3; $offset++) {
+                $boundary = CarbonImmutable::parse($date)->addDays($offset)->toDateString();
+                if ($boundary > $from && $boundary < $end) {
+                    $boundaries[] = $boundary;
+                }
+            }
+        };
+        foreach ($rules as $rule) {
+            $split($rule->effective_from->toDateString());
+            if ($rule->effective_until !== null) {
+                $split($rule->effective_until->toDateString());
+            }
+        }
+        foreach ($exceptions->keys() as $date) {
+            $split($date);
+        }
+        foreach ($published as $entry) {
+            $split($entry->work_date);
+        }
+        foreach ($cutovers->filter() as $cutover) {
+            $split($cutover);
+        }
+        foreach ($calendars as $calendar) {
+            $split($calendar->effective_from->toDateString());
+        }
+        $rangeStart = CarbonImmutable::parse($from, 'UTC')->subDays(3)->getTimestamp();
+        $rangeEnd = CarbonImmutable::parse($end, 'UTC')->addDays(3)->getTimestamp();
+        foreach ($calendars->pluck('timezone')->push(SchedulingDefaults::TIMEZONE)->unique() as $timezone) {
+            foreach ((new DateTimeZone($timezone))->getTransitions($rangeStart, $rangeEnd) ?: [] as $transition) {
+                $split(CarbonImmutable::createFromTimestampUTC($transition['ts'])->toDateString());
+            }
+        }
+        $boundaries = array_values(array_unique($boundaries));
+        sort($boundaries);
+        for ($segment = 0; $segment < count($boundaries) - 1; $segment++) {
+            $start = CarbonImmutable::parse($boundaries[$segment]);
+            for ($day = 0; $day < 7; $day++) {
+                $date = $start->addDays($day);
+                $dateKey = $date->toDateString();
+                if ($dateKey >= $boundaries[$segment + 1]) {
+                    break;
+                }
+                if ($effective($dateKey) !== $candidate) {
                     continue;
                 }
-
-                $candidateZone = $this->timezoneAt($tenantId, (int) $candidate->outlet_id, $candidateDate->toDateString());
-                $candidateInterval = $this->interval($shift, $candidateDate->toDateString(), $candidateZone);
-
-                for ($offset = -1; $offset <= 1; $offset++) {
-                    $existingDate = $candidateDate->addDays($offset);
-                    $existingActive = $this->inRange($existingDate->toDateString(), $existing->effective_from->toDateString(), $existing->effective_until?->toDateString());
-                    if (! $existingActive || (int) $existingDate->isoWeekday() !== (int) $existing->weekday || ! $existing->shiftVersion) {
+                $interval = $this->interval($shift, $dateKey, $timezoneAt($candidate->outlet_id, $dateKey));
+                foreach ($published as $entry) {
+                    if (abs(CarbonImmutable::parse($entry->work_date)->diffInDays($date, false)) > 3) {
                         continue;
                     }
-
-                    $existingZone = $this->timezoneAt($tenantId, (int) $existing->outlet_id, $existingDate->toDateString());
-                    $existingInterval = $this->interval($existing->shiftVersion, $existingDate->toDateString(), $existingZone);
-
-                    if ($this->overlaps($candidateInterval, $existingInterval)) {
-                        throw ValidationException::withMessages(['shift_template_version_id' => 'Jadwal bertabrakan dengan shift karyawan yang sudah aktif.']);
+                    $snapshot = json_decode($entry->schedule_snapshot, true, flags: JSON_THROW_ON_ERROR);
+                    if ($entry->work_date === $dateKey || $this->overlaps($interval, [new DateTimeImmutable($snapshot['scheduled_start']), new DateTimeImmutable($snapshot['scheduled_end'])])) {
+                        throw ValidationException::withMessages([$field => 'Jadwal bertabrakan dengan shift karyawan yang sudah aktif.']);
                     }
                 }
-            }
-        }
-    }
-
-    /** @param array{DateTimeImmutable, DateTimeImmutable} $candidateInterval */
-    private function assertNoAdjacentWeeklyOverlap(int $tenantId, int $employeeId, string $workDate, array $candidateInterval): void
-    {
-        $from = CarbonImmutable::parse($workDate)->subDay()->toDateString();
-        $until = CarbonImmutable::parse($workDate)->addDay()->toDateString();
-        $rules = WeeklyScheduleRule::query()->forTenant($tenantId)->where('employee_id', $employeeId)
-            ->whereNotNull('shift_template_version_id')->where('effective_from', '<=', $until)
-            ->where(fn ($query) => $query->whereNull('effective_until')->orWhere('effective_until', '>', $from))
-            ->with(['shiftVersion', 'outlet'])->get();
-
-        foreach ($rules as $rule) {
-            $anchor = CarbonImmutable::parse($from);
-            for ($offset = 0; $offset < 3; $offset++) {
-                $date = $anchor->addDays($offset);
-                if ((int) $date->isoWeekday() !== (int) $rule->weekday || ! $this->inRange($date->toDateString(), $rule->effective_from->toDateString(), $rule->effective_until?->toDateString())) {
-                    continue;
+                // IANA offsets can place overlapping shifts more than one local date apart.
+                for ($offset = -3; $offset <= 3; $offset++) {
+                    if ($offset === 0) {
+                        continue;
+                    }
+                    $otherDate = $date->addDays($offset)->toDateString();
+                    $other = $effective($otherDate);
+                    if (! $other?->shiftVersion) {
+                        continue;
+                    }
+                    $otherInterval = $this->interval($other->shiftVersion, $otherDate, $timezoneAt($other->outlet_id, $otherDate));
+                    if ($this->overlaps($interval, $otherInterval)) {
+                        throw ValidationException::withMessages([$field => 'Jadwal bertabrakan dengan shift karyawan yang sudah aktif.']);
+                    }
                 }
-
-                if ($date->toDateString() === $workDate) {
-                    continue;
-                }
-
-                $zone = $this->timezoneAt($tenantId, (int) $rule->outlet_id, $date->toDateString());
-                $existingInterval = $this->interval($rule->shiftVersion, $date->toDateString(), $zone);
-
-                if ($this->overlaps($candidateInterval, $existingInterval)) {
-                    throw ValidationException::withMessages(['work_date' => 'Pengecualian bertabrakan dengan shift berulang di tanggal yang berdekatan.']);
-                }
-            }
-        }
-
-        $exceptions = ScheduleException::query()->forTenant($tenantId)->where('employee_id', $employeeId)
-            ->whereBetween('work_date', [$from, $until])->where('status', 'work')->whereNull('superseded_at')
-            ->with(['shiftVersion'])->get();
-
-        foreach ($exceptions as $exception) {
-            if ($exception->work_date->toDateString() === $workDate || ! $exception->shiftVersion || $exception->outlet_id === null) {
-                continue;
-            }
-
-            $zone = $this->timezoneAt($tenantId, (int) $exception->outlet_id, $exception->work_date->toDateString());
-            $existingInterval = $this->interval($exception->shiftVersion, $exception->work_date->toDateString(), $zone);
-
-            if ($this->overlaps($candidateInterval, $existingInterval)) {
-                throw ValidationException::withMessages(['work_date' => 'Pengecualian bertabrakan dengan pengecualian kerja di tanggal yang berdekatan.']);
             }
         }
     }
@@ -417,12 +448,22 @@ final class EmployeeScheduleService
             throw ValidationException::withMessages(['effective_from' => 'Rentang jadwal harus berisi tanggal yang valid.']);
         }
 
-        if ($from < CarbonImmutable::today('UTC')->toDateString()) {
-            throw ValidationException::withMessages(['effective_from' => 'Perubahan jadwal tidak boleh berlaku surut.']);
-        }
-
         if ($until !== null && $until <= $from) {
             throw ValidationException::withMessages(['effective_until' => 'Tanggal akhir harus setelah tanggal mulai dan bersifat eksklusif.']);
+        }
+    }
+
+    private function assertLegacyWritable(Outlet $outlet, ?string $until): void
+    {
+        abort_if($outlet->weekly_planner_start_on !== null && ($until === null || $until > $outlet->weekly_planner_start_on),
+            409, 'Tanggal tersebut dikelola melalui roster mingguan.');
+    }
+
+    private function assertLocalDate(int $tenantId, int $outletId, string $date, string $field): void
+    {
+        $timezone = $this->timezoneAt($tenantId, $outletId, $date);
+        if ($date < CarbonImmutable::today($timezone)->toDateString()) {
+            throw ValidationException::withMessages([$field => 'Perubahan jadwal tidak boleh berlaku surut.']);
         }
     }
 

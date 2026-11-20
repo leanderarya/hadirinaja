@@ -8,6 +8,7 @@ final readonly class PreparedAttendanceEvidence
         public string $temporaryPath,
         public string $storagePath,
         public string $detectedMimeType,
+        public string $storedMimeType,
         public int $storedSizeBytes,
         public int $width,
         public int $height,

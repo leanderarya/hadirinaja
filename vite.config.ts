@@ -8,18 +8,28 @@ import { defineConfig } from "vite"
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
   server: {
-    proxy: {
-      "/sanctum/": {
-        target: "http://127.0.0.1:8000",
-        changeOrigin: true,
-      },
-      "/api/": {
-        target: "http://127.0.0.1:8000",
-        changeOrigin: true,
-      },
-    },
+    host: "127.0.0.1",
+    port: 3001,
+    strictPort: true,
   },
-  plugins: [devtools(), tailwindcss(), tanstackStart(), nitro(), viteReact()],
+  plugins: [
+    devtools(),
+    tailwindcss(),
+    tanstackStart({ spa: { enabled: true } }),
+    nitro({
+      devProxy: {
+        "/api/**": {
+          target: "http://127.0.0.1:8001",
+          changeOrigin: true,
+        },
+        "/sanctum/**": {
+          target: "http://127.0.0.1:8001",
+          changeOrigin: true,
+        },
+      },
+    }),
+    viteReact(),
+  ],
   build: {
     rolldownOptions: {
       onwarn(warning, warn) {

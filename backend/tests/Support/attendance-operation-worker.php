@@ -10,6 +10,7 @@ use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Tests\Support\DisposableTestDatabaseGuard;
 
 $backend = dirname(__DIR__, 2);
 file_put_contents((string) getenv('S4_STAGE_FILE'), 'starting');
@@ -18,6 +19,9 @@ require $backend.'/vendor/autoload.php';
 file_put_contents((string) getenv('S4_STAGE_FILE'), 'autoloaded');
 $app = require $backend.'/bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
+DisposableTestDatabaseGuard::assertConfigured(config('database.connections.mysql'));
+DisposableTestDatabaseGuard::assertConnected(DB::connection());
+config(['attendance_evidence.require_personal_photo' => getenv('S4_WITH_PHOTO') === '1']);
 file_put_contents((string) getenv('S4_STAGE_FILE'), 'bootstrapped');
 
 $evidenceRoot = (string) getenv('S4_EVIDENCE_ROOT');
@@ -56,21 +60,23 @@ $actor = $origin === 'kiosk'
 $service = app(AttendanceService::class);
 $operation = (string) getenv('S4_OPERATION');
 $key = (string) getenv('S4_IDEMPOTENCY_KEY');
-$location = ['status' => 'unavailable'];
+$location = ['status' => 'provided', 'latitude' => -6.2, 'longitude' => 106.816666, 'accuracy_meters' => 10];
 
 if ($operation === 'check_in') {
     $outlet = Outlet::query()->forTenant($tenantId)->whereKey((int) getenv('S4_OUTLET_ID'))->firstOrFail();
     $photoPath = (string) getenv('S4_PHOTO_PATH');
-    $photo = $origin === 'kiosk'
+    $photo = $origin === 'kiosk' || getenv('S4_WITH_PHOTO') === '1'
         ? new UploadedFile($photoPath, 'camera.jpg', 'image/jpeg', UPLOAD_ERR_OK, true)
         : null;
     $result = $service->checkIn($actor, $employee, $outlet, $key, $location, $photo);
 } elseif ($operation === 'check_out') {
     $photoPath = (string) getenv('S4_PHOTO_PATH');
-    $photo = $origin === 'kiosk'
+    $photo = $origin === 'kiosk' || getenv('S4_WITH_PHOTO') === '1'
         ? new UploadedFile($photoPath, 'camera.jpg', 'image/jpeg', UPLOAD_ERR_OK, true)
         : null;
-    $result = $service->checkOut($actor, $employee, $key, $location, $photo);
+    $destinationId = (int) getenv('S4_CHECKOUT_OUTLET_ID');
+    $destination = $destinationId > 0 ? Outlet::query()->forTenant($tenantId)->whereKey($destinationId)->firstOrFail() : null;
+    $result = $service->checkOut($actor, $employee, $key, $location, $photo, $destination, (int) getenv('S4_CHECKOUT_SESSION_ID') ?: null);
 } else {
     throw new InvalidArgumentException('Unsupported attendance worker operation.');
 }

@@ -68,7 +68,15 @@ class ApprovalRequest extends Model
 
     public function decisions(): HasMany
     {
-        return $this->hasMany(ApprovalDecision::class)->orderBy('acted_at')->orderBy('id');
+        return $this->hasMany(ApprovalDecision::class)->orderBy('id');
+    }
+
+    public function scopeWithoutReversal(Builder $query, bool $lock = false): Builder
+    {
+        return $query->whereDoesntHave('decisions', fn (Builder $decision) => $decision
+            ->whereColumn('approval_decisions.tenant_id', 'approval_requests.tenant_id')
+            ->where('action', 'reversed')
+            ->when($lock, fn (Builder $rows) => $rows->lockForUpdate()));
     }
 
     public function correction(): HasOne

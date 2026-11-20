@@ -58,6 +58,7 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'strict' => true,
+            'timezone' => env('DB_TIMEZONE'),
             'engine' => env('DB_MYSQL_ENGINE', 'InnoDB'),
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
@@ -78,6 +79,7 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'strict' => true,
+            'timezone' => env('DB_TIMEZONE'),
             'engine' => null,
             'options' => extension_loaded('pdo_mysql') ? array_filter([
                 Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
