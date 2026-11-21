@@ -54,6 +54,8 @@ function InvitationActivationPage() {
   const [authenticated, setAuthenticated] = useState(false)
   const [newAccountActivated, setNewAccountActivated] = useState(false)
   const [accepted, setAccepted] = useState(false)
+  const [showExistingAccount, setShowExistingAccount] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   useEffect(() => {
     let value = tokenFromUrl.current
@@ -85,6 +87,7 @@ function InvitationActivationPage() {
       .then(([summary, session]) => {
         if (!active) return
         setInvitation(summary)
+        setName(summary.employee?.name ?? "")
         setIdentifier(session?.user.email ?? summary.invitee_email)
         setAuthenticated(Boolean(session))
       })
@@ -121,7 +124,7 @@ function InvitationActivationPage() {
       setPasswordConfirmation("")
       setToken("")
       setNotice(
-        "Akun dan akses organisasi berhasil diaktifkan. Masuk untuk melanjutkan."
+        "Akun aktif! Masuk dengan email dan kata sandi yang baru Anda buat."
       )
     } catch (caught) {
       setError(errorMessage(caught, "Aktivasi akun tidak dapat diselesaikan."))
@@ -188,17 +191,21 @@ function InvitationActivationPage() {
     )
   }
 
+  const passwordMismatch =
+    Boolean(password && passwordConfirmation) &&
+    password !== passwordConfirmation
+
   return (
     <main className="flex min-h-svh items-center justify-center bg-muted/20 px-4 py-10">
-      <Card className="w-full max-w-2xl">
+      <Card className="w-full max-w-md">
         <CardHeader>
-          <p className="text-label text-muted-foreground">HadirinAja</p>
-          <CardTitle className="text-title">
-            Aktivasi akses organisasi
-          </CardTitle>
+          <CardTitle className="text-title">Aktifkan akun Anda</CardTitle>
           <CardDescription>
-            Tinjau organisasi dan peran sebelum membuat akun atau menerima
-            akses.
+            {invitation?.employee
+              ? `Halo, ${invitation.employee.name}. Buat kata sandi untuk mulai absen di ${invitation.outlets[0]?.name ?? invitation.tenant.name}.`
+              : invitation
+                ? `Buat kata sandi untuk masuk ke ${invitation.tenant.name}.`
+                : ""}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
@@ -208,7 +215,7 @@ function InvitationActivationPage() {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : null}
-          {notice ? (
+          {notice && !newAccountActivated ? (
             <Alert>
               <AlertTitle>Status aktivasi</AlertTitle>
               <AlertDescription>{notice}</AlertDescription>
@@ -216,51 +223,46 @@ function InvitationActivationPage() {
           ) : null}
 
           {invitation ? (
-            <section
-              className="flex flex-col gap-3 rounded-2xl border bg-muted/30 p-4"
-              aria-label="Detail undangan"
-            >
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Info label="Organisasi" value={invitation.tenant.name} />
-                <Info label="Diundang oleh" value={invitation.inviter.name} />
-                <Info label="Peran" value={roleLabel(invitation.role)} />
-                <Info label="Akun tujuan" value={invitation.invitee_email} />
-                {invitation.employee ? (
+            <details className="rounded-xl border px-4 py-3">
+              <summary className="cursor-pointer text-label">
+                Detail undangan
+              </summary>
+              <div className="mt-4 flex flex-col gap-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Info label="Organisasi" value={invitation.tenant.name} />
+                  <Info label="Diundang oleh" value={invitation.inviter.name} />
+                  <Info label="Peran" value={roleLabel(invitation.role)} />
+                  <Info label="Akun tujuan" value={invitation.invitee_email} />
+                  {invitation.employee ? (
+                    <Info
+                      label="Identitas karyawan"
+                      value={invitation.employee.name}
+                    />
+                  ) : null}
+                </div>
+                {invitation.outlets.length ? (
                   <Info
-                    label="Identitas karyawan"
-                    value={invitation.employee.name}
+                    label="Outlet yang dapat diakses"
+                    value={invitation.outlets
+                      .map((outlet) => outlet.name)
+                      .join(", ")}
                   />
                 ) : null}
-              </div>
-              {invitation.outlets.length ? (
                 <Info
-                  label="Outlet yang dapat diakses"
-                  value={invitation.outlets
-                    .map((outlet) => outlet.name)
-                    .join(", ")}
+                  label="Berlaku sampai"
+                  value={formatDate(invitation.expires_at)}
                 />
-              ) : null}
-              <Info
-                label="Berlaku sampai"
-                value={formatDate(invitation.expires_at)}
-              />
-              {invitation.status !== "pending" ? (
-                <Alert
-                  variant={
-                    invitation.status === "revoked" ? "destructive" : "default"
-                  }
-                >
-                  <AlertTitle>{statusLabel(invitation.status)}</AlertTitle>
-                  <AlertDescription>
-                    {invitation.status === "expired"
-                      ? "Minta Owner menerbitkan ulang undangan."
-                      : invitation.status === "revoked"
-                        ? "Minta Owner organisasi membuat undangan baru."
-                        : "Undangan ini sudah pernah digunakan."}
-                  </AlertDescription>
-                </Alert>
-              ) : null}
-            </section>
+              </div>
+            </details>
+          ) : null}
+          {invitation && invitation.status !== "pending" ? (
+            <p className="text-body">
+              {invitation.status === "expired"
+                ? "Tautan ini sudah kedaluwarsa. Minta Owner mengirim tautan baru."
+                : invitation.status === "revoked"
+                  ? "Tautan ini sudah dibatalkan. Minta Owner mengirim tautan baru."
+                  : "Tautan ini sudah dipakai. Silakan masuk."}
+            </p>
           ) : null}
 
           {invitation?.status === "pending" &&
@@ -271,7 +273,8 @@ function InvitationActivationPage() {
                 <div>
                   <h2 className="text-label">Terima akses dengan akun ini</h2>
                   <p className="text-caption text-muted-foreground">
-            Menerima undangan akan menambahkan keanggotaan Anda di organisasi tersebut.
+                    Menerima undangan akan menambahkan keanggotaan Anda di
+                    organisasi tersebut.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -299,128 +302,159 @@ function InvitationActivationPage() {
           !authenticated &&
           !newAccountActivated &&
           !accepted ? (
-            <div className="grid gap-5 md:grid-cols-2">
-              <form
-                className="flex flex-col gap-4 rounded-2xl border p-4"
-                onSubmit={activateNewAccount}
-              >
-                <div>
-                  <h2 className="text-label">Buat akun baru</h2>
-                  <p className="text-caption text-muted-foreground">
-                    Buat kata sandi Anda sendiri untuk alamat undangan.
-                  </p>
-                </div>
-                <FieldGroup className="gap-4">
-                  <Field>
-                    <FieldLabel htmlFor="activation-name">
-                      Nama lengkap
-                    </FieldLabel>
-                    <Input
-                      autoComplete="name"
-                      id="activation-name"
-                      onChange={(event) => setName(event.target.value)}
-                      required
-                      value={name}
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="activation-email">
-                      Email akun
-                    </FieldLabel>
-                    <Input
-                      autoComplete="email"
-                      id="activation-email"
-                      readOnly
-                      value={invitation.invitee_email}
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="activation-password">
-                      Kata sandi baru
-                    </FieldLabel>
-                    <Input
-                      autoComplete="new-password"
-                      id="activation-password"
-                      onChange={(event) => setPassword(event.target.value)}
-                      required
-                      type="password"
-                      value={password}
-                    />
-                    <FieldDescription>
-                      Gunakan kata sandi yang memenuhi aturan keamanan aplikasi.
-                    </FieldDescription>
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="activation-password-confirmation">
-                      Ulangi kata sandi
-                    </FieldLabel>
-                    <Input
-                      autoComplete="new-password"
-                      id="activation-password-confirmation"
+            <div className="flex flex-col gap-4">
+              {!showExistingAccount ? (
+                <form
+                  className="flex flex-col gap-4"
+                  onSubmit={activateNewAccount}
+                >
+                  <FieldGroup className="gap-4">
+                    <Field>
+                      <FieldLabel htmlFor="activation-name">
+                        Nama lengkap
+                      </FieldLabel>
+                      <Input
+                        autoComplete="name"
+                        id="activation-name"
+                        onChange={(event) => setName(event.target.value)}
+                        required
+                        value={name}
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="activation-email">
+                        Email akun
+                      </FieldLabel>
+                      <Input
+                        autoComplete="email"
+                        id="activation-email"
+                        readOnly
+                        value={invitation.invitee_email}
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="activation-password">
+                        Kata sandi baru
+                      </FieldLabel>
+                      <Input
+                        autoComplete="new-password"
+                        id="activation-password"
+                        onChange={(event) => setPassword(event.target.value)}
+                        required
+                        type={showPassword ? "text" : "password"}
+                        value={password}
+                      />
+                      <FieldDescription>Minimal 8 karakter.</FieldDescription>
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="activation-password-confirmation">
+                        Ulangi kata sandi
+                      </FieldLabel>
+                      <Input
+                        autoComplete="new-password"
+                        id="activation-password-confirmation"
+                        onChange={(event) =>
+                          setPasswordConfirmation(event.target.value)
+                        }
+                        required
+                        type={showPassword ? "text" : "password"}
+                        value={passwordConfirmation}
+                      />
+                      {passwordMismatch ? (
+                        <FieldDescription>
+                          Kata sandi belum sama.
+                        </FieldDescription>
+                      ) : null}
+                    </Field>
+                  </FieldGroup>
+                  <label className="flex items-center gap-2 text-body">
+                    <input
+                      checked={showPassword}
                       onChange={(event) =>
-                        setPasswordConfirmation(event.target.value)
+                        setShowPassword(event.target.checked)
                       }
-                      required
-                      type="password"
-                      value={passwordConfirmation}
+                      type="checkbox"
                     />
-                  </Field>
-                </FieldGroup>
-                <Button disabled={busy} type="submit">
-                  {busy ? <Spinner data-icon="inline-start" /> : null}
-                  Buat akun dan aktifkan
+                    Tampilkan kata sandi
+                  </label>
+                  <Button
+                    className="w-full"
+                    disabled={busy || passwordMismatch}
+                    type="submit"
+                  >
+                    {busy ? <Spinner data-icon="inline-start" /> : null}
+                    Aktifkan akun
+                  </Button>
+                </form>
+              ) : (
+                <form
+                  className="flex flex-col gap-4"
+                  onSubmit={authenticateExistingAccount}
+                >
+                  <div>
+                    <h2 className="text-label">Masuk dengan akun Anda</h2>
+                    <p className="text-caption text-muted-foreground">
+                      Gunakan akun yang akan menerima undangan ini.
+                    </p>
+                  </div>
+                  <FieldGroup className="gap-4">
+                    <Field>
+                      <FieldLabel htmlFor="existing-identifier">
+                        Email atau nomor telepon
+                      </FieldLabel>
+                      <Input
+                        autoComplete="username"
+                        id="existing-identifier"
+                        onChange={(event) => setIdentifier(event.target.value)}
+                        required
+                        value={identifier}
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="existing-password">
+                        Kata sandi
+                      </FieldLabel>
+                      <Input
+                        autoComplete="current-password"
+                        id="existing-password"
+                        onChange={(event) => setPassword(event.target.value)}
+                        required
+                        type="password"
+                        value={password}
+                      />
+                    </Field>
+                  </FieldGroup>
+                  <Button disabled={busy} type="submit" variant="outline">
+                    {busy ? <Spinner data-icon="inline-start" /> : null}
+                    Masuk
+                  </Button>
+                </form>
+              )}
+              {!authenticated ? (
+                <Button
+                  className="w-full"
+                  onClick={() => setShowExistingAccount(!showExistingAccount)}
+                  type="button"
+                  variant="link"
+                >
+                  {showExistingAccount
+                    ? "Kembali buat akun"
+                    : "Sudah punya akun HadirinAja? Masuk di sini"}
                 </Button>
-              </form>
-
-              <form
-                className="flex flex-col gap-4 rounded-2xl border p-4"
-                onSubmit={authenticateExistingAccount}
-              >
-                <div>
-                  <h2 className="text-label">Sudah punya akun?</h2>
-                  <p className="text-caption text-muted-foreground">
-                    Masuk menggunakan akun penerima sebelum menerima akses.
-                  </p>
-                </div>
-                <FieldGroup className="gap-4">
-                  <Field>
-                    <FieldLabel htmlFor="existing-identifier">
-                      Email atau nomor telepon
-                    </FieldLabel>
-                    <Input
-                      autoComplete="username"
-                      id="existing-identifier"
-                      onChange={(event) => setIdentifier(event.target.value)}
-                      required
-                      value={identifier}
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="existing-password">
-                      Kata sandi
-                    </FieldLabel>
-                    <Input
-                      autoComplete="current-password"
-                      id="existing-password"
-                      onChange={(event) => setPassword(event.target.value)}
-                      required
-                      type="password"
-                      value={password}
-                    />
-                  </Field>
-                </FieldGroup>
-                <Button disabled={busy} type="submit" variant="outline">
-                  {busy ? <Spinner data-icon="inline-start" /> : null}
-                  Masuk ke akun penerima
-                </Button>
-              </form>
+              ) : null}
             </div>
           ) : null}
 
           {newAccountActivated ? (
-            <Button render={<a href="/login?activated=1" />}>
-              Masuk ke HadirinAja
-            </Button>
+            <>
+              <p className="text-body">{notice}</p>
+              <Button
+                className="w-full"
+                render={<a href="/login?activated=1" />}
+              >
+                Masuk sekarang
+              </Button>
+            </>
           ) : null}
           {accepted ? (
             <Button render={<a href="/select-tenant" />}>
@@ -452,15 +486,6 @@ function Info({ label, value }: { label: string; value: string }) {
 
 function roleLabel(role: InvitationSummary["role"]): string {
   return role === "employee" ? "Karyawan" : "Supervisor"
-}
-
-function statusLabel(status: InvitationSummary["status"]): string {
-  return {
-    pending: "Menunggu aktivasi",
-    expired: "Undangan kedaluwarsa",
-    revoked: "Undangan dibatalkan",
-    accepted: "Undangan sudah digunakan",
-  }[status]
 }
 
 function errorMessage(error: unknown, fallback: string): string {
