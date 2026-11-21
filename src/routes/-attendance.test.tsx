@@ -320,6 +320,28 @@ async function enabledButton(name: string) {
   })
 }
 
+// The capture button only exists once the camera dialog reaches its photo
+// stage, and stays disabled until the mocked video reports readiness.
+async function captureButton() {
+  const capture = await screen.findByRole<HTMLButtonElement>("button", {
+    name: "Ambil foto",
+  })
+  fireEvent.loadedData(screen.getByLabelText("Pratinjau kamera karyawan"))
+  await waitFor(() => expect(capture.disabled).toBe(false))
+  return capture
+}
+
+// Closing the dialog only stops a camera whose stream has already been
+// attached, so wait for readiness before asserting cleanup.
+async function cameraReady() {
+  await waitFor(() => {
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalled()
+    expect(
+      screen.getByLabelText<HTMLVideoElement>("Pratinjau kamera karyawan").srcObject
+    ).not.toBeNull()
+  })
+}
+
 describe("Employee attendance camera", () => {
   it("keeps both actions disabled when an Outlet eligibility read fails", async () => {
     const defaultRequest = apiRequest.getMockImplementation()
@@ -600,7 +622,7 @@ describe("Employee attendance camera", () => {
     })
     render(<AttendancePage />)
     fireEvent.click(await enabledButton("Absen Masuk"))
-    fireEvent.click(await enabledButton("Ambil foto"))
+    fireEvent.click(await captureButton())
     const submit = await screen.findByRole("button", { name: "Gunakan Foto dan Absen Masuk" })
     fireEvent.click(submit)
     fireEvent.click(submit)
@@ -696,6 +718,7 @@ describe("Employee attendance camera", () => {
 
     const dialog = await screen.findByRole("dialog")
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true))
+    await cameraReady()
     expect(screen.queryByRole("link", { name: "Jadwal" })).toBeNull()
 
     fireEvent.keyDown(document.activeElement ?? dialog, { key: "Escape" })
@@ -758,7 +781,7 @@ describe("Employee attendance camera", () => {
     fireEvent.click(
       await enabledButton("Absen Masuk")
     )
-    fireEvent.click(await enabledButton("Ambil foto"))
+    fireEvent.click(await captureButton())
     fireEvent.click(
       await screen.findByRole("button", { name: "Gunakan Foto dan Absen Masuk" })
     )
@@ -843,7 +866,7 @@ describe("Employee attendance camera", () => {
     expect(within(origin).getByText("Outlet Pusat")).toBeTruthy()
     const destination = screen.getByRole("region", { name: "Outlet tujuan checkout" })
     expect(within(destination).getByText("Outlet Makassar")).toBeTruthy()
-    fireEvent.click(await enabledButton("Ambil foto"))
+    fireEvent.click(await captureButton())
     fireEvent.click(await screen.findByRole("button", { name: "Gunakan Foto dan Absen Keluar" }))
     await screen.findByRole("button", { name: "Periksa lalu kirim ulang" })
     expect(storedMetadata.get("7.2.17")).toMatchObject({ outletId: 6, checkoutSessionId: 51 })
@@ -1162,6 +1185,7 @@ describe("Employee attendance camera", () => {
     await waitFor(() =>
       expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledOnce()
     )
+    await cameraReady()
 
     await prepareAttendanceIdentityChange()
 

@@ -40,7 +40,12 @@ function currentWeekdayIndex(): number {
   return (new Date().getDay() + 6) % 7
 }
 
+// Fixed Monday so calendar assertions do not drift with the system date.
+const FIXED_TODAY = new Date("2026-01-05T12:00:00+07:00")
+
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] })
+  vi.setSystemTime(FIXED_TODAY)
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: false,
     media: query,
