@@ -82,12 +82,12 @@ Do not, under any task:
 - Bypass the DB isolation guard, authentication, CSRF, CORS, or origin restrictions.
 - Fake attendance or worker identity.
 - Never run migrate:fresh, db:wipe, --refresh-fixtures, reseed or reset on any database without the Owner's explicit approval for that specific run.
-- Production data: hadirinaja-staging.cahayaarkana.site holds real attendance data from 2026-11-23. Back up first, record the reason, and prefer in-app correction over direct DB edits.
+- Production data: hadirinaja-staging.cahayaarkana.site holds real attendance data from 2026-11-30. Back up first, record the reason, and prefer in-app correction over direct DB edits.
 - Before stopping or restarting any DB or server, inspect the running process environment (ps eww) to identify every dependent service.
 
-### 6a. Staging (go-live 2026-11-23)
+### 6a. Staging (go-live 2026-11-30)
 
-- Staging holds real attendance data from 2026-11-23 and is treated as production.
+- Staging holds real attendance data from 2026-11-30 and is treated as production.
 - Read-only discovery: only SELECT/SHOW, file listing, version checks, `php artisan --version` and `php artisan migrate:status`; .env values reported as <set>/<empty> except non-secret keys named in the task.
 - Any write (files, database, cron, .env) requires a backup taken and verified in the same task, an explicit Owner authorization for that step, and a recorded reason.
 - Never touch hadirinaja-pilot.cahayaarkana.site or other sites on the account.
