@@ -72,7 +72,8 @@ No hardcoded `/Users/...` paths in scripts. Use environment variables (`HADIRINA
 
 Do not, under any task:
 
-- Access deploy, staging, production, or Hostinger.
+- Access production or any Hostinger site other than hadirinaja-staging.cahayaarkana.site.
+- Access hadirinaja-staging.cahayaarkana.site unless the task prompt explicitly authorizes it, names the allowed scope (read-only discovery, backup, or a specific deploy step), and lists forbidden actions. Without such a prompt, staging is off-limits.
 - Expose anything to LAN or a tunnel.
 - Activate the live system.
 - Perform attendance check-in or check-out.
@@ -83,6 +84,13 @@ Do not, under any task:
 - Never run migrate:fresh, db:wipe, --refresh-fixtures, reseed or reset on any database without the Owner's explicit approval for that specific run.
 - Production data: hadirinaja-staging.cahayaarkana.site holds real attendance data from 2026-11-23. Back up first, record the reason, and prefer in-app correction over direct DB edits.
 - Before stopping or restarting any DB or server, inspect the running process environment (ps eww) to identify every dependent service.
+
+### 6a. Staging (go-live 2026-11-23)
+
+- Staging holds real attendance data from 2026-11-23 and is treated as production.
+- Read-only discovery: only SELECT/SHOW, file listing, version checks, `php artisan --version` and `php artisan migrate:status`; .env values reported as <set>/<empty> except non-secret keys named in the task.
+- Any write (files, database, cron, .env) requires a backup taken and verified in the same task, an explicit Owner authorization for that step, and a recorded reason.
+- Never touch hadirinaja-pilot.cahayaarkana.site or other sites on the account.
 
 STOP and report if:
 
