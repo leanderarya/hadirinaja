@@ -1,24 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { notifications } from "@/lib/notifications"
-import { OutletGeofenceMap } from "@/components/outlet-geofence-map"
-import {
-  distanceMeters,
-  locationEligibility,
-  validCoordinates,
-} from "@/lib/geofence"
-import { EmployeeAttendanceHistory } from "@/components/employee-attendance-history"
 import { EmployeeAttendanceClock } from "@/components/employee-attendance-clock"
+import { EmployeeAttendanceHistory } from "@/components/employee-attendance-history"
 import { EmployeeShell } from "@/components/employee-shell"
+import { OutletGeofenceMap } from "@/components/outlet-geofence-map"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   Collapsible,
   CollapsibleContent,
@@ -28,6 +15,10 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Separator } from "@/components/ui/separator"
 import { ApiError, type AuthSession, apiRequest } from "@/lib/api"
+import {
+  correctionHref,
+  type PersonalCorrectionOptions,
+} from "@/lib/attendance-correction-navigation"
 import {
   type AttendancePhotoIdentity,
   type AttendancePhotoOperation,
@@ -53,9 +44,11 @@ import {
 } from "@/lib/attendance-presentation"
 import { getAuthRecoveryPath } from "@/lib/auth-navigation"
 import {
-  correctionHref,
-  type PersonalCorrectionOptions,
-} from "@/lib/attendance-correction-navigation"
+  distanceMeters,
+  locationEligibility,
+  validCoordinates,
+} from "@/lib/geofence"
+import { notifications } from "@/lib/notifications"
 import {
   type AttendanceEligibilityStatus,
   attendanceEligibilityCopy,
@@ -207,6 +200,11 @@ type OperationResult = {
   server_time?: string
 }
 
+type AttendanceReceipt = {
+  operation: AttendanceOperation
+  time: string | null
+}
+
 function AttendancePage() {
   const [attendance, setAttendance] = useState<AttendanceState | null>(null)
   const [requestSummary, setRequestSummary] = useState<
@@ -226,6 +224,7 @@ function AttendancePage() {
   const [currentLocation, setCurrentLocation] =
     useState<LocationEvidence | null>(null)
   const [locating, setLocating] = useState(false)
+  const [photoAccepted, setPhotoAccepted] = useState(false)
   const locationIdentity = `${photoIdentity?.userId}.${photoIdentity?.tenantId}.${photoIdentity?.employeeId}.${attendance?.employee ? attendance.active_session?.id : ""}.${selectedOutletId}`
   const locationContext = useRef(locationIdentity)
   useEffect(() => {
@@ -243,6 +242,8 @@ function AttendancePage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
+  const [attendanceReceipt, setAttendanceReceipt] =
+    useState<AttendanceReceipt | null>(null)
   const [stateFresh, setStateFresh] = useState(true)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [verificationStage, setVerificationStage] = useState<
@@ -257,6 +258,8 @@ function AttendancePage() {
   const [photoUrl, setPhotoUrl] = useState("")
   const [draft, setDraft] = useState<AttendanceDraft | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const verificationHeadingRef = useRef<HTMLHeadingElement>(null)
+  const verificationTriggerRef = useRef<HTMLElement | null>(null)
   const cameraRef = useRef<MediaStream | null>(null)
   const submissionInFlight = useRef(false)
   const statusCheckInFlight = useRef(false)
@@ -670,6 +673,19 @@ function AttendancePage() {
     []
   )
 
+  const leaveVerificationAfterSuccess = useCallback(() => {
+    if (draft?.operation === "check_out") setSelectedOutletId("")
+    stopCamera()
+    setCameraOpen(false)
+    setVerificationStage("location")
+    setLocationError("")
+    setCameraError("")
+    setCameraReady(false)
+    setPhotoBlob(null)
+    setPhotoAccepted(false)
+    setDraft(null)
+  }, [draft?.operation, stopCamera])
+
   const recoverStatus = useCallback(
     async (
       operation: PendingOperation
@@ -710,7 +726,8 @@ function AttendancePage() {
         }
 
         if (result.state === "completed" && result.result) {
-          setNotice(attendanceConfirmation(result.result as OperationResult))
+          const completed = result.result as OperationResult
+          setNotice(attendanceConfirmation(completed))
           setError("")
           notifications.success("Presensi terkonfirmasi oleh server", {
             id: `attendance:${operation.tenantId}:${operation.employeeId}:${operation.key}:completed`,
@@ -718,6 +735,10 @@ function AttendancePage() {
           if (await clearPendingOperation(operation)) {
             setPending(null)
             setOperationState("idle")
+            setAttendanceReceipt(
+              attendanceReceiptFrom(completed, operation.operation)
+            )
+            leaveVerificationAfterSuccess()
           }
           await refreshLatestState()
           return "completed"
@@ -770,7 +791,7 @@ function AttendancePage() {
         statusCheckInFlight.current = false
       }
     },
-    [clearPendingOperation, refreshLatestState]
+    [clearPendingOperation, leaveVerificationAfterSuccess, refreshLatestState]
   )
 
   useEffect(() => {
@@ -890,6 +911,7 @@ function AttendancePage() {
         return
       }
 
+      const receipt = attendanceReceiptFrom(result, next.operation)
       setNotice(attendanceConfirmation(result))
       notifications.success("Presensi terkonfirmasi oleh server", {
         id: `attendance:${next.tenantId}:${next.employeeId}:${next.key}:completed`,
@@ -897,6 +919,8 @@ function AttendancePage() {
       if (await clearPendingOperation(next)) {
         setPending(null)
         setOperationState("idle")
+        setAttendanceReceipt(receipt)
+        leaveVerificationAfterSuccess()
         await refreshLatestState()
       } else {
         setStateFresh(false)
@@ -1018,6 +1042,10 @@ function AttendancePage() {
       (operation === "check_in" ? !canCheckIn : !canCheckOut)
     )
       return
+    verificationTriggerRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null
     const attempt = ++verificationAttempt.current
 
     if (operation === "check_out") {
@@ -1044,6 +1072,7 @@ function AttendancePage() {
       setCameraError("")
       setCameraReady(false)
       setPhotoBlob(null)
+      setPhotoAccepted(false)
       setCameraOpen(true)
       if (retainedDestination) {
         void changeCheckoutDestination(String(retainedDestination.id))
@@ -1074,6 +1103,7 @@ function AttendancePage() {
     setCameraError("")
     setCameraReady(false)
     setPhotoBlob(null)
+    setPhotoAccepted(false)
     setCameraOpen(true)
     try {
       const location = await captureLocation()
@@ -1187,7 +1217,7 @@ function AttendancePage() {
     }
   }
 
-  function closeCamera() {
+  const closeCamera = useCallback(() => {
     if (operationState === "sending") return
     if (draft?.operation === "check_out") setSelectedOutletId("")
     verificationAttempt.current += 1
@@ -1197,12 +1227,14 @@ function AttendancePage() {
     setCameraError("")
     setCameraReady(false)
     setPhotoBlob(null)
+    setPhotoAccepted(false)
     setDraft(null)
     setBusy(false)
-  }
+  }, [draft?.operation, operationState])
 
   function retakePhoto() {
     setPhotoBlob(null)
+    setPhotoAccepted(false)
     setCameraError("")
     setCameraReady(false)
     setCameraMode("capture")
@@ -1256,6 +1288,7 @@ function AttendancePage() {
 
     stopCamera()
     setPhotoBlob(captured)
+    setPhotoAccepted(false)
     setCameraError("")
     setCameraMode("preview")
   }
@@ -1342,6 +1375,7 @@ function AttendancePage() {
     setCameraError("")
     setCameraReady(false)
     setPhotoBlob(null)
+    setPhotoAccepted(false)
     stopCamera()
     setDraft((current) =>
       current
@@ -1490,6 +1524,16 @@ function AttendancePage() {
     ? currentWeekAttendance(serverHistory, historyWorkDate)
     : undefined
   const todayResult = week?.find((day) => day.work_date === today)
+  const todaySession = todayResult?.sessions.at(-1) ?? null
+  const todayTimezone =
+    todaySession?.schedule_snapshot?.timezone ??
+    todayResult?.schedule?.timezone ??
+    readyAttendance?.schedule?.timezone ??
+    openSession?.timezone
+  const todayCheckIn =
+    todaySession?.effective.check_in_at ?? todaySession?.original.check_in_at
+  const todayCheckOut =
+    todaySession?.effective.check_out_at ?? todaySession?.original.check_out_at
   const unresolvedSession =
     openSession &&
     today &&
@@ -1537,18 +1581,31 @@ function AttendancePage() {
     checkoutDestinations.length > 0
   const todayStatus = !stateFresh
     ? "Status terbaru belum tersedia"
-    : openSession?.work_date === today && openSession
-      ? "Sedang bekerja"
-      : todayResult
-        ? attendanceOutcomeLabel(todayResult.outcome)
-        : "Status kehadiran belum tersedia"
+    : openSession
+      ? `Sedang bekerja sejak ${formatLocalClockTime(openSession.check_in_at, openSession.timezone) ?? "--.--"}`
+      : todayCheckIn && todayCheckOut
+        ? `Selesai · ${formatLocalClockTime(todayCheckIn, todayTimezone) ?? "--.--"}–${formatLocalClockTime(todayCheckOut, todayTimezone) ?? "--.--"}`
+        : todayResult &&
+            ![
+              "no_recorded_outcome",
+              "no_attendance",
+              "potential_absence",
+            ].includes(todayResult.outcome)
+          ? attendanceOutcomeLabel(todayResult.outcome)
+          : "Belum absen masuk"
+  const homeActionState = openSession
+    ? "working"
+    : todayCheckIn && todayCheckOut
+      ? "finished"
+      : "not-checked-in"
   const clockTimeZone =
     checkoutDestination?.timezone ??
     openSession?.timezone ??
     readyAttendance?.schedule?.timezone
   const verificationActionLabel =
     draft?.operation === "check_out" ? "Absen Keluar" : "Absen Masuk"
-  const acceptedPhoto = cameraMode === "preview" && Boolean(photoBlob)
+  const acceptedPhoto =
+    cameraMode === "preview" && Boolean(photoBlob) && photoAccepted
   const canSkipOptionalPhoto =
     readyAttendance?.require_personal_photo === false &&
     cameraMode === "capture"
@@ -1565,15 +1622,21 @@ function AttendancePage() {
       (acceptedPhoto || canSkipOptionalPhoto)
   )
   const verificationSubmitLabel =
-    draft?.operation === "check_out" && draft.outletId === null
-      ? "Pilih Outlet tujuan"
-      : locating
-        ? "Memeriksa lokasi…"
-        : acceptedPhoto
-          ? `Gunakan Foto dan ${verificationActionLabel}`
-          : canSkipOptionalPhoto
-            ? `Lewati Foto dan ${verificationActionLabel}`
-            : verificationActionLabel
+    !stateFresh || pending
+      ? "Memeriksa status"
+      : draft?.operation === "check_out" && draft.outletId === null
+        ? "Pilih Outlet tujuan"
+        : busy || locating
+          ? "Tunggu lokasi"
+          : verificationStage !== "photo"
+            ? "Tunggu lokasi"
+            : cameraMode === "capture" && !canSkipOptionalPhoto
+              ? cameraReady
+                ? "Ambil foto dulu"
+                : "Tunggu kamera"
+              : cameraMode === "preview" && !acceptedPhoto
+                ? "Pilih foto di atas"
+                : `Kirim ${verificationActionLabel}`
   const verificationOutletName =
     draft?.operation === "check_out"
       ? (draft.outletName ??
@@ -1611,8 +1674,56 @@ function AttendancePage() {
     verificationLocation.accuracy_meters > 0
       ? Math.ceil(verificationLocation.accuracy_meters)
       : null
+  const locationState =
+    verificationLocation?.status === "permission_denied"
+      ? "denied"
+      : verificationAccuracyMeters !== null &&
+          locationPolicy?.max_accuracy_meters != null &&
+          verificationAccuracyMeters > locationPolicy.max_accuracy_meters
+        ? "weak"
+        : verificationAccuracyMeters !== null &&
+            locationPolicy?.radius_meters != null &&
+            verificationAccuracyMeters > locationPolicy.radius_meters
+          ? "weak"
+          : verificationDistanceMeters !== null &&
+              locationPolicy?.radius_meters != null &&
+              verificationDistanceMeters > locationPolicy.radius_meters
+            ? "outside"
+            : verificationLocation?.status === "provided" &&
+                verificationDistanceMeters !== null &&
+                verificationAccuracyMeters !== null
+              ? "inside"
+              : "unavailable"
 
-  return (
+  useEffect(() => {
+    if (cameraOpen) {
+      const frame = window.requestAnimationFrame(() =>
+        verificationHeadingRef.current?.focus()
+      )
+      return () => window.cancelAnimationFrame(frame)
+    }
+
+    const trigger = verificationTriggerRef.current
+    if (trigger) {
+      const frame = window.requestAnimationFrame(() => trigger.focus())
+      verificationTriggerRef.current = null
+      return () => window.cancelAnimationFrame(frame)
+    }
+  }, [cameraOpen])
+
+  useEffect(() => {
+    if (!cameraOpen) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault()
+        closeCamera()
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [cameraOpen, closeCamera])
+
+  const homePage = (
     <EmployeeShell
       active="today"
       accountName={accountName}
@@ -1635,7 +1746,10 @@ function AttendancePage() {
           aria-labelledby="attendance-status-title"
           className="flex w-full flex-col items-center gap-6 text-center"
         >
-          <EmployeeAttendanceClock outletTimeZone={clockTimeZone} />
+          <EmployeeAttendanceClock
+            outletTimeZone={clockTimeZone}
+            showTimeZoneLabel={false}
+          />
           <div className="flex max-w-xl flex-col items-center gap-1">
             <h2 className="text-caption" id="attendance-status-title">
               Status kehadiran hari ini
@@ -1696,7 +1810,13 @@ function AttendancePage() {
               className="min-h-12 w-full"
               disabled={!canCheckIn}
               onClick={() => void startAttendance("check_in")}
-              variant={canCheckIn ? "default" : "outline"}
+              variant={
+                homeActionState === "not-checked-in"
+                  ? "default"
+                  : homeActionState === "working"
+                    ? "outline"
+                    : "secondary"
+              }
             >
               Absen Masuk
             </Button>
@@ -1704,7 +1824,13 @@ function AttendancePage() {
               className="min-h-12 w-full"
               disabled={!canCheckOut}
               onClick={() => void startAttendance("check_out")}
-              variant={canCheckOut ? "default" : "outline"}
+              variant={
+                homeActionState === "working"
+                  ? "default"
+                  : homeActionState === "not-checked-in"
+                    ? "outline"
+                    : "secondary"
+              }
             >
               Absen Keluar
             </Button>
@@ -1728,12 +1854,6 @@ function AttendancePage() {
           </Alert>
         )}
 
-        {notice && (
-          <Alert role="status">
-            <AlertTitle>Presensi tercatat</AlertTitle>
-            <AlertDescription>{notice}</AlertDescription>
-          </Alert>
-        )}
         {error && !cameraOpen && (
           <Alert variant={pending ? "default" : "destructive"}>
             <AlertTitle>
@@ -1931,326 +2051,422 @@ function AttendancePage() {
           </>
         )}
       </div>
-
-      <Dialog
-        open={cameraOpen}
-        onOpenChange={(open) => {
-          if (!open) closeCamera()
-        }}
-      >
-        <DialogContent
-          className="attendance-focus-dialog fixed bottom-0 left-0 right-0 top-0 grid h-[100dvh] min-h-0 w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-none border-0 bg-canvas p-0 text-foreground shadow-none sm:max-w-none"
-          showCloseButton={false}
-        >
-          <DialogHeader className="shrink-0 border-b border-border bg-surface pt-[env(safe-area-inset-top)]">
-            <div className="relative mx-auto flex min-h-14 w-full max-w-2xl items-center justify-center px-16">
-              <Button
-                aria-label="Kembali ke halaman presensi"
-                className="absolute left-2 top-1/2 -translate-y-1/2"
-                disabled={operationState === "sending"}
-                onClick={closeCamera}
-                variant="ghost"
-              >
-                Kembali
-              </Button>
-              <DialogTitle className="text-subtitle text-center">
-                {verificationActionLabel}
-              </DialogTitle>
-            </div>
-            {draft?.operation === "check_in" && today ? (
-              <p className="pb-2 text-center text-caption text-muted-foreground">
-                Work Date ·{" "}
-                <time dateTime={today}>{formatWorkDate(today)}</time>
-              </p>
-            ) : null}
-            <DialogDescription className="sr-only">
-              Verifikasi Outlet, lokasi, dan foto sebelum presensi dikirim.
-            </DialogDescription>
-          </DialogHeader>
-
-          <main className="min-h-0 overflow-y-auto overscroll-contain">
-            <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-5 sm:px-5">
-              {draft?.operation === "check_out" && openSession && (
-                <section
-                  aria-label="Sesi asal checkout"
-                  className="border-b border-border py-3"
-                >
-                  <h2 className="text-label">Sesi asal</h2>
-                  <dl className="mt-2 grid grid-cols-2 gap-3 text-body">
-                    <div>
-                      <dt className="text-caption text-muted-foreground">
-                        Work Date asal
-                      </dt>
-                      <dd>
-                        <time dateTime={openSession.work_date}>
-                          {formatWorkDate(openSession.work_date)}
-                        </time>
-                      </dd>
-                    </div>
-                    <div className="min-w-0">
-                      <dt className="text-caption text-muted-foreground">
-                        Outlet asal
-                      </dt>
-                      <dd
-                        className="truncate"
-                        title={openSession.outlet.name ?? undefined}
-                      >
-                        {openSession.outlet.name ??
-                          "Outlet asal belum tersedia"}
-                      </dd>
-                    </div>
-                  </dl>
-                </section>
-              )}
-
-              <section
-                aria-labelledby="verification-outlet-title"
-                className="py-4"
-              >
-                <h2 className="text-subtitle" id="verification-outlet-title">
-                  {draft?.operation === "check_out"
-                    ? "Outlet tujuan checkout"
-                    : "Outlet presensi"}
-                </h2>
-                {draft?.operation === "check_out" ? (
-                  <FieldGroup className="mt-2">
-                    <Field data-disabled={busy || pending ? true : undefined}>
-                      <FieldLabel htmlFor="checkout-destination">
-                        Pilih Outlet tujuan checkout
-                      </FieldLabel>
-                      <NativeSelect
-                        disabled={Boolean(pending) || busy}
-                        id="checkout-destination"
-                        onChange={(event) =>
-                          void changeCheckoutDestination(event.target.value)
-                        }
-                        value={selectedOutletId}
-                      >
-                        <NativeSelectOption value="" disabled>
-                          Pilih Outlet tujuan
-                        </NativeSelectOption>
-                        {checkoutDestinations.map((destination) => (
-                          <NativeSelectOption
-                            key={destination.id}
-                            value={String(destination.id)}
-                          >
-                            {destination.name}
-                          </NativeSelectOption>
-                        ))}
-                      </NativeSelect>
-                    </Field>
-                    {error && verificationStage === "destination" && (
-                      <p className="text-caption text-destructive" role="alert">
-                        {error}
-                      </p>
-                    )}
-                  </FieldGroup>
-                ) : (
-                  <p className="mt-2 min-h-11 break-words text-body font-medium">
-                    {verificationOutletName ?? "Outlet belum tersedia"}
-                  </p>
-                )}
-              </section>
-
-              <Separator className="bg-border/70" />
-
-              <section
-                aria-labelledby="verification-photo-title"
-                className="py-4"
-              >
-                <h2 className="text-subtitle" id="verification-photo-title">
-                  Foto personal
-                </h2>
-                {cameraError ? (
-                  <Alert
-                    className="mt-3 rounded-none border-0 border-l-2 bg-transparent p-0 pl-3 shadow-none"
-                    variant="destructive"
-                  >
-                    <AlertTitle>Kamera belum siap</AlertTitle>
-                    <AlertDescription>{cameraError}</AlertDescription>
-                  </Alert>
-                ) : null}
-
-                <div className="mt-3 flex flex-col items-center gap-3 text-center">
-                  {verificationStage === "destination" ? (
-                    <p
-                      className="text-body text-muted-foreground"
-                      role="status"
-                    >
-                      Pilih Outlet tujuan checkout untuk melanjutkan.
-                    </p>
-                  ) : verificationStage === "location" ? (
-                    <p
-                      className="text-body text-muted-foreground"
-                      role="status"
-                    >
-                      Kamera dibuka setelah lokasi lolos pemeriksaan.
-                    </p>
-                  ) : cameraMode === "capture" ? (
-                    <div className="relative w-full max-w-md">
-                      <video
-                        aria-label="Pratinjau kamera karyawan"
-                        aria-busy={!cameraReady && !cameraError}
-                        autoPlay
-                        className="mx-auto aspect-[3/4] max-h-[45dvh] w-full rounded-md bg-black object-cover"
-                        muted
-                        onCanPlay={updateCameraReadiness}
-                        onLoadedData={updateCameraReadiness}
-                        onPlaying={updateCameraReadiness}
-                        playsInline
-                        ref={videoRef}
-                      />
-                      {!cameraReady && !cameraError ? (
-                        <div
-                          className="absolute inset-0 grid place-items-center rounded-md bg-black/60 text-center text-white"
-                          role="status"
-                        >
-                          Menyiapkan kamera…
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : photoUrl ? (
-                    <img
-                      alt="Pratinjau foto bukti presensi"
-                      className="mx-auto aspect-[3/4] max-h-[45dvh] w-full max-w-md rounded-md bg-black object-contain"
-                      src={photoUrl}
-                    />
-                  ) : null}
-
-                  {verificationStage === "photo" && cameraError ? (
-                    <Button
-                      className="min-h-11"
-                      disabled={busy}
-                      onClick={() => setCameraAttempt((attempt) => attempt + 1)}
-                      variant="outline"
-                    >
-                      Coba buka kamera lagi
-                    </Button>
-                  ) : verificationStage === "photo" &&
-                    cameraMode === "capture" ? (
-                    <Button
-                      className="min-h-11"
-                      disabled={!cameraReady || busy}
-                      onClick={() => void capturePhoto()}
-                    >
-                      Ambil foto
-                    </Button>
-                  ) : verificationStage === "photo" &&
-                    cameraMode === "preview" ? (
-                    <Button
-                      className="min-h-11"
-                      disabled={busy}
-                      onClick={retakePhoto}
-                      variant="outline"
-                    >
-                      Ambil ulang foto
-                    </Button>
-                  ) : null}
-                </div>
-              </section>
-
-              <Separator className="bg-border/70" />
-
-              <section
-                aria-labelledby="verification-location-title"
-                className="flex flex-col py-4"
-              >
-                <h2 className="text-subtitle" id="verification-location-title">
-                  Lokasi
-                </h2>
-                {locationError ? (
-                  <Alert
-                    className="mt-2 rounded-none border-0 border-l-2 bg-transparent p-0 pl-3 shadow-none"
-                    variant="destructive"
-                  >
-                    <AlertTitle>Lokasi perlu diperbarui</AlertTitle>
-                    <AlertDescription>{locationError}</AlertDescription>
-                  </Alert>
-                ) : (
-                  <p
-                    className="mt-1 text-caption text-muted-foreground"
-                    role="status"
-                  >
-                    {locating
-                      ? "Mendapatkan lokasi…"
-                      : verificationStage === "destination"
-                        ? "Pilih Outlet tujuan checkout."
-                        : locationPolicy
-                          ? locationEligibility(
-                              locationPolicy,
-                              verificationLocation
-                            ).message
-                          : "Outlet tujuan belum dapat diverifikasi."}
-                  </p>
-                )}
-                <div className="mt-3 grid grid-cols-2 gap-3 text-body">
-                  <p>
-                    <span className="block text-caption text-muted-foreground">
-                      Jarak ke Outlet
-                    </span>
-                    {verificationDistanceMeters == null
-                      ? "Belum tersedia"
-                      : `${verificationDistanceMeters} m`}
-                  </p>
-                  <p>
-                    <span className="block text-caption text-muted-foreground">
-                      Akurasi
-                    </span>
-                    {verificationAccuracyMeters == null
-                      ? "Belum tersedia"
-                      : `±${verificationAccuracyMeters} m`}
-                  </p>
-                </div>
-                <div className="mt-3">
-                  <OutletGeofenceMap
-                    outletName={verificationOutletName ?? "Outlet"}
-                    latitude={locationPolicy?.latitude ?? null}
-                    longitude={locationPolicy?.longitude ?? null}
-                    radiusMeters={locationPolicy?.radius_meters ?? null}
-                    position={
-                      verificationLocation?.status === "provided" &&
-                      verificationLocation.latitude != null &&
-                      verificationLocation.longitude != null &&
-                      verificationLocation.accuracy_meters != null
-                        ? {
-                            latitude: verificationLocation.latitude,
-                            longitude: verificationLocation.longitude,
-                            accuracy_meters:
-                              verificationLocation.accuracy_meters,
-                          }
-                        : null
-                    }
-                    onLocate={
-                      locationPolicy?.required &&
-                      locationPolicy.geofence_configured
-                        ? () => void refreshVerificationLocation()
-                        : undefined
-                    }
-                    locating={locating || busy || Boolean(pending)}
-                  />
-                </div>
-              </section>
-            </div>
-          </main>
-
-          <footer
-            aria-busy={busy}
-            className="shrink-0 border-t border-border bg-surface px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 sm:px-5"
-          >
-            <div className="mx-auto w-full max-w-2xl">
-              <Button
-                className="min-h-12 w-full whitespace-normal"
-                disabled={!canSubmitVerification}
-                onClick={submitVerifiedAttendance}
-              >
-                {verificationSubmitLabel}
-              </Button>
-            </div>
-          </footer>
-        </DialogContent>
-      </Dialog>
     </EmployeeShell>
   )
+
+  const verificationPage = (
+    <div
+      className="attendance-focus-view fixed inset-0 z-50 grid h-[100dvh] min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-canvas text-foreground"
+      data-verification-mode="focus"
+    >
+      <header className="shrink-0 border-b border-border bg-surface pt-[env(safe-area-inset-top)]">
+        <div className="relative mx-auto flex min-h-14 w-full max-w-2xl items-center justify-center px-16">
+          <Button
+            aria-label="Kembali ke halaman presensi"
+            className="absolute left-2 top-1/2 -translate-y-1/2"
+            disabled={operationState === "sending"}
+            onClick={closeCamera}
+            variant="ghost"
+          >
+            Kembali
+          </Button>
+          <h1
+            className="text-subtitle text-center outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            ref={verificationHeadingRef}
+            tabIndex={-1}
+          >
+            {verificationActionLabel}
+          </h1>
+        </div>
+        {draft?.operation === "check_in" && today ? (
+          <p className="pb-2 text-center text-caption text-muted-foreground">
+            Work Date · <time dateTime={today}>{formatWorkDate(today)}</time>
+          </p>
+        ) : null}
+        <p className="sr-only">
+          Verifikasi Outlet, lokasi, dan foto sebelum presensi dikirim.
+        </p>
+      </header>
+
+      <main className="min-h-0 overflow-y-auto overscroll-contain">
+        <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-5 sm:px-5">
+          {draft?.operation === "check_out" && openSession && (
+            <section
+              aria-label="Sesi asal checkout"
+              className="border-b border-border py-3"
+            >
+              <h2 className="text-label">Sesi asal</h2>
+              <dl className="mt-2 grid grid-cols-2 gap-3 text-body">
+                <div>
+                  <dt className="text-caption text-muted-foreground">
+                    Work Date asal
+                  </dt>
+                  <dd>
+                    <time dateTime={openSession.work_date}>
+                      {formatWorkDate(openSession.work_date)}
+                    </time>
+                  </dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-caption text-muted-foreground">
+                    Outlet asal
+                  </dt>
+                  <dd
+                    className="truncate"
+                    title={openSession.outlet.name ?? undefined}
+                  >
+                    {openSession.outlet.name ?? "Outlet asal belum tersedia"}
+                  </dd>
+                </div>
+              </dl>
+            </section>
+          )}
+
+          <section aria-labelledby="verification-outlet-title" className="py-4">
+            <h2 className="text-subtitle" id="verification-outlet-title">
+              {draft?.operation === "check_out"
+                ? "Outlet tujuan checkout"
+                : "Outlet presensi"}
+            </h2>
+            {draft?.operation === "check_out" ? (
+              <FieldGroup className="mt-2">
+                <Field data-disabled={busy || pending ? true : undefined}>
+                  <FieldLabel htmlFor="checkout-destination">
+                    Pilih Outlet tujuan checkout
+                  </FieldLabel>
+                  <NativeSelect
+                    disabled={Boolean(pending) || busy}
+                    id="checkout-destination"
+                    onChange={(event) =>
+                      void changeCheckoutDestination(event.target.value)
+                    }
+                    value={selectedOutletId}
+                  >
+                    <NativeSelectOption value="" disabled>
+                      Pilih Outlet tujuan
+                    </NativeSelectOption>
+                    {checkoutDestinations.map((destination) => (
+                      <NativeSelectOption
+                        key={destination.id}
+                        value={String(destination.id)}
+                      >
+                        {destination.name}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                {error && verificationStage === "destination" && (
+                  <p className="text-caption text-destructive" role="alert">
+                    {error}
+                  </p>
+                )}
+              </FieldGroup>
+            ) : (
+              <p className="mt-2 min-h-11 break-words text-body font-medium">
+                {verificationOutletName ?? "Outlet belum tersedia"}
+              </p>
+            )}
+          </section>
+
+          <Separator className="bg-border/70" />
+
+          <section aria-labelledby="verification-photo-title" className="py-4">
+            <h2 className="text-subtitle" id="verification-photo-title">
+              Foto
+            </h2>
+            {cameraError ? (
+              <Alert
+                className="mt-3 rounded-none border-0 border-l-2 bg-transparent p-0 pl-3 shadow-none"
+                variant="destructive"
+              >
+                <AlertTitle>Kamera belum siap</AlertTitle>
+                <AlertDescription>{cameraError}</AlertDescription>
+              </Alert>
+            ) : null}
+
+            <div className="mt-3 flex flex-col items-center gap-3 text-center">
+              {verificationStage === "destination" ? (
+                <p className="text-body text-muted-foreground" role="status">
+                  Pilih Outlet tujuan checkout untuk melanjutkan.
+                </p>
+              ) : verificationStage === "location" ? (
+                <p className="text-body text-muted-foreground" role="status">
+                  Kamera dibuka setelah lokasi lolos pemeriksaan.
+                </p>
+              ) : cameraMode === "preview" && photoUrl ? (
+                <img
+                  alt="Pratinjau foto bukti presensi"
+                  className="mx-auto aspect-[3/4] max-h-[45dvh] w-full max-w-md rounded-md bg-black object-contain"
+                  src={photoUrl}
+                />
+              ) : cameraMode === "capture" ? (
+                <div className="relative w-full max-w-md">
+                  <video
+                    aria-label="Pratinjau kamera karyawan"
+                    aria-busy={!cameraReady && !cameraError}
+                    autoPlay
+                    className="mx-auto aspect-[3/4] max-h-[45dvh] w-full rounded-md bg-black object-cover"
+                    muted
+                    onCanPlay={updateCameraReadiness}
+                    onLoadedData={updateCameraReadiness}
+                    onPlaying={updateCameraReadiness}
+                    playsInline
+                    ref={videoRef}
+                  />
+                  {!cameraReady && !cameraError ? (
+                    <div
+                      className="absolute inset-0 grid place-items-center rounded-md bg-black/60 text-center text-white"
+                      role="status"
+                    >
+                      Menyiapkan kamera…
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {verificationStage === "photo" && cameraError ? (
+                <Button
+                  className="min-h-11"
+                  disabled={busy}
+                  onClick={() => setCameraAttempt((attempt) => attempt + 1)}
+                  variant="outline"
+                >
+                  Coba buka kamera lagi
+                </Button>
+              ) : verificationStage === "photo" && cameraMode === "capture" ? (
+                <Button
+                  className="min-h-11"
+                  disabled={!cameraReady || busy}
+                  onClick={() => void capturePhoto()}
+                >
+                  Ambil foto
+                </Button>
+              ) : verificationStage === "photo" && cameraMode === "preview" ? (
+                <div className="flex w-full flex-wrap justify-center gap-2">
+                  <Button
+                    className="min-h-11"
+                    disabled={busy}
+                    onClick={retakePhoto}
+                    variant="outline"
+                  >
+                    Ulangi
+                  </Button>
+                  <Button
+                    aria-pressed={photoAccepted}
+                    className="min-h-11"
+                    disabled={busy}
+                    onClick={() => setPhotoAccepted(true)}
+                    variant={photoAccepted ? "secondary" : "default"}
+                  >
+                    Pakai foto ini
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          <Separator className="bg-border/70" />
+
+          <section
+            aria-labelledby="verification-location-title"
+            className="flex flex-col py-4"
+          >
+            <h2 className="text-subtitle" id="verification-location-title">
+              Lokasi
+            </h2>
+            <p className="mt-1 text-body text-muted-foreground" role="status">
+              {locating
+                ? "Mendapatkan lokasi…"
+                : locationState === "inside"
+                  ? `Di area outlet · ${verificationDistanceMeters} m · akurasi ±${verificationAccuracyMeters} m`
+                  : locationState === "outside"
+                    ? `Di luar area · ${verificationDistanceMeters} m. Datang ke outlet, lalu`
+                    : locationState === "weak"
+                      ? `Sinyal lokasi lemah · akurasi ±${verificationAccuracyMeters} m. Pindah dekat pintu atau jendela, lalu`
+                      : locationState === "denied"
+                        ? "Izin lokasi ditolak. Periksa izin di setelan browser atau ponsel."
+                        : verificationStage === "destination"
+                          ? "Pilih Outlet tujuan checkout."
+                          : locationPolicy
+                            ? locationError ||
+                              "Lokasi belum tersedia. Perbarui lokasi untuk melanjutkan."
+                            : "Outlet tujuan belum dapat diverifikasi."}
+            </p>
+            {locationState === "outside" || locationState === "weak" ? (
+              <Button
+                className="mt-2 min-h-11 self-start"
+                disabled={busy || locating || Boolean(pending)}
+                onClick={() => void refreshVerificationLocation()}
+                variant="outline"
+              >
+                Perbarui lokasi
+              </Button>
+            ) : locationState === "denied" ? (
+              <Button
+                className="mt-2 min-h-11 self-start"
+                disabled={busy || locating || Boolean(pending)}
+                onClick={() => void refreshVerificationLocation()}
+                variant="outline"
+              >
+                Coba lagi
+              </Button>
+            ) : locationState === "unavailable" &&
+              verificationStage !== "destination" &&
+              locationPolicy?.required ? (
+              <Button
+                className="mt-2 min-h-11 self-start"
+                disabled={busy || locating || Boolean(pending)}
+                onClick={() => void refreshVerificationLocation()}
+                variant="outline"
+              >
+                Perbarui lokasi
+              </Button>
+            ) : null}
+            <div className="mt-3 grid grid-cols-2 gap-3 text-body">
+              <p>
+                <span className="block text-caption text-muted-foreground">
+                  Jarak ke Outlet
+                </span>
+                {verificationDistanceMeters == null
+                  ? "Belum tersedia"
+                  : `${verificationDistanceMeters} m`}
+              </p>
+              <p>
+                <span className="block text-caption text-muted-foreground">
+                  Akurasi
+                </span>
+                {verificationAccuracyMeters == null
+                  ? "Belum tersedia"
+                  : `±${verificationAccuracyMeters} m`}
+              </p>
+            </div>
+            <div className="mt-3">
+              <OutletGeofenceMap
+                outletName={verificationOutletName ?? "Outlet"}
+                latitude={locationPolicy?.latitude ?? null}
+                longitude={locationPolicy?.longitude ?? null}
+                radiusMeters={locationPolicy?.radius_meters ?? null}
+                position={
+                  verificationLocation?.status === "provided" &&
+                  verificationLocation.latitude != null &&
+                  verificationLocation.longitude != null &&
+                  verificationLocation.accuracy_meters != null
+                    ? {
+                        latitude: verificationLocation.latitude,
+                        longitude: verificationLocation.longitude,
+                        accuracy_meters: verificationLocation.accuracy_meters,
+                      }
+                    : null
+                }
+                onLocate={
+                  locationPolicy?.required && locationPolicy.geofence_configured
+                    ? () => void refreshVerificationLocation()
+                    : undefined
+                }
+                locating={locating || busy || Boolean(pending)}
+              />
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <footer
+        aria-busy={busy}
+        className="shrink-0 border-t border-border bg-surface px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 sm:px-5"
+      >
+        <div className="mx-auto w-full max-w-2xl">
+          <Button
+            className="min-h-12 w-full whitespace-normal"
+            disabled={!canSubmitVerification}
+            onClick={submitVerifiedAttendance}
+          >
+            {verificationSubmitLabel}
+          </Button>
+        </div>
+      </footer>
+    </div>
+  )
+
+  const successPage = attendanceReceipt ? (
+    <EmployeeShell
+      active="today"
+      accountName={accountName}
+      outletContext={{
+        outlets: readyAttendance?.outlets ?? [],
+        selectedOutletId: null,
+        selectedOutletName: "Semua Outlet",
+      }}
+    >
+      <section
+        aria-labelledby="attendance-receipt-title"
+        className="flex min-h-[65svh] flex-col items-center justify-center gap-5 text-center"
+        role="status"
+      >
+        <span
+          aria-hidden="true"
+          className="text-6xl font-semibold text-primary"
+        >
+          ✓
+        </span>
+        <h1 className="text-title" id="attendance-receipt-title">
+          Absen{" "}
+          {attendanceReceipt.operation === "check_in" ? "masuk" : "keluar"}{" "}
+          tercatat · {attendanceReceipt.time ?? "--.--"}
+        </h1>
+        <p className="sr-only">{notice}</p>
+        <Button className="min-h-11" onClick={() => setAttendanceReceipt(null)}>
+          Kembali ke beranda
+        </Button>
+      </section>
+    </EmployeeShell>
+  ) : null
+
+  return attendanceReceipt ? (
+    successPage
+  ) : (
+    <>
+      <div aria-hidden={cameraOpen} hidden={cameraOpen} inert={cameraOpen}>
+        {homePage}
+      </div>
+      {cameraOpen ? verificationPage : null}
+    </>
+  )
+}
+
+function attendanceReceiptFrom(
+  result: OperationResult,
+  operation: AttendanceOperation
+): AttendanceReceipt {
+  const recordedAt =
+    result.event?.recorded_at ??
+    (operation === "check_in"
+      ? result.session?.check_in_at
+      : result.session?.check_out_at) ??
+    result.server_time
+  return {
+    operation,
+    time: formatLocalClockTime(recordedAt ?? null, result.session?.timezone),
+  }
+}
+
+function formatLocalClockTime(
+  value: string | null,
+  timezone: string | null | undefined
+): string | null {
+  if (!value) return null
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      hour: "2-digit",
+      hourCycle: "h23",
+      minute: "2-digit",
+      timeZone: timezone || undefined,
+    }).formatToParts(new Date(value))
+    const hour = parts.find((part) => part.type === "hour")?.value
+    const minute = parts.find((part) => part.type === "minute")?.value
+    return hour && minute ? `${hour}.${minute}` : null
+  } catch {
+    return null
+  }
 }
 
 function eligibleCheckoutDestination(

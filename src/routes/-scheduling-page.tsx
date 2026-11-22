@@ -1,55 +1,44 @@
-import { NotificationInbox } from "./-notification-inbox"
-import { ShiftChanges } from "./-shift-changes"
-import { schedulingSearch } from "@/lib/scheduling-search"
+import { useLocation, useNavigate } from "@tanstack/react-router"
 import { id } from "date-fns/locale"
-import { WeeklyPlanner } from "./-weekly-planner"
-import { configurationSearch } from "@/lib/configuration-navigation"
-import { useConfigurationDraft } from "@/lib/use-configuration-draft"
-import { ShiftTemplatesExperience } from "./-shift-templates"
-import type { ShiftContext as SchedulingContext } from "@/lib/shift-templates"
-import { AttendancePolicy } from "./-attendance-policy"
-import type { PolicyConfiguration } from "@/lib/policy-editor"
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-  AlertDialogAction,
-} from "@/components/ui/alert-dialog"
-import {
-  Breadcrumb,
-  BreadcrumbList,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbSeparator,
-  BreadcrumbPage,
-} from "@/components/ui/breadcrumb"
 import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
   Settings2,
 } from "lucide-react"
-import { useLocation, useNavigate } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-
 import { EmployeeShell } from "@/components/employee-shell"
-import { getAuthRecoveryPath } from "@/lib/auth-navigation"
 import {
   ManagementSidebar,
   ManagementTopbar,
 } from "@/components/management-sidebar"
 import { ContextAlert, LabeledControl } from "@/components/r2c/components"
-import { ContextDrawer, PageHeading } from "@/components/r2c/screen-blocks"
 import {
   OperationalSummary,
   ScheduleMatrix,
   WorkWeekControl,
 } from "@/components/r2c/operational-blocks"
+import { ContextDrawer, PageHeading } from "@/components/r2c/screen-blocks"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {
@@ -61,6 +50,19 @@ import {
 } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer"
+import {
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -70,17 +72,11 @@ import {
   Field,
   FieldGroup,
   FieldLabel,
-  FieldSet,
   FieldLegend,
+  FieldSet,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer"
 import {
   Popover,
   PopoverContent,
@@ -97,17 +93,20 @@ import {
 } from "@/components/ui/sheet"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { apiRequest, ApiError, type AuthSession } from "@/lib/api"
-import { cn } from "@/lib/utils"
+import { ApiError, type AuthSession, apiRequest } from "@/lib/api"
+import { getAuthRecoveryPath } from "@/lib/auth-navigation"
+import { configurationSearch } from "@/lib/configuration-navigation"
 import { getSchedulingSection } from "@/lib/management-navigation"
+import type { PolicyConfiguration } from "@/lib/policy-editor"
+import { schedulingSearch } from "@/lib/scheduling-search"
+import type { ShiftContext as SchedulingContext } from "@/lib/shift-templates"
+import { useConfigurationDraft } from "@/lib/use-configuration-draft"
+import { cn } from "@/lib/utils"
+import { AttendancePolicy } from "./-attendance-policy"
+import { NotificationInbox } from "./-notification-inbox"
+import { ShiftChanges } from "./-shift-changes"
+import { ShiftTemplatesExperience } from "./-shift-templates"
+import { WeeklyPlanner } from "./-weekly-planner"
 
 type OutletOption = { id: number; name: string; business_unit_id: number }
 type EmployeeOption = { id: number; name: string }
@@ -217,6 +216,7 @@ export function SchedulingPage({
     action: () => Promise<void>
   } | null>(null)
   const [context, setContext] = useState<SchedulingContext | null>(null)
+  const [organizationName, setOrganizationName] = useState("")
   const [operationalWeek, setOperationalWeek] = useState(
     () => schedulingSearch(location.search).week ?? mondayOfToday()
   )
@@ -621,6 +621,7 @@ export function SchedulingPage({
           window.location.assign("/select-tenant")
           return
         }
+        setOrganizationName(session.active_membership.tenant?.name ?? "")
         if (
           configuration &&
           !session.active_membership.roles.some(
@@ -1100,6 +1101,7 @@ export function SchedulingPage({
         ) : (
           <PersonalSchedule
             days={personalDays}
+            organizationName={organizationName}
             loading={loading}
             clockLoading={personalClockLoading}
             clockError={personalClockError}
@@ -2316,6 +2318,7 @@ export function SchedulingPage({
             ) : (
               <PersonalSchedule
                 days={personalDays}
+                organizationName={organizationName}
                 loading={loading}
                 clockLoading={personalClockLoading}
                 clockError={personalClockError}
@@ -2690,6 +2693,7 @@ function ScheduleDayCard({ day }: { day: EffectiveDay }) {
 
 function PersonalSchedule({
   days,
+  organizationName,
   loading,
   clockLoading,
   clockError,
@@ -2701,6 +2705,7 @@ function PersonalSchedule({
   weekStart,
 }: {
   days: EffectiveDay[]
+  organizationName: string
   loading: boolean
   clockLoading: boolean
   clockError: string
@@ -2777,6 +2782,17 @@ function PersonalSchedule({
     todayDay,
     Boolean(todayDay && hasContradictoryDayShape(todayDay))
   )
+  const organizationDoesNotUseSchedules =
+    weekDates.length === 7 &&
+    weekDates.every((date) => {
+      const matches = groupedDays.get(date) ?? []
+      return (
+        matches.length === 1 &&
+        matches[0].status === "unscheduled" &&
+        matches[0].provenance.source === "none" &&
+        matches[0].conflicts.length === 0
+      )
+    })
   const selectedGroup = selectedDay
     ? (groupedDays.get(selectedDay.workDate) ?? [])
     : []
@@ -2950,6 +2966,21 @@ function PersonalSchedule({
             <ChevronRight aria-hidden="true" />
           </Button>
         </div>
+        {organizationDoesNotUseSchedules ? (
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-body text-muted-foreground" role="status">
+              {organizationName || "Organisasi"} belum memakai jadwal di
+              aplikasi. Absen tetap bisa dilakukan kapan saja.
+            </p>
+            <Button
+              nativeButton={false}
+              render={<a href="/attendance" />}
+              variant="outline"
+            >
+              Ke halaman Absen
+            </Button>
+          </div>
+        ) : null}
         {loading ? (
           <p className="text-body text-muted-foreground" role="status">
             Memuat jadwal minggu ini…

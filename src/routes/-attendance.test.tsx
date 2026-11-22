@@ -134,11 +134,17 @@ vi.mock("@/lib/attendance-photo-recovery", () => ({
 }))
 vi.mock("@/lib/notifications", () => ({ notifications: toast }))
 
-import { prepareAttendanceIdentityChange } from "@/lib/attendance-photo-recovery"
 import { ApiError } from "@/lib/api"
+import { prepareAttendanceIdentityChange } from "@/lib/attendance-photo-recovery"
 import { Route } from "./attendance"
 
 const AttendancePage = Route.options.component as ComponentType
+function focusView(action = "Absen Masuk") {
+  const heading = screen.getByRole("heading", { name: action })
+  const view = heading.closest<HTMLElement>('[data-verification-mode="focus"]')
+  if (!view) throw new Error("Verification focus view was not rendered")
+  return view
+}
 
 const employee = { id: 17, name: "Rani" }
 const readyAttendance = {
@@ -386,7 +392,7 @@ describe("Employee attendance camera", () => {
       return defaultRequest?.(path)
     })
     render(<AttendancePage />)
-    await screen.findByText("Sedang bekerja")
+    await screen.findByText(/^Sedang bekerja sejak \d{2}\.\d{2}$/)
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "Absen Masuk" })
         .disabled
@@ -613,7 +619,7 @@ describe("Employee attendance camera", () => {
       await screen.findByRole("region", { name: "Status kehadiran hari ini" })
     ).toBeTruthy()
     expect(screen.getByRole("timer").textContent).toMatch(/^\d{2}:\d{2}:\d{2}$/)
-    expect(screen.getByText("Zona waktu Outlet · Asia/Jakarta")).toBeTruthy()
+    expect(screen.queryByText("Zona waktu Outlet · Asia/Jakarta")).toBeNull()
     expect(
       screen.getByRole("button", { name: "Absen Masuk" }).className
     ).toContain("w-full")
@@ -653,9 +659,23 @@ describe("Employee attendance camera", () => {
       await screen.findByRole("region", { name: "Status kehadiran hari ini" })
     ).toBeTruthy()
     fireEvent.click(await enabledButton("Absen Masuk"))
-    const dialog = await screen.findByRole("dialog", { name: "Absen Masuk" })
-    expect(dialog.textContent).toContain("Work Date · Minggu, 25 Oktober")
-    expect(dialog.querySelector('time[datetime="2026-10-25"]')).toBeTruthy()
+    const view = await screen.findByRole("heading", { name: "Absen Masuk" })
+    expect(view.tagName).toBe("H1")
+    expect(screen.getByText(/Work Date/).parentElement?.textContent).toContain(
+      "Minggu, 25 Oktober"
+    )
+    expect(screen.queryByRole("dialog")).toBeNull()
+    expect(
+      screen.queryByRole("region", { name: "Status kehadiran hari ini" })
+    ).toBeNull()
+    expect(screen.queryByRole("button", { name: "Absen Keluar" })).toBeNull()
+    expect(view.closest("[data-verification-mode='focus']")).toBeTruthy()
+    await waitFor(() => expect(document.activeElement).toBe(view))
+    expect(
+      view
+        .closest("[data-verification-mode='focus']")
+        ?.querySelector('time[datetime="2026-10-25"]')
+    ).toBeTruthy()
     expect(screen.getByLabelText("Pratinjau kamera karyawan")).toBeTruthy()
     expect(screen.getByRole("button", { name: "Ambil foto" })).toBeTruthy()
     expect(
@@ -665,11 +685,13 @@ describe("Employee attendance camera", () => {
       screen.getByRole("region", { name: "Peta batas lokasi Outlet Pusat" })
     ).toBeTruthy()
     expect(screen.queryByRole("link", { name: "Jadwal" })).toBeNull()
-    expect(dialog.className).toContain("grid-rows-[auto_minmax(0,1fr)_auto]")
-    expect(dialog.className).toContain("rounded-none")
-    expect(dialog.lastElementChild?.className).toContain(
-      "safe-area-inset-bottom"
-    )
+    expect(
+      view.closest("[data-verification-mode='focus']")?.className
+    ).toContain("grid-rows-[auto_minmax(0,1fr)_auto]")
+    expect(
+      view.closest("[data-verification-mode='focus']")?.lastElementChild
+        ?.className
+    ).toContain("safe-area-inset-bottom")
   })
 
   it("submits the captured Blob as multipart and shows only server-confirmed success", async () => {
@@ -686,9 +708,8 @@ describe("Employee attendance camera", () => {
     expect(
       await screen.findByRole("img", { name: "Pratinjau foto bukti presensi" })
     ).toBeTruthy()
-    fireEvent.click(
-      screen.getByRole("button", { name: "Gunakan Foto dan Absen Masuk" })
-    )
+    fireEvent.click(screen.getByRole("button", { name: "Pakai foto ini" }))
+    fireEvent.click(screen.getByRole("button", { name: "Kirim Absen Masuk" }))
 
     await waitFor(() =>
       expect(
@@ -721,12 +742,16 @@ describe("Employee attendance camera", () => {
     render(<AttendancePage />)
     fireEvent.click(await enabledButton("Absen Masuk"))
     fireEvent.click(await captureButton())
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Pakai foto ini" })
+    )
     const submit = await screen.findByRole("button", {
-      name: "Gunakan Foto dan Absen Masuk",
+      name: "Kirim Absen Masuk",
     })
     fireEvent.click(submit)
     fireEvent.click(submit)
-    await screen.findByText(/Presensi masuk dikonfirmasi oleh server/)
+    await screen.findByRole("heading", { name: /Absen masuk tercatat/ })
+    fireEvent.click(screen.getByRole("button", { name: "Kembali ke beranda" }))
     await screen.findByText(
       "Status terbaru belum dapat dimuat. Muat ulang status sebelum mencatat lagi."
     )
@@ -774,9 +799,7 @@ describe("Employee attendance camera", () => {
     render(<AttendancePage />)
     fireEvent.click(await enabledButton("Absen Masuk"))
     await screen.findByText(/Izin kamera ditolak/)
-    fireEvent.click(
-      screen.getByRole("button", { name: "Lewati Foto dan Absen Masuk" })
-    )
+    fireEvent.click(screen.getByRole("button", { name: "Kirim Absen Masuk" }))
     await screen.findByText(/Presensi masuk dikonfirmasi oleh server/)
     const posts = apiRequest.mock.calls.filter(
       ([path]) => path === "/attendance/me/check-in"
@@ -812,7 +835,7 @@ describe("Employee attendance camera", () => {
     expect(screen.queryByText(/Jam perangkat/)).toBeNull()
   })
 
-  it("supports retake and releases camera tracks when the dialog is cancelled", async () => {
+  it("supports retake and releases camera tracks when verification is cancelled", async () => {
     installCamera()
     render(<AttendancePage />)
     fireEvent.click(await enabledButton("Absen Masuk"))
@@ -822,16 +845,16 @@ describe("Employee attendance camera", () => {
       expect((capture as HTMLButtonElement).disabled).toBe(false)
     )
     fireEvent.click(capture)
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Ambil ulang foto" })
-    )
+    fireEvent.click(await screen.findByRole("button", { name: "Ulangi" }))
     expect(
       await screen.findByLabelText("Pratinjau kamera karyawan")
     ).toBeTruthy()
     fireEvent.click(
       screen.getByRole("button", { name: "Kembali ke halaman presensi" })
     )
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "Absen Masuk" })).toBeNull()
+    )
     expect(track.stop).toHaveBeenCalled()
     expect(
       apiRequest.mock.calls.some(([path]) => path === "/attendance/me/check-in")
@@ -845,16 +868,19 @@ describe("Employee attendance camera", () => {
     trigger.focus()
     fireEvent.click(trigger)
 
-    const dialog = await screen.findByRole("dialog")
+    await screen.findByRole("heading", { name: "Absen Masuk" })
+    const view = focusView()
     await waitFor(() =>
-      expect(dialog.contains(document.activeElement)).toBe(true)
+      expect(view.contains(document.activeElement)).toBe(true)
     )
     await cameraReady()
     expect(screen.queryByRole("link", { name: "Jadwal" })).toBeNull()
 
-    fireEvent.keyDown(document.activeElement ?? dialog, { key: "Escape" })
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
-    expect(document.activeElement).toBe(trigger)
+    fireEvent.keyDown(document.activeElement ?? view, { key: "Escape" })
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "Absen Masuk" })).toBeNull()
+    )
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
     expect(track.stop).toHaveBeenCalled()
   })
 
@@ -912,8 +938,11 @@ describe("Employee attendance camera", () => {
     fireEvent.click(await enabledButton("Absen Masuk"))
     fireEvent.click(await captureButton())
     fireEvent.click(
+      await screen.findByRole("button", { name: "Pakai foto ini" })
+    )
+    fireEvent.click(
       await screen.findByRole("button", {
-        name: "Gunakan Foto dan Absen Masuk",
+        name: "Kirim Absen Masuk",
       })
     )
 
@@ -992,14 +1021,15 @@ describe("Employee attendance camera", () => {
       }
       return defaultRequest?.(path)
     })
-    const view = render(<AttendancePage />)
+    const rendered = render(<AttendancePage />)
     expect(
       screen.queryByRole("combobox", { name: "Pilih Outlet tujuan checkout" })
     ).toBeNull()
     const checkout = await enabledButton("Absen Keluar")
     fireEvent.click(checkout)
-    const dialog = await screen.findByRole("dialog", { name: "Absen Keluar" })
-    const select = within(dialog).getByRole<HTMLSelectElement>("combobox", {
+    await screen.findByRole("heading", { name: "Absen Keluar" })
+    const view = focusView("Absen Keluar")
+    const select = within(view).getByRole<HTMLSelectElement>("combobox", {
       name: "Pilih Outlet tujuan checkout",
     })
     fireEvent.change(select, { target: { value: "6" } })
@@ -1026,8 +1056,11 @@ describe("Employee attendance camera", () => {
     expect(within(destination).getByText("Outlet Makassar")).toBeTruthy()
     fireEvent.click(await captureButton())
     fireEvent.click(
+      await screen.findByRole("button", { name: "Pakai foto ini" })
+    )
+    fireEvent.click(
       await screen.findByRole("button", {
-        name: "Gunakan Foto dan Absen Keluar",
+        name: "Kirim Absen Keluar",
       })
     )
     await screen.findByRole("button", { name: "Periksa lalu kirim ulang" })
@@ -1035,7 +1068,7 @@ describe("Employee attendance camera", () => {
       outletId: 6,
       checkoutSessionId: 51,
     })
-    view.unmount()
+    rendered.unmount()
 
     render(<AttendancePage />)
     const retry = await screen.findByRole("button", {
@@ -1143,8 +1176,9 @@ describe("Employee attendance camera", () => {
     render(<AttendancePage />)
     const checkoutAction = await enabledButton("Absen Keluar")
     fireEvent.click(checkoutAction)
-    const dialog = await screen.findByRole("dialog", { name: "Absen Keluar" })
-    const select = within(dialog).getByRole<HTMLSelectElement>("combobox", {
+    await screen.findByRole("heading", { name: "Absen Keluar" })
+    const view = focusView("Absen Keluar")
+    const select = within(view).getByRole<HTMLSelectElement>("combobox", {
       name: "Pilih Outlet tujuan checkout",
     })
     fireEvent.change(select, { target: { value: "6" } })
@@ -1156,12 +1190,9 @@ describe("Employee attendance camera", () => {
       name: "Sesi asal checkout",
     })
     expect(within(originRegion).getByText("Outlet Pusat")).toBeTruthy()
-    fireEvent.click(
-      screen.getByRole("button", { name: "Lewati Foto dan Absen Keluar" })
-    )
+    fireEvent.click(screen.getByRole("button", { name: "Kirim Absen Keluar" }))
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledOnce()
-      expect(select.disabled).toBe(false)
     })
     expect(
       apiRequest.mock.calls.filter(
@@ -1189,38 +1220,38 @@ describe("Employee attendance camera", () => {
     if (outcome === "eligible" || outcome === "offline") {
       const retryCheckout = await enabledButton("Absen Keluar")
       fireEvent.click(retryCheckout)
-      const retryDialog = await screen.findByRole("dialog", {
-        name: "Absen Keluar",
-      })
-      const retrySelect = within(retryDialog).getByRole<HTMLSelectElement>(
+      await screen.findByRole("heading", { name: "Absen Keluar" })
+      const retryView = focusView("Absen Keluar")
+      const retrySelect = within(retryView).getByRole<HTMLSelectElement>(
         "combobox",
         { name: "Pilih Outlet tujuan checkout" }
       )
+      expect(retrySelect.disabled).toBe(false)
       if (outcome === "eligible") {
         expect(retrySelect.value).toBe("6")
       } else {
         expect(retrySelect.value).toBe("")
         expect(
-          within(retryDialog).getByRole("option", { name: "Outlet Makassar" })
+          within(retryView).getByRole("option", { name: "Outlet Makassar" })
         ).toBeTruthy()
       }
     } else if (outcome !== "new session") {
       restored = true
       const retryCheckout = await enabledButton("Absen Keluar")
       fireEvent.click(retryCheckout)
-      const retryDialog = await screen.findByRole("dialog", {
-        name: "Absen Keluar",
-      })
-      const retrySelect = within(retryDialog).getByRole<HTMLSelectElement>(
+      await screen.findByRole("heading", { name: "Absen Keluar" })
+      const retryView = focusView("Absen Keluar")
+      const retrySelect = within(retryView).getByRole<HTMLSelectElement>(
         "combobox",
         { name: "Pilih Outlet tujuan checkout" }
       )
+      expect(retrySelect.disabled).toBe(false)
       expect(retrySelect.value).toBe("")
       expect(
-        within(retryDialog).getByRole("option", { name: "Outlet Pusat" })
+        within(retryView).getByRole("option", { name: "Outlet Pusat" })
       ).toBeTruthy()
       expect(
-        within(retryDialog).queryByRole("option", { name: "Outlet Makassar" })
+        within(retryView).queryByRole("option", { name: "Outlet Makassar" })
       ).toBeNull()
     }
     expect(
@@ -1292,11 +1323,12 @@ describe("Employee attendance camera", () => {
     ).toBe(false)
     if (bound) {
       fireEvent.click(checkout)
-      const dialog = await screen.findByRole("dialog", { name: "Absen Keluar" })
+      await screen.findByRole("heading", { name: "Absen Keluar" })
       expect(
-        within(dialog).getByRole<HTMLSelectElement>("combobox", {
-          name: "Pilih Outlet tujuan checkout",
-        }).value
+        within(focusView("Absen Keluar")).getByRole<HTMLSelectElement>(
+          "combobox",
+          { name: "Pilih Outlet tujuan checkout" }
+        ).value
       ).toBe("6")
     }
   })
@@ -1321,9 +1353,10 @@ describe("Employee attendance camera", () => {
     render(<AttendancePage />)
     const checkout = await enabledButton("Absen Keluar")
     fireEvent.click(checkout)
-    const dialog = await screen.findByRole("dialog", { name: "Absen Keluar" })
+    await screen.findByRole("heading", { name: "Absen Keluar" })
+    const view = focusView("Absen Keluar")
     fireEvent.change(
-      within(dialog).getByRole("combobox", {
+      within(view).getByRole("combobox", {
         name: "Pilih Outlet tujuan checkout",
       }),
       {
@@ -1333,22 +1366,22 @@ describe("Employee attendance camera", () => {
     expect(
       await screen.findByText(/Outlet tujuan checkout tidak lagi tersedia/)
     ).toBeTruthy()
-    expect(screen.getByRole("dialog", { name: "Absen Keluar" })).toBeTruthy()
+    expect(view).toBeTruthy()
     expect(
-      within(dialog).getByRole<HTMLSelectElement>("combobox", {
+      within(view).getByRole<HTMLSelectElement>("combobox", {
         name: "Pilih Outlet tujuan checkout",
       }).value
     ).toBe("")
     expect(
-      within(dialog).queryByRole("option", { name: "Outlet Makassar" })
+      within(view).queryByRole("option", { name: "Outlet Makassar" })
     ).toBeNull()
     expect(screen.queryByLabelText("Pratinjau kamera karyawan")).toBeNull()
     fireEvent.click(
-      within(dialog).getByRole("button", {
-        name: "Kembali ke halaman presensi",
-      })
+      within(view).getByRole("button", { name: "Kembali ke halaman presensi" })
     )
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "Absen Keluar" })).toBeNull()
+    )
     expect(
       (
         screen.getByRole("button", {
@@ -1499,7 +1532,9 @@ describe("Employee attendance camera", () => {
     })
     render(<AttendancePage />)
     fireEvent.click(await enabledButton("Absen Masuk"))
-    expect(await screen.findByRole("dialog")).toBeTruthy()
+    expect(
+      await screen.findByRole("heading", { name: "Absen Masuk" })
+    ).toBeTruthy()
     await waitFor(() =>
       expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledOnce()
     )
@@ -1507,7 +1542,9 @@ describe("Employee attendance camera", () => {
 
     await prepareAttendanceIdentityChange()
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "Absen Masuk" })).toBeNull()
+    )
     expect(track.stop).toHaveBeenCalled()
     expect(storedPhotos.size).toBe(0)
   })

@@ -45,8 +45,10 @@ function formatClockTime(date: Date, timeZone: string) {
 
 export function EmployeeAttendanceClock({
   outletTimeZone,
+  showTimeZoneLabel = true,
 }: {
   outletTimeZone?: string
+  showTimeZoneLabel?: boolean
 }) {
   const [now, setNow] = useState<Date | null>(null)
   const [deviceTimeZone, setDeviceTimeZone] = useState<string>()
@@ -98,7 +100,9 @@ export function EmployeeAttendanceClock({
       >
         {time}
       </time>
-      <p className="text-caption text-muted-foreground">{zone.label}</p>
+      {showTimeZoneLabel ? (
+        <p className="text-caption text-muted-foreground">{zone.label}</p>
+      ) : null}
     </div>
   )
 }

@@ -1,12 +1,5 @@
 // @vitest-environment jsdom
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react"
+
 import {
   createMemoryHistory,
   createRootRoute,
@@ -15,8 +8,16 @@ import {
   Outlet,
   RouterProvider,
 } from "@tanstack/react-router"
-import { afterEach, beforeEach, expect, it, vi } from "vitest"
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react"
 import type { ReactNode } from "react"
+import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { schedulingSearch } from "@/lib/scheduling-search"
 
 const { apiRequest } = vi.hoisted(() => ({ apiRequest: vi.fn() }))
@@ -32,6 +33,7 @@ vi.mock("@/components/ui/sidebar", () => ({
 }))
 vi.mock("./-shift-templates", () => ({ ShiftTemplatesExperience: () => null }))
 vi.mock("./-attendance-policy", () => ({ AttendancePolicy: () => null }))
+
 import { SchedulingPage } from "./-scheduling-page"
 
 const context = {
@@ -59,6 +61,8 @@ let employee = false
 let delayed: Promise<unknown> | undefined
 let serverTime = "2026-11-11T12:00:00Z"
 let duplicateToday = false
+let noScheduleWeek = false
+let scheduledWeek = false
 function roster(id: number, week: string) {
   return {
     outlet: { id, name: `Outlet QA ${id}`, weekly_planner_start_on: null },
@@ -102,6 +106,26 @@ function personalWeek(week: string) {
       outlet_operating: null,
       conflicts: [] as string[],
     }
+    if (noScheduleWeek) return day
+    if (scheduledWeek && weekday === 3) {
+      return {
+        ...day,
+        status: "scheduled" as const,
+        outlet: { id: 1, name: "Outlet QA 1" },
+        shift: {
+          template_id: 1,
+          version_id: 1,
+          revision: 1,
+          name: "Shift pagi",
+          start_time: "09:00",
+          end_time: "17:00",
+          crosses_midnight: false,
+        },
+        scheduled_start: `${workDate}T02:00:00Z`,
+        scheduled_end: `${workDate}T10:00:00Z`,
+        conflicts: [],
+      }
+    }
     if (weekday === 1) return { ...day, status: "rest" as const }
     if (weekday === 2)
       return {
@@ -144,10 +168,15 @@ beforeEach(() => {
   delayed = undefined
   serverTime = "2026-11-11T12:00:00Z"
   duplicateToday = false
+  noScheduleWeek = false
+  scheduledWeek = false
   apiRequest.mockImplementation(async (path: string) => {
     if (path === "/auth/me")
       return {
-        active_membership: { roles: [employee ? "employee" : "supervisor"] },
+        active_membership: {
+          roles: [employee ? "employee" : "supervisor"],
+          tenant: { name: "Organisasi QA" },
+        },
       }
     if (path.endsWith("/context"))
       return employee
@@ -324,6 +353,40 @@ it("opens the notified week for Employee without granting manager outlet access"
   expect(
     screen.getByRole("region", { name: "Hari ini" }).textContent
   ).toContain("Belum dijadwalkan")
+})
+it("shows a calm organization message when all seven days have no schedule source", async () => {
+  employee = true
+  noScheduleWeek = true
+  mount()
+
+  expect(
+    await screen.findByText(
+      "Organisasi QA belum memakai jadwal di aplikasi. Absen tetap bisa dilakukan kapan saja."
+    )
+  ).toBeTruthy()
+  expect(
+    screen.getByRole("link", { name: "Ke halaman Absen" }).getAttribute("href")
+  ).toBe("/attendance")
+  expect(
+    screen.getByRole("region", { name: "Jadwal mingguan" }).textContent
+  ).toContain("Belum dijadwalkan")
+})
+it("renders the normal personal schedule with today's shift and weekly rows", async () => {
+  employee = true
+  scheduledWeek = true
+  mount()
+
+  const today = await screen.findByRole("region", { name: "Hari ini" })
+  await waitFor(() => expect(today.textContent).toContain("Shift pagi"))
+  expect(today.textContent).toContain("09.00–17.00")
+  expect(today.textContent).toContain("Outlet QA 1")
+  const week = screen.getByRole("region", { name: "Jadwal mingguan" })
+  expect(
+    week
+      .querySelector('[data-personal-week-list="true"]')
+      ?.querySelectorAll("button")
+  ).toHaveLength(7)
+  expect(week.textContent).toContain("Shift pagi")
 })
 it("keeps server Today visible while browsing another week and distinguishes rest from uncertainty", async () => {
   employee = true
