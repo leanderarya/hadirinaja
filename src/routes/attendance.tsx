@@ -241,7 +241,6 @@ function AttendancePage() {
   const [currentLocation, setCurrentLocation] =
     useState<LocationEvidence | null>(null)
   const [locating, setLocating] = useState(false)
-  const [photoAccepted, setPhotoAccepted] = useState(false)
   const locationIdentity = `${photoIdentity?.userId}.${photoIdentity?.tenantId}.${photoIdentity?.employeeId}.${attendance?.employee ? attendance.active_session?.id : ""}.${selectedOutletId}`
   const locationContext = useRef(locationIdentity)
   useEffect(() => {
@@ -724,7 +723,6 @@ function AttendancePage() {
     setCameraError("")
     setCameraReady(false)
     setPhotoBlob(null)
-    setPhotoAccepted(false)
     setDraft(null)
   }, [draft?.operation, stopCamera])
 
@@ -1114,7 +1112,6 @@ function AttendancePage() {
       setCameraError("")
       setCameraReady(false)
       setPhotoBlob(null)
-      setPhotoAccepted(false)
       setCameraOpen(true)
       if (retainedDestination) {
         void changeCheckoutDestination(String(retainedDestination.id))
@@ -1145,7 +1142,6 @@ function AttendancePage() {
     setCameraError("")
     setCameraReady(false)
     setPhotoBlob(null)
-    setPhotoAccepted(false)
     setCameraOpen(true)
     try {
       const location = await captureLocation()
@@ -1207,13 +1203,8 @@ function AttendancePage() {
       void capturePhoto()
       return
     }
-    if (!photoAccepted) {
-      setPhotoAccepted(true)
-      return
-    }
     submitVerifiedAttendance()
   }
-
   async function retrySameOperation() {
     if (!pending?.location || (!pending.photo && !pending.photoSkipped)) {
       setError(
@@ -1250,14 +1241,12 @@ function AttendancePage() {
     setCameraError("")
     setCameraReady(false)
     setPhotoBlob(null)
-    setPhotoAccepted(false)
     setDraft(null)
     setBusy(false)
   }, [draft?.operation, operationState])
 
   function retakePhoto() {
     setPhotoBlob(null)
-    setPhotoAccepted(false)
     setCameraError("")
     setCameraReady(false)
     setCameraMode("capture")
@@ -1311,7 +1300,6 @@ function AttendancePage() {
 
     stopCamera()
     setPhotoBlob(captured)
-    setPhotoAccepted(false)
     setCameraError("")
     setCameraMode("preview")
   }
@@ -1398,7 +1386,6 @@ function AttendancePage() {
     setCameraError("")
     setCameraReady(false)
     setPhotoBlob(null)
-    setPhotoAccepted(false)
     stopCamera()
     setDraft((current) =>
       current
@@ -1658,8 +1645,7 @@ function AttendancePage() {
     draft?.operation === "check_out" ? "Absen keluar" : "Absen masuk"
   const verificationSubmitActionLabel =
     draft?.operation === "check_out" ? "Absen Keluar" : "Absen Masuk"
-  const acceptedPhoto =
-    cameraMode === "preview" && Boolean(photoBlob) && photoAccepted
+  const acceptedPhoto = cameraMode === "preview" && Boolean(photoBlob)
   const canSkipOptionalPhoto =
     readyAttendance?.require_personal_photo === false &&
     cameraMode === "capture"
@@ -1690,9 +1676,7 @@ function AttendancePage() {
                   ? `Kirim ${verificationSubmitActionLabel}`
                   : "Coba buka kamera lagi"
                 : "Ambil foto"
-              : cameraMode === "preview" && !acceptedPhoto
-                ? "Pakai foto ini"
-                : `Kirim ${verificationSubmitActionLabel}`
+              : `Kirim ${verificationSubmitActionLabel}`
   const verificationPrimaryActionDisabled =
     verificationStage !== "photo" ||
     busy ||
@@ -1701,7 +1685,7 @@ function AttendancePage() {
     !photoStorageReady ||
     identityChangeInProgress.current ||
     (cameraMode === "capture" && !cameraError && !cameraReady) ||
-    (cameraMode === "preview" && photoAccepted && !canSubmitVerification)
+    (cameraMode === "preview" && acceptedPhoto && !canSubmitVerification)
   const verificationOutletName =
     draft?.operation === "check_out"
       ? (draft.outletName ??
@@ -1763,9 +1747,7 @@ function AttendancePage() {
     ? { label: "Kamera bermasalah", variant: "destructive" as const }
     : acceptedPhoto
       ? { label: "Foto siap", variant: "success" as const }
-      : cameraMode === "preview"
-        ? { label: "Belum dipakai", variant: "neutral" as const }
-        : { label: "Menunggu foto", variant: "neutral" as const }
+      : { label: "Menunggu foto", variant: "neutral" as const }
   const locationStatusBadge = locating
     ? { label: "Mencari lokasi…", variant: "neutral" as const }
     : locationState === "inside"
@@ -2118,7 +2100,7 @@ function AttendancePage() {
       </EmployeeAttendanceVerificationHeader>
 
       <main className="min-h-0 overflow-y-auto overscroll-contain">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 pb-5 sm:px-5">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 pt-3 pb-5 sm:px-5">
           {draft?.operation === "check_out" ? (
             <section
               aria-labelledby="verification-outlet-title"

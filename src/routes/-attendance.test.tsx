@@ -767,7 +767,6 @@ describe("Employee attendance camera", () => {
     expect(
       await screen.findByRole("img", { name: "Pratinjau foto bukti presensi" })
     ).toBeTruthy()
-    fireEvent.click(screen.getByRole("button", { name: "Pakai foto ini" }))
     fireEvent.click(screen.getByRole("button", { name: "Kirim Absen Masuk" }))
 
     await waitFor(() =>
@@ -807,9 +806,6 @@ describe("Employee attendance camera", () => {
     render(<AttendancePage />)
     fireEvent.click(await enabledButton("Absen masuk"))
     fireEvent.click(await captureButton())
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Pakai foto ini" })
-    )
     const submit = await screen.findByRole("button", {
       name: "Kirim Absen Masuk",
     })
@@ -1013,9 +1009,6 @@ describe("Employee attendance camera", () => {
     fireEvent.click(await enabledButton("Absen masuk"))
     fireEvent.click(await captureButton())
     fireEvent.click(
-      await screen.findByRole("button", { name: "Pakai foto ini" })
-    )
-    fireEvent.click(
       await screen.findByRole("button", {
         name: "Kirim Absen Masuk",
       })
@@ -1136,9 +1129,6 @@ describe("Employee attendance camera", () => {
     })
     expect(within(destination).getByText("Outlet Makassar")).toBeTruthy()
     fireEvent.click(await captureButton())
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Pakai foto ini" })
-    )
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Kirim Absen Keluar",

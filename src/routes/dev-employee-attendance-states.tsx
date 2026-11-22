@@ -97,7 +97,6 @@ function EmployeeAttendanceStatesPreview() {
   const { operation, state } = Route.useSearch()
   const navigate = Route.useNavigate()
   const [photoCaptured, setPhotoCaptured] = useState(false)
-  const [photoAccepted, setPhotoAccepted] = useState(false)
 
   if (state.startsWith("home-") || state === "problem-banner") {
     const working = state === "home-working"
@@ -302,12 +301,9 @@ function EmployeeAttendanceStatesPreview() {
       }
   const submitDisabledPhoto = state === "submit-disabled-photo"
   const hasCapturedPhoto = photoCaptured || submitDisabledPhoto
-  const isPhotoAccepted = photoAccepted || submitDisabledPhoto
-  const photoStatusBadge = isPhotoAccepted
+  const photoStatusBadge = hasCapturedPhoto
     ? { label: "Foto siap", variant: "success" as const }
-    : hasCapturedPhoto
-      ? { label: "Belum dipakai", variant: "neutral" as const }
-      : { label: "Menunggu foto", variant: "neutral" as const }
+    : { label: "Menunggu foto", variant: "neutral" as const }
   const locationStatusBadge = location.denied
     ? { label: "Izin ditolak", variant: "destructive" as const }
     : location.outside
@@ -327,10 +323,10 @@ function EmployeeAttendanceStatesPreview() {
       />
 
       <main className="min-h-0 overflow-y-auto overscroll-contain">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 pb-5 sm:px-5">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 pt-3 pb-5 sm:px-5">
           <Card
             aria-labelledby="preview-photo-title"
-            className="border-border/70"
+            className="gap-4 border-border/70"
             role="region"
             size="sm"
           >
@@ -422,7 +418,6 @@ function EmployeeAttendanceStatesPreview() {
                 className="shrink-0"
                 onClick={() => {
                   setPhotoCaptured(false)
-                  setPhotoAccepted(false)
                 }}
                 size="sm"
                 variant="outline"
@@ -438,10 +433,6 @@ function EmployeeAttendanceStatesPreview() {
                   location.denied
                 }
                 onClick={() => {
-                  if (!isPhotoAccepted) {
-                    setPhotoAccepted(true)
-                    return
-                  }
                   if (submitDisabledPhoto) return
                   window.location.assign(
                     previewHref(
@@ -453,9 +444,7 @@ function EmployeeAttendanceStatesPreview() {
                   )
                 }}
               >
-                {!isPhotoAccepted
-                  ? "Pakai foto ini"
-                  : `Kirim Absen ${operation === "check_in" ? "Masuk" : "Keluar"}`}
+                Kirim
               </Button>
             </div>
           ) : (
