@@ -27,11 +27,13 @@ import {
   BreadcrumbSeparator,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb"
-import { CalendarDays, ChevronLeft, ChevronRight, Settings2 } from "lucide-react"
 import {
-  useLocation,
-  useNavigate,
-} from "@tanstack/react-router"
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Settings2,
+} from "lucide-react"
+import { useLocation, useNavigate } from "@tanstack/react-router"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { EmployeeShell } from "@/components/employee-shell"
@@ -109,7 +111,11 @@ import { getSchedulingSection } from "@/lib/management-navigation"
 
 type OutletOption = { id: number; name: string; business_unit_id: number }
 type EmployeeOption = { id: number; name: string }
-type PersonalClock = { server_time: string; timezone: string; work_date: string }
+type PersonalClock = {
+  server_time: string
+  timezone: string
+  work_date: string
+}
 type EffectiveDay = {
   employee_id: number
   tenant_id: number
@@ -214,12 +220,16 @@ export function SchedulingPage({
   const [operationalWeek, setOperationalWeek] = useState(
     () => schedulingSearch(location.search).week ?? mondayOfToday()
   )
-  const [personalWeekStart, setPersonalWeekStart] = useState<string | null>(null)
+  const [personalWeekStart, setPersonalWeekStart] = useState<string | null>(
+    null
+  )
   const personalWeekManuallySelected = useRef(false)
   const [personalClock, setPersonalClock] = useState<PersonalClock | null>(null)
   const [personalClockLoading, setPersonalClockLoading] = useState(false)
   const [personalClockError, setPersonalClockError] = useState("")
-  const [personalTodayDay, setPersonalTodayDay] = useState<EffectiveDay | null>(null)
+  const [personalTodayDay, setPersonalTodayDay] = useState<EffectiveDay | null>(
+    null
+  )
   const [personalTodayError, setPersonalTodayError] = useState("")
   const operationalSearch = schedulingSearch(location.search)
   const urlContext = !configuration && context?.capabilities.manage_schedules
@@ -261,8 +271,7 @@ export function SchedulingPage({
       personalWeekManuallySelected.current =
         !personalToday || mondayOf(personalToday) !== date
       setPersonalWeekStart(date)
-    }
-    else setOperationalWeek(date)
+    } else setOperationalWeek(date)
   }
   const [businessUnitId, setBusinessUnitId] = useState("")
   const [operationalOutlet, setOperationalOutlet] = useState("")
@@ -532,10 +541,11 @@ export function SchedulingPage({
         } else if (current.employee_id !== null) {
           const todayWorkDate = personalToday
           if (!todayWorkDate) throw new Error("Server date unavailable")
-          const loadPersonalWeek = (weekStartDate: string) => apiRequest<{
-            week_start: string
-            days: EffectiveDay[]
-          }>(`/management/scheduling/me/week?week_start=${weekStartDate}`)
+          const loadPersonalWeek = (weekStartDate: string) =>
+            apiRequest<{
+              week_start: string
+              days: EffectiveDay[]
+            }>(`/management/scheduling/me/week?week_start=${weekStartDate}`)
           const result = await loadPersonalWeek(currentWeek)
           if (!isCurrent()) return
           if (result.week_start !== currentWeek || !Array.isArray(result.days))
@@ -714,7 +724,11 @@ export function SchedulingPage({
           setPersonalClock(null)
           return
         }
-        setPersonalClock({ server_time: serverTime, timezone, work_date: workDate })
+        setPersonalClock({
+          server_time: serverTime,
+          timezone,
+          work_date: workDate,
+        })
         setPersonalWeekStart((current) =>
           !personalWeekManuallySelected.current
             ? mondayOf(workDate)
@@ -736,7 +750,10 @@ export function SchedulingPage({
         if (!cancelled) {
           requestActive = false
           setPersonalClockLoading(false)
-          refreshTimer = window.setTimeout(() => void refreshServerClock(), 5 * 60 * 1000)
+          refreshTimer = window.setTimeout(
+            () => void refreshServerClock(),
+            5 * 60 * 1000
+          )
         }
       }
     }
@@ -2770,8 +2787,7 @@ function PersonalSchedule({
           selectedDay.ambiguous || selectedGroup.length > 1
             ? null
             : (selectedGroup[0] ?? selectedDay.day),
-        ambiguous:
-          selectedDay.ambiguous || selectedGroup.length > 1,
+        ambiguous: selectedDay.ambiguous || selectedGroup.length > 1,
       }
     : null
 
@@ -2801,7 +2817,9 @@ function PersonalSchedule({
           ) : null}
         </div>
         <p className="mt-1 text-caption text-muted-foreground">
-          {today ? formatWorkDateLong(today) : "Tanggal hari ini belum tersedia"}
+          {today
+            ? formatWorkDateLong(today)
+            : "Tanggal hari ini belum tersedia"}
         </p>
         <p className="mt-3 text-title">
           {today
@@ -2840,7 +2858,9 @@ function PersonalSchedule({
           <h2 className="text-subtitle" id="personal-week-title">
             Jadwal mingguan
           </h2>
-          <span className="text-caption text-muted-foreground">Senin–Minggu</span>
+          <span className="text-caption text-muted-foreground">
+            Senin–Minggu
+          </span>
         </div>
         <div
           className="relative mx-auto flex min-h-11 w-full max-w-sm items-center justify-center"
@@ -2896,12 +2916,15 @@ function PersonalSchedule({
                   defaultMonth={dateFromWorkDate(weekStart)}
                   labels={{
                     labelDayButton: (date, modifiers) =>
-                      `${modifiers.today ? "Hari ini, " : ""}${new Intl.DateTimeFormat("id-ID", {
-                        weekday: "long",
-                        day: "numeric",
-                        month: "long",
-                        year: "numeric",
-                      }).format(date)}${modifiers.selected ? ", dipilih" : ""}`,
+                      `${modifiers.today ? "Hari ini, " : ""}${new Intl.DateTimeFormat(
+                        "id-ID",
+                        {
+                          weekday: "long",
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        }
+                      ).format(date)}${modifiers.selected ? ", dipilih" : ""}`,
                     labelNav: () => "Navigasi kalender",
                     labelNext: () => "Bulan berikutnya",
                     labelPrevious: () => "Bulan sebelumnya",
@@ -2993,7 +3016,11 @@ function PersonalSchedule({
 
       {selected ? (
         widePanel ? (
-          <Sheet modal={false} open onOpenChange={(open) => !open && closeDay()}>
+          <Sheet
+            modal={false}
+            open
+            onOpenChange={(open) => !open && closeDay()}
+          >
             <SheetContent
               className="w-full overflow-hidden pb-[env(safe-area-inset-bottom)] sm:max-w-md"
               side="right"
@@ -3061,8 +3088,14 @@ function PersonalScheduleDayDetails({
             </div>
           ) : null}
           <DetailValue label="Work Date" value={formatWorkDateLong(workDate)} />
-          <DetailValue label="Outlet" value={day.outlet?.name ?? "Belum ditentukan"} />
-          <DetailValue label="Zona waktu" value={day.timezone || "Belum tersedia"} />
+          <DetailValue
+            label="Outlet"
+            value={day.outlet?.name ?? "Belum ditentukan"}
+          />
+          <DetailValue
+            label="Zona waktu"
+            value={day.timezone || "Belum tersedia"}
+          />
           <DetailValue label="Sumber" value={provenance} />
           {day.outlet_operating !== null ? (
             <DetailValue
@@ -3072,7 +3105,9 @@ function PersonalScheduleDayDetails({
           ) : null}
           {day.holiday_references.length ? (
             <div className="py-3">
-              <p className="text-caption text-muted-foreground">Referensi hari libur</p>
+              <p className="text-caption text-muted-foreground">
+                Referensi hari libur
+              </p>
               <ul className="mt-1 list-inside list-disc text-body">
                 {day.holiday_references.map((holiday) => (
                   <li key={holiday.id}>
@@ -3128,8 +3163,15 @@ const scheduleProvenanceLabel: Record<string, string> = {
 function personalDayDescription(
   day: EffectiveDay | null,
   uncertain = false
-): { kind: "scheduled" | "rest" | "unscheduled" | "unknown" | "uncertain"; label: string } {
-  if (!day) return { kind: uncertain ? "uncertain" : "unknown", label: uncertain ? "Perlu dipastikan" : "Belum tersedia" }
+): {
+  kind: "scheduled" | "rest" | "unscheduled" | "unknown" | "uncertain"
+  label: string
+} {
+  if (!day)
+    return {
+      kind: uncertain ? "uncertain" : "unknown",
+      label: uncertain ? "Perlu dipastikan" : "Belum tersedia",
+    }
   if (uncertain || day.conflicts.length > 0)
     return { kind: "uncertain", label: "Perlu dipastikan" }
   if (day.status === "scheduled") {
@@ -3148,10 +3190,7 @@ function personalDayDescription(
   return { kind: "uncertain", label: "Perlu dipastikan" }
 }
 
-function describePersonalDay(
-  day: EffectiveDay | null,
-  uncertain = false
-) {
+function describePersonalDay(day: EffectiveDay | null, uncertain = false) {
   return personalDayDescription(day, uncertain)
 }
 

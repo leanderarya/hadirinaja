@@ -1,10 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router"
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { notifications } from "@/lib/notifications"
 import { OutletGeofenceMap } from "@/components/outlet-geofence-map"
 import {
@@ -57,7 +52,10 @@ import {
   formatWorkDate,
 } from "@/lib/attendance-presentation"
 import { getAuthRecoveryPath } from "@/lib/auth-navigation"
-import { correctionHref, type PersonalCorrectionOptions } from "@/lib/attendance-correction-navigation"
+import {
+  correctionHref,
+  type PersonalCorrectionOptions,
+} from "@/lib/attendance-correction-navigation"
 import {
   type AttendanceEligibilityStatus,
   attendanceEligibilityCopy,
@@ -218,10 +216,15 @@ function AttendancePage() {
     useState<AttendancePhotoIdentity | null>(null)
   const [isOwner, setIsOwner] = useState(false)
   const [accountName, setAccountName] = useState("Karyawan")
-  const [selectableOutlets, setSelectableOutlets] = useState<AttendanceReady["outlets"]>([])
-  const [checkoutDestinations, setCheckoutDestinations] = useState<CheckoutDestination[]>([])
+  const [selectableOutlets, setSelectableOutlets] = useState<
+    AttendanceReady["outlets"]
+  >([])
+  const [checkoutDestinations, setCheckoutDestinations] = useState<
+    CheckoutDestination[]
+  >([])
   const [selectedOutletId, setSelectedOutletId] = useState("")
-  const [currentLocation, setCurrentLocation] = useState<LocationEvidence | null>(null)
+  const [currentLocation, setCurrentLocation] =
+    useState<LocationEvidence | null>(null)
   const [locating, setLocating] = useState(false)
   const locationIdentity = `${photoIdentity?.userId}.${photoIdentity?.tenantId}.${photoIdentity?.employeeId}.${attendance?.employee ? attendance.active_session?.id : ""}.${selectedOutletId}`
   const locationContext = useRef(locationIdentity)
@@ -242,7 +245,9 @@ function AttendancePage() {
   const [notice, setNotice] = useState("")
   const [stateFresh, setStateFresh] = useState(true)
   const [cameraOpen, setCameraOpen] = useState(false)
-  const [verificationStage, setVerificationStage] = useState<"destination" | "location" | "photo">("location")
+  const [verificationStage, setVerificationStage] = useState<
+    "destination" | "location" | "photo"
+  >("location")
   const [locationError, setLocationError] = useState("")
   const [cameraMode, setCameraMode] = useState<"capture" | "preview">("capture")
   const [cameraAttempt, setCameraAttempt] = useState(0)
@@ -278,33 +283,36 @@ function AttendancePage() {
     )
   }, [])
 
-  const refresh = useCallback(async (
-    outletId?: number,
-    checkout = false,
-    expectedCheckout?: CheckoutSelection
-  ) => {
-    const home = await loadAttendanceHome(outletId, checkout)
-    const result = home.attendance
-    if (identityChangeInProgress.current) return result
-    setAttendance(result)
-    setStateFresh(true)
-    const sameCheckout = !expectedCheckout || (
-      result.employee !== null &&
-      result.employee.id === expectedCheckout.employeeId &&
-      result.active_session?.id === expectedCheckout.sessionId
-    )
-    setSelectedOutletId(sameCheckout ? home.selectedOutletId : "")
-    setSelectableOutlets(home.selectableOutlets)
-    if (checkout && outletId !== undefined && sameCheckout) {
-      setCheckoutDestinations((current) => [
-        ...current.filter((destination) => destination.id !== outletId),
-        ...home.checkoutDestinations,
-      ])
-    } else {
-      setCheckoutDestinations(sameCheckout ? home.checkoutDestinations : [])
-    }
-    return result
-  }, [])
+  const refresh = useCallback(
+    async (
+      outletId?: number,
+      checkout = false,
+      expectedCheckout?: CheckoutSelection
+    ) => {
+      const home = await loadAttendanceHome(outletId, checkout)
+      const result = home.attendance
+      if (identityChangeInProgress.current) return result
+      setAttendance(result)
+      setStateFresh(true)
+      const sameCheckout =
+        !expectedCheckout ||
+        (result.employee !== null &&
+          result.employee.id === expectedCheckout.employeeId &&
+          result.active_session?.id === expectedCheckout.sessionId)
+      setSelectedOutletId(sameCheckout ? home.selectedOutletId : "")
+      setSelectableOutlets(home.selectableOutlets)
+      if (checkout && outletId !== undefined && sameCheckout) {
+        setCheckoutDestinations((current) => [
+          ...current.filter((destination) => destination.id !== outletId),
+          ...home.checkoutDestinations,
+        ])
+      } else {
+        setCheckoutDestinations(sameCheckout ? home.checkoutDestinations : [])
+      }
+      return result
+    },
+    []
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -331,7 +339,8 @@ function AttendancePage() {
             "/attendance/me/requests"
           )
             .then(({ requests }) => {
-              if (!cancelled && !identityChangeInProgress.current) setRequestSummary(requests)
+              if (!cancelled && !identityChangeInProgress.current)
+                setRequestSummary(requests)
             })
             .catch((caught) => {
               if (cancelled) return
@@ -379,7 +388,9 @@ function AttendancePage() {
                 ? (stored?.location ?? null)
                 : null,
               photo: matchesStoredPayload ? stored?.photo : undefined,
-              photoSkipped: matchesStoredPayload ? stored?.photoSkipped : undefined,
+              photoSkipped: matchesStoredPayload
+                ? stored?.photoSkipped
+                : undefined,
               photoUnavailable: !matchesStoredPayload,
               needsRecovery: true,
             })
@@ -465,7 +476,12 @@ function AttendancePage() {
   }, [stopCamera])
 
   useEffect(() => {
-    if (!cameraOpen || verificationStage !== "photo" || cameraMode !== "capture") return
+    if (
+      !cameraOpen ||
+      verificationStage !== "photo" ||
+      cameraMode !== "capture"
+    )
+      return
     let cancelled = false
 
     async function startCamera() {
@@ -553,7 +569,11 @@ function AttendancePage() {
     function onVisibilityChange() {
       if (document.visibilityState === "hidden") {
         stopCamera()
-        if (cameraOpen && verificationStage === "photo" && cameraMode === "capture") {
+        if (
+          cameraOpen &&
+          verificationStage === "photo" &&
+          cameraMode === "capture"
+        ) {
           setCameraReady(false)
           setCameraError(
             "Kamera dijeda saat halaman tidak aktif. Aktifkan kembali untuk melanjutkan."
@@ -561,7 +581,11 @@ function AttendancePage() {
         }
         return
       }
-      if (cameraOpen && verificationStage === "photo" && cameraMode === "capture") {
+      if (
+        cameraOpen &&
+        verificationStage === "photo" &&
+        cameraMode === "capture"
+      ) {
         setCameraAttempt((attempt) => attempt + 1)
       }
       if (pending) {
@@ -588,35 +612,36 @@ function AttendancePage() {
     return () => window.cancelAnimationFrame(frame)
   }, [loading])
 
-  const refreshLatestState = useCallback(async (
-    checkout?: CheckoutSelection,
-    rejection = ""
-  ) => {
-    setStateFresh(false)
-    setError(rejection)
-    try {
-      if (checkout?.outletId != null) {
-        try {
-          await refresh(checkout.outletId, true, checkout)
-        } catch (caught) {
-          setSelectedOutletId("")
-          if (getAuthRecoveryPath(caught)) throw caught
-          // Refresh the available choices without accepting the server's default destination.
-          await refresh(undefined, true, checkout)
+  const refreshLatestState = useCallback(
+    async (checkout?: CheckoutSelection, rejection = "") => {
+      setStateFresh(false)
+      setError(rejection)
+      try {
+        if (checkout?.outletId != null) {
+          try {
+            await refresh(checkout.outletId, true, checkout)
+          } catch (caught) {
+            setSelectedOutletId("")
+            if (getAuthRecoveryPath(caught)) throw caught
+            // Refresh the available choices without accepting the server's default destination.
+            await refresh(undefined, true, checkout)
+          }
+        } else {
+          await refresh(undefined, Boolean(checkout), checkout)
         }
-      } else {
-        await refresh(undefined, Boolean(checkout), checkout)
+      } catch (caught) {
+        if (checkout) setSelectedOutletId("")
+        const recovery = getAuthRecoveryPath(caught)
+        if (recovery) window.location.assign(recovery)
+        else {
+          const message =
+            "Status terbaru belum dapat dimuat. Muat ulang status sebelum mencatat lagi."
+          setError(rejection ? `${rejection} ${message}` : message)
+        }
       }
-    } catch (caught) {
-      if (checkout) setSelectedOutletId("")
-      const recovery = getAuthRecoveryPath(caught)
-      if (recovery) window.location.assign(recovery)
-      else {
-        const message = "Status terbaru belum dapat dimuat. Muat ulang status sebelum mencatat lagi."
-        setError(rejection ? `${rejection} ${message}` : message)
-      }
-    }
-  }, [refresh])
+    },
+    [refresh]
+  )
 
   const clearPendingOperation = useCallback(
     async (operation: PendingOperation): Promise<boolean> => {
@@ -636,7 +661,9 @@ function AttendancePage() {
         setError(
           "Status server sudah diketahui, tetapi data foto lokal belum dapat dibersihkan. Operasi baru diblokir sampai pembersihan berhasil."
         )
-        notifications.warning("Foto sementara belum berhasil dibersihkan", { id: `attendance:${operation.tenantId}:${operation.employeeId}:${operation.key}:cleanup` })
+        notifications.warning("Foto sementara belum berhasil dibersihkan", {
+          id: `attendance:${operation.tenantId}:${operation.employeeId}:${operation.key}:cleanup`,
+        })
         return false
       }
     },
@@ -667,18 +694,27 @@ function AttendancePage() {
           (result.contract_version !== 3 ||
             result.checkout_outlet_id !== operation.outletId ||
             (result.checkout_session_id !== operation.checkoutSessionId &&
-              !(result.state === "rejected" && result.checkout_session_id === null)))
+              !(
+                result.state === "rejected" &&
+                result.checkout_session_id === null
+              )))
         ) {
           setOperationState("pending")
-          setPending((current) => current && { ...current, needsRecovery: false })
-          setError("Tujuan atau sesi dari server berbeda. Presensi diblokir sampai status diperiksa kembali.")
+          setPending(
+            (current) => current && { ...current, needsRecovery: false }
+          )
+          setError(
+            "Tujuan atau sesi dari server berbeda. Presensi diblokir sampai status diperiksa kembali."
+          )
           return "unknown"
         }
 
         if (result.state === "completed" && result.result) {
           setNotice(attendanceConfirmation(result.result as OperationResult))
           setError("")
-          notifications.success("Presensi terkonfirmasi oleh server", { id: `attendance:${operation.tenantId}:${operation.employeeId}:${operation.key}:completed` })
+          notifications.success("Presensi terkonfirmasi oleh server", {
+            id: `attendance:${operation.tenantId}:${operation.employeeId}:${operation.key}:completed`,
+          })
           if (await clearPendingOperation(operation)) {
             setPending(null)
             setOperationState("idle")
@@ -689,7 +725,9 @@ function AttendancePage() {
           const message =
             (result.result as { message?: string } | undefined)?.message ??
             "Server menolak permintaan kehadiran. Periksa status sebelum memulai operasi baru."
-          notifications.error(message, { id: `attendance:${operation.tenantId}:${operation.employeeId}:${operation.key}:rejected` })
+          notifications.error(message, {
+            id: `attendance:${operation.tenantId}:${operation.employeeId}:${operation.key}:rejected`,
+          })
           if (await clearPendingOperation(operation)) {
             setPending(null)
             setOperationState("idle")
@@ -709,7 +747,7 @@ function AttendancePage() {
             (current) => current && { ...current, needsRecovery: false }
           )
           setError(
-            (operation.photo || operation.photoSkipped)
+            operation.photo || operation.photoSkipped
               ? "Server belum menemukan operasi ini. Periksa status lagi; pengiriman ulang hanya memakai data dan kunci yang sama."
               : "Server belum menemukan operasi ini, tetapi foto lokal sudah dibersihkan. Jangan buat operasi baru; minta penyelesaian administratif yang diaudit."
           )
@@ -796,7 +834,10 @@ function AttendancePage() {
       if (next.operation === "check_in" && next.outletId !== null) {
         body.set("outlet_id", String(next.outletId))
       }
-      if (next.operation === "check_out" && next.checkoutSessionId !== undefined) {
+      if (
+        next.operation === "check_out" &&
+        next.checkoutSessionId !== undefined
+      ) {
         body.set("checkout_outlet_id", String(next.outletId))
         body.set("checkout_session_id", String(next.checkoutSessionId))
       }
@@ -809,7 +850,8 @@ function AttendancePage() {
           String(next.location.accuracy_meters)
         )
       }
-      if (next.photo) body.set("photo", next.photo, `attendance-${next.operation}.jpg`)
+      if (next.photo)
+        body.set("photo", next.photo, `attendance-${next.operation}.jpg`)
 
       const currentSession = await apiRequest<AuthSession>("/auth/me")
       const currentAttendance =
@@ -849,7 +891,9 @@ function AttendancePage() {
       }
 
       setNotice(attendanceConfirmation(result))
-      notifications.success("Presensi terkonfirmasi oleh server", { id: `attendance:${next.tenantId}:${next.employeeId}:${next.key}:completed` })
+      notifications.success("Presensi terkonfirmasi oleh server", {
+        id: `attendance:${next.tenantId}:${next.employeeId}:${next.key}:completed`,
+      })
       if (await clearPendingOperation(next)) {
         setPending(null)
         setOperationState("idle")
@@ -869,7 +913,9 @@ function AttendancePage() {
             ? "Identitas akun berubah. Presensi belum dikirim; muat ulang halaman dan periksa kembali status."
             : "Data sementara tidak dapat disiapkan dengan aman. Presensi belum dikirim."
         setError(message)
-        notifications.error(message, { id: `attendance:${next.tenantId}:${next.employeeId}:${next.key}:preparation` })
+        notifications.error(message, {
+          id: `attendance:${next.tenantId}:${next.employeeId}:${next.key}:preparation`,
+        })
         return
       }
       const recoveryPath = getAuthRecoveryPath(caught)
@@ -900,7 +946,9 @@ function AttendancePage() {
           "Hasil permintaan belum pasti. Periksa status sebelum mengulang."
         )
       } else {
-        notifications.error(caught.message, { id: `attendance:${next.tenantId}:${next.employeeId}:${next.key}:rejected` })
+        notifications.error(caught.message, {
+          id: `attendance:${next.tenantId}:${next.employeeId}:${next.key}:rejected`,
+        })
         if (await clearPendingOperation(next)) {
           setPending(null)
           setOperationState("idle")
@@ -934,9 +982,21 @@ function AttendancePage() {
     try {
       const location = await new Promise<LocationEvidence>((resolve) => {
         navigator.geolocation.getCurrentPosition(
-          (position) => resolve({ status: "provided", latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy_meters: position.coords.accuracy }),
-          (failure) => resolve({ status: failure.code === failure.PERMISSION_DENIED ? "permission_denied" : "unavailable" }),
-          { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
+          (position) =>
+            resolve({
+              status: "provided",
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy_meters: position.coords.accuracy,
+            }),
+          (failure) =>
+            resolve({
+              status:
+                failure.code === failure.PERMISSION_DENIED
+                  ? "permission_denied"
+                  : "unavailable",
+            }),
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
         )
       })
       if (context === locationContext.current) setCurrentLocation(location)
@@ -991,7 +1051,8 @@ function AttendancePage() {
       return
     }
 
-    if (!locationPolicy || !selectedOutletId || attendance.active_session) return
+    if (!locationPolicy || !selectedOutletId || attendance.active_session)
+      return
     const context = locationContext.current
     const nextDraft: AttendanceDraft = {
       operation,
@@ -1020,7 +1081,8 @@ function AttendancePage() {
         attempt !== verificationAttempt.current ||
         identityChangeInProgress.current ||
         context !== locationContext.current
-      ) return
+      )
+        return
       const eligibility = locationEligibility(locationPolicy, location)
       setCurrentLocation(location)
       if (!eligibility.eligible) {
@@ -1042,7 +1104,8 @@ function AttendancePage() {
   }
 
   async function refreshVerificationLocation() {
-    if (!draft || !locationPolicy || busy || operationState === "sending") return
+    if (!draft || !locationPolicy || busy || operationState === "sending")
+      return
     const attempt = ++verificationAttempt.current
     const context = locationContext.current
     setBusy(true)
@@ -1056,10 +1119,11 @@ function AttendancePage() {
         attempt !== verificationAttempt.current ||
         identityChangeInProgress.current ||
         context !== locationContext.current
-      ) return
+      )
+        return
       const eligibility = locationEligibility(locationPolicy, location)
       setCurrentLocation(location)
-      setDraft((current) => current ? { ...current, location } : current)
+      setDraft((current) => (current ? { ...current, location } : current))
       if (!eligibility.eligible) {
         setLocationError(eligibility.message)
         setError(eligibility.message)
@@ -1088,7 +1152,10 @@ function AttendancePage() {
       void submitOperation({ ...next, photo: photoBlob })
       return
     }
-    if (readyAttendance.require_personal_photo === false && cameraMode === "capture") {
+    if (
+      readyAttendance.require_personal_photo === false &&
+      cameraMode === "capture"
+    ) {
       stopCamera()
       void submitOperation({ ...next, photoSkipped: true })
     }
@@ -1197,11 +1264,15 @@ function AttendancePage() {
     if (busy || pending) return
     setBusy(true)
     try {
-      await refreshLatestState(openSession && readyAttendance ? {
-        outletId: selectedOutletId ? Number(selectedOutletId) : null,
-        sessionId: openSession.id,
-        employeeId: readyAttendance.employee.id,
-      } : undefined)
+      await refreshLatestState(
+        openSession && readyAttendance
+          ? {
+              outletId: selectedOutletId ? Number(selectedOutletId) : null,
+              sessionId: openSession.id,
+              employeeId: readyAttendance.employee.id,
+            }
+          : undefined
+      )
     } finally {
       setBusy(false)
     }
@@ -1214,11 +1285,17 @@ function AttendancePage() {
     setError("")
     try {
       const outletId = Number(value)
-      await refresh(outletId, Boolean(openSession), openSession && readyAttendance ? {
+      await refresh(
         outletId,
-        sessionId: openSession.id,
-        employeeId: readyAttendance.employee.id,
-      } : undefined)
+        Boolean(openSession),
+        openSession && readyAttendance
+          ? {
+              outletId,
+              sessionId: openSession.id,
+              employeeId: readyAttendance.employee.id,
+            }
+          : undefined
+      )
     } catch (caught) {
       if (openSession) setSelectedOutletId("")
       const recoveryPath = getAuthRecoveryPath(caught)
@@ -1238,14 +1315,17 @@ function AttendancePage() {
 
   async function changeCheckoutDestination(value: string) {
     const outletId = Number(value)
-    const candidate = checkoutDestinations.find((destination) => destination.id === outletId)
+    const candidate = checkoutDestinations.find(
+      (destination) => destination.id === outletId
+    )
     if (
       !candidate ||
       !openSession ||
       !readyAttendance?.employee ||
       busy ||
       pending
-    ) return
+    )
+      return
 
     const expected = {
       outletId,
@@ -1263,17 +1343,25 @@ function AttendancePage() {
     setCameraReady(false)
     setPhotoBlob(null)
     stopCamera()
-    setDraft((current) => current ? {
-      ...current,
-      outletId: null,
-      outletName: null,
-      location: { status: "unavailable" },
-    } : current)
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            outletId: null,
+            outletName: null,
+            location: { status: "unavailable" },
+          }
+        : current
+    )
     setVerificationStage("destination")
 
     try {
       const result = await refresh(outletId, true, expected)
-      if (attempt !== verificationAttempt.current || identityChangeInProgress.current) return
+      if (
+        attempt !== verificationAttempt.current ||
+        identityChangeInProgress.current
+      )
+        return
 
       const destination = eligibleCheckoutDestination(
         result,
@@ -1297,24 +1385,33 @@ function AttendancePage() {
       }
 
       locationContext.current = `${photoIdentity?.userId}.${photoIdentity?.tenantId}.${photoIdentity?.employeeId}.${openSession.id}.${outletId}`
-      setDraft((current) => current ? {
-        ...current,
-        outletId,
-        outletName: destination.name,
-        location: { status: "unavailable" },
-      } : current)
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              outletId,
+              outletName: destination.name,
+              location: { status: "unavailable" },
+            }
+          : current
+      )
       setVerificationStage("location")
 
       const location = await captureLocation(destination.personal_location)
       if (
         attempt !== verificationAttempt.current ||
         identityChangeInProgress.current ||
-        locationContext.current !== `${photoIdentity?.userId}.${photoIdentity?.tenantId}.${photoIdentity?.employeeId}.${openSession.id}.${outletId}`
-      ) return
+        locationContext.current !==
+          `${photoIdentity?.userId}.${photoIdentity?.tenantId}.${photoIdentity?.employeeId}.${openSession.id}.${outletId}`
+      )
+        return
 
-      const eligibility = locationEligibility(destination.personal_location, location)
+      const eligibility = locationEligibility(
+        destination.personal_location,
+        location
+      )
       setCurrentLocation(location)
-      setDraft((current) => current ? { ...current, location } : current)
+      setDraft((current) => (current ? { ...current, location } : current))
       if (!eligibility.eligible) {
         setLocationError(eligibility.message)
         setError(eligibility.message)
@@ -1322,7 +1419,11 @@ function AttendancePage() {
       }
       setVerificationStage("photo")
     } catch (caught) {
-      if (attempt !== verificationAttempt.current || identityChangeInProgress.current) return
+      if (
+        attempt !== verificationAttempt.current ||
+        identityChangeInProgress.current
+      )
+        return
       const recoveryPath = getAuthRecoveryPath(caught)
       if (recoveryPath) {
         window.location.assign(recoveryPath)
@@ -1336,9 +1437,11 @@ function AttendancePage() {
       setSelectedOutletId("")
       setStateFresh(false)
       setVerificationStage("destination")
-      setError(caught instanceof ApiError && caught.status === 403
-        ? "Outlet tujuan checkout tidak lagi tersedia. Pilih Outlet lain."
-        : "Eligibility Outlet tujuan belum dapat diverifikasi. Muat ulang status sebelum melanjutkan.")
+      setError(
+        caught instanceof ApiError && caught.status === 403
+          ? "Outlet tujuan checkout tidak lagi tersedia. Pilih Outlet lain."
+          : "Eligibility Outlet tujuan belum dapat diverifikasi. Muat ulang status sebelum melanjutkan."
+      )
     } finally {
       if (attempt === verificationAttempt.current) setBusy(false)
     }
@@ -1360,15 +1463,25 @@ function AttendancePage() {
     ? checkoutDestination?.personal_location
     : readyAttendance?.personal_location
   const currentOperation = openSession
-    ? checkoutDestination?.mode_allowed ? "check_out" : null
+    ? checkoutDestination?.mode_allowed
+      ? "check_out"
+      : null
     : (readyAttendance?.allowed_next_operation ?? null)
-  const selectedOutlet = openSession?.outlet.name ??
-    readyAttendance?.outlets.find((outlet) => String(outlet.id) === selectedOutletId)?.name ??
+  const selectedOutlet =
+    openSession?.outlet.name ??
+    readyAttendance?.outlets.find(
+      (outlet) => String(outlet.id) === selectedOutletId
+    )?.name ??
     null
   const today = readyAttendance
-    ? attendanceWorkDate(readyAttendance.server_time, readyAttendance.schedule?.timezone ?? "Asia/Jakarta")
+    ? attendanceWorkDate(
+        readyAttendance.server_time,
+        readyAttendance.schedule?.timezone ?? "Asia/Jakarta"
+      )
     : null
-  const week = today ? currentWeekAttendance(readyAttendance?.effective_attendance, today) : undefined
+  const week = today
+    ? currentWeekAttendance(readyAttendance?.effective_attendance, today)
+    : undefined
   const serverHistory = readyAttendance?.effective_attendance
   const historyWorkDate = serverHistory?.length
     ? serverHistory[serverHistory.length - 1].work_date
@@ -1377,27 +1490,50 @@ function AttendancePage() {
     ? currentWeekAttendance(serverHistory, historyWorkDate)
     : undefined
   const todayResult = week?.find((day) => day.work_date === today)
-  const unresolvedSession = openSession && today &&
-    (openSession.work_date < today || openSession.review_indicators.includes("missing_checkout"))
-    ? openSession
-    : null
-  const pendingCorrection = unresolvedSession && requestSummary?.find((request) =>
-    request.type === "attendance_correction" &&
-    request.status === "pending" &&
-    request.details.attendance_session_id === unresolvedSession.id
-  )
-  const unresolvedCorrection = readyAttendance?.correction_options?.sessions.find(
-    (option) => option.session_id === unresolvedSession?.id && option.can_start
-  )
+  const unresolvedSession =
+    openSession &&
+    today &&
+    (openSession.work_date < today ||
+      openSession.review_indicators.includes("missing_checkout"))
+      ? openSession
+      : null
+  const pendingCorrection =
+    unresolvedSession &&
+    requestSummary?.find(
+      (request) =>
+        request.type === "attendance_correction" &&
+        request.status === "pending" &&
+        request.details.attendance_session_id === unresolvedSession.id
+    )
+  const unresolvedCorrection =
+    readyAttendance?.correction_options?.sessions.find(
+      (option) =>
+        option.session_id === unresolvedSession?.id && option.can_start
+    )
   const outletNames = new Map([
-    ...(readyAttendance?.recent_history ?? []).map(({ outlet }) => [outlet.id, outlet.name] as const),
-    ...(readyAttendance?.outlets ?? []).map((outlet) => [outlet.id, outlet.name] as const),
+    ...(readyAttendance?.recent_history ?? []).map(
+      ({ outlet }) => [outlet.id, outlet.name] as const
+    ),
+    ...(readyAttendance?.outlets ?? []).map(
+      (outlet) => [outlet.id, outlet.name] as const
+    ),
   ])
-  const actionsUnavailable = loading || !photoIdentity || Boolean(pending) ||
-    busy || !stateFresh || !photoStorageReady || identityChangeInProgress.current
-  const canCheckIn = !actionsUnavailable && !openSession &&
-    Boolean(selectedOutletId) && currentOperation === "check_in"
-  const canCheckOut = !actionsUnavailable && Boolean(openSession) &&
+  const actionsUnavailable =
+    loading ||
+    !photoIdentity ||
+    Boolean(pending) ||
+    busy ||
+    !stateFresh ||
+    !photoStorageReady ||
+    identityChangeInProgress.current
+  const canCheckIn =
+    !actionsUnavailable &&
+    !openSession &&
+    Boolean(selectedOutletId) &&
+    currentOperation === "check_in"
+  const canCheckOut =
+    !actionsUnavailable &&
+    Boolean(openSession) &&
     checkoutDestinations.length > 0
   const todayStatus = !stateFresh
     ? "Status terbaru belum tersedia"
@@ -1410,9 +1546,8 @@ function AttendancePage() {
     checkoutDestination?.timezone ??
     openSession?.timezone ??
     readyAttendance?.schedule?.timezone
-  const verificationActionLabel = draft?.operation === "check_out"
-    ? "Absen Keluar"
-    : "Absen Masuk"
+  const verificationActionLabel =
+    draft?.operation === "check_out" ? "Absen Keluar" : "Absen Masuk"
   const acceptedPhoto = cameraMode === "preview" && Boolean(photoBlob)
   const canSkipOptionalPhoto =
     readyAttendance?.require_personal_photo === false &&
@@ -1429,36 +1564,53 @@ function AttendancePage() {
       !identityChangeInProgress.current &&
       (acceptedPhoto || canSkipOptionalPhoto)
   )
-  const verificationSubmitLabel = draft?.operation === "check_out" && draft.outletId === null
-    ? "Pilih Outlet tujuan"
-    : locating
-      ? "Memeriksa lokasi…"
-      : acceptedPhoto
-        ? `Gunakan Foto dan ${verificationActionLabel}`
-        : canSkipOptionalPhoto
-          ? `Lewati Foto dan ${verificationActionLabel}`
-          : verificationActionLabel
-  const verificationOutletName = draft?.operation === "check_out"
-    ? draft.outletName ?? checkoutDestination?.name ?? "Pilih Outlet tujuan checkout"
-    : draft?.outletName ?? selectedOutlet
+  const verificationSubmitLabel =
+    draft?.operation === "check_out" && draft.outletId === null
+      ? "Pilih Outlet tujuan"
+      : locating
+        ? "Memeriksa lokasi…"
+        : acceptedPhoto
+          ? `Gunakan Foto dan ${verificationActionLabel}`
+          : canSkipOptionalPhoto
+            ? `Lewati Foto dan ${verificationActionLabel}`
+            : verificationActionLabel
+  const verificationOutletName =
+    draft?.operation === "check_out"
+      ? (draft.outletName ??
+        checkoutDestination?.name ??
+        "Pilih Outlet tujuan checkout")
+      : (draft?.outletName ?? selectedOutlet)
   const verificationLocation = currentLocation ?? draft?.location ?? null
-  const outletPoint = locationPolicy?.latitude != null && locationPolicy.longitude != null
-    ? { latitude: locationPolicy.latitude, longitude: locationPolicy.longitude }
-    : null
-  const employeePoint = verificationLocation?.status === "provided" &&
-    verificationLocation.latitude != null && verificationLocation.longitude != null
-    ? { latitude: verificationLocation.latitude, longitude: verificationLocation.longitude }
-    : null
-  const verificationDistanceMeters = outletPoint && employeePoint &&
-    validCoordinates(outletPoint) && validCoordinates(employeePoint)
-    ? Math.ceil(distanceMeters(outletPoint, employeePoint))
-    : null
-  const verificationAccuracyMeters = verificationLocation?.status === "provided" &&
+  const outletPoint =
+    locationPolicy?.latitude != null && locationPolicy.longitude != null
+      ? {
+          latitude: locationPolicy.latitude,
+          longitude: locationPolicy.longitude,
+        }
+      : null
+  const employeePoint =
+    verificationLocation?.status === "provided" &&
+    verificationLocation.latitude != null &&
+    verificationLocation.longitude != null
+      ? {
+          latitude: verificationLocation.latitude,
+          longitude: verificationLocation.longitude,
+        }
+      : null
+  const verificationDistanceMeters =
+    outletPoint &&
+    employeePoint &&
+    validCoordinates(outletPoint) &&
+    validCoordinates(employeePoint)
+      ? Math.ceil(distanceMeters(outletPoint, employeePoint))
+      : null
+  const verificationAccuracyMeters =
+    verificationLocation?.status === "provided" &&
     verificationLocation.accuracy_meters != null &&
     Number.isFinite(verificationLocation.accuracy_meters) &&
     verificationLocation.accuracy_meters > 0
-    ? Math.ceil(verificationLocation.accuracy_meters)
-    : null
+      ? Math.ceil(verificationLocation.accuracy_meters)
+      : null
 
   return (
     <EmployeeShell
@@ -1495,8 +1647,11 @@ function AttendancePage() {
           {readyAttendance && !openSession && (
             <div className="flex w-full max-w-xl flex-col items-center gap-3">
               <p className="text-caption break-words text-center text-muted-foreground">
-                Outlet aktif · {selectedOutlet ??
-                  (!selectableOutlets.length ? "Belum tersedia" : "Belum dipilih")}
+                Outlet aktif ·{" "}
+                {selectedOutlet ??
+                  (!selectableOutlets.length
+                    ? "Belum tersedia"
+                    : "Belum dipilih")}
               </p>
               {(selectableOutlets.length > 1 || !selectedOutletId) &&
                 selectableOutlets.length > 0 && (
@@ -1508,14 +1663,19 @@ function AttendancePage() {
                       <NativeSelect
                         disabled={Boolean(pending) || busy}
                         id="attendance-outlet"
-                        onChange={(event) => void changeOutlet(event.target.value)}
+                        onChange={(event) =>
+                          void changeOutlet(event.target.value)
+                        }
                         value={selectedOutletId}
                       >
                         <NativeSelectOption value="" disabled>
                           Pilih Outlet
                         </NativeSelectOption>
                         {selectableOutlets.map((outlet) => (
-                          <NativeSelectOption key={outlet.id} value={String(outlet.id)}>
+                          <NativeSelectOption
+                            key={outlet.id}
+                            value={String(outlet.id)}
+                          >
                             {outlet.name}
                           </NativeSelectOption>
                         ))}
@@ -1527,7 +1687,8 @@ function AttendancePage() {
           )}
           {openSession && (
             <p className="max-w-xl text-caption text-muted-foreground">
-              Sesi asal · {formatWorkDate(openSession.work_date)} · {openSession.outlet.name ?? "Outlet asal belum tersedia"}
+              Sesi asal · {formatWorkDate(openSession.work_date)} ·{" "}
+              {openSession.outlet.name ?? "Outlet asal belum tersedia"}
             </p>
           )}
           <div className="grid w-full max-w-xl grid-cols-2 gap-2">
@@ -1555,7 +1716,12 @@ function AttendancePage() {
             <AlertTitle>{identityCopy.title}</AlertTitle>
             <AlertDescription>{identityCopy.description}</AlertDescription>
             {isOwner && (
-              <Button className="mt-2 min-h-11 self-start" nativeButton={false} render={<a href="/access" />} variant="outline">
+              <Button
+                className="mt-2 min-h-11 self-start"
+                nativeButton={false}
+                render={<a href="/access" />}
+                variant="outline"
+              >
                 Atur akses karyawan
               </Button>
             )}
@@ -1570,40 +1736,74 @@ function AttendancePage() {
         )}
         {error && !cameraOpen && (
           <Alert variant={pending ? "default" : "destructive"}>
-            <AlertTitle>{pending ? "Hasil presensi belum dapat dipastikan" : "Status presensi"}</AlertTitle>
+            <AlertTitle>
+              {pending
+                ? "Hasil presensi belum dapat dipastikan"
+                : "Status presensi"}
+            </AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        {(!stateFresh || (!loading && !attendance) ||
+        {(!stateFresh ||
+          (!loading && !attendance) ||
           (readyAttendance && !readyAttendance.effective_attendance)) && (
-          <Button className="min-h-11 self-start" disabled={busy || Boolean(pending)} onClick={() => void reloadHome()} variant="outline">
+          <Button
+            className="min-h-11 self-start"
+            disabled={busy || Boolean(pending)}
+            onClick={() => void reloadHome()}
+            variant="outline"
+          >
             Muat Ulang Status
           </Button>
         )}
 
         {unresolvedSession && (
-          <Alert className="rounded-none border-0 border-l-2 border-border bg-transparent p-0 pl-3" variant="neutral">
-            <AlertTitle className="text-label">Sesi sebelumnya masih terbuka</AlertTitle>
+          <Alert
+            className="rounded-none border-0 border-l-2 border-border bg-transparent p-0 pl-3"
+            variant="neutral"
+          >
+            <AlertTitle className="text-label">
+              Sesi sebelumnya masih terbuka
+            </AlertTitle>
             <AlertDescription className="text-caption">
               <div className="flex flex-col gap-1">
-                <span>{formatWorkDate(unresolvedSession.work_date)} · {unresolvedSession.outlet.name ?? "Outlet asal belum tersedia"}</span>
                 <span>
-                {pendingCorrection
-                  ? "Koreksi menunggu keputusan. Sesi tetap terbuka."
-                  : "Jika pekerjaan masih berlangsung, selesaikan melalui alur Absen Keluar. Jika sudah berakhir, ajukan koreksi. Sesi tidak ditutup otomatis."}
+                  {formatWorkDate(unresolvedSession.work_date)} ·{" "}
+                  {unresolvedSession.outlet.name ??
+                    "Outlet asal belum tersedia"}
+                </span>
+                <span>
+                  {pendingCorrection
+                    ? "Koreksi menunggu keputusan. Sesi tetap terbuka."
+                    : "Jika pekerjaan masih berlangsung, selesaikan melalui alur Absen Keluar. Jika sudah berakhir, ajukan koreksi. Sesi tidak ditutup otomatis."}
                 </span>
               </div>
             </AlertDescription>
             <Button
               className="min-h-11 justify-self-start px-0"
               nativeButton={false}
-              render={<a href={pendingCorrection ? `/requests#request-${pendingCorrection.id}` :
-                unresolvedCorrection && readyAttendance?.correction_options
-                  ? correctionHref(readyAttendance.correction_options, unresolvedCorrection) : "/requests"} />}
+              render={
+                <a
+                  href={
+                    pendingCorrection
+                      ? `/requests#request-${pendingCorrection.id}`
+                      : unresolvedCorrection &&
+                          readyAttendance?.correction_options
+                        ? correctionHref(
+                            readyAttendance.correction_options,
+                            unresolvedCorrection
+                          )
+                        : "/requests"
+                  }
+                />
+              }
               variant="link"
             >
-              {pendingCorrection ? "Lihat koreksi yang menunggu" :
-                unresolvedCorrection ? "Ajukan koreksi sesi sebelumnya" : "Buka Permintaan"}
+              {pendingCorrection
+                ? "Lihat koreksi yang menunggu"
+                : unresolvedCorrection
+                  ? "Ajukan koreksi sesi sebelumnya"
+                  : "Buka Permintaan"}
             </Button>
           </Alert>
         )}
@@ -1615,7 +1815,13 @@ function AttendancePage() {
                 <AlertTitle>Hasil presensi belum dapat dipastikan</AlertTitle>
                 <AlertDescription>
                   {pending.checkoutSessionId !== undefined ? (
-                    <>Outlet tujuan: {readyAttendance.outlets.find((outlet) => outlet.id === pending.outletId)?.name ?? `#${pending.outletId}`}.{" "}</>
+                    <>
+                      Outlet tujuan:{" "}
+                      {readyAttendance.outlets.find(
+                        (outlet) => outlet.id === pending.outletId
+                      )?.name ?? `#${pending.outletId}`}
+                      .{" "}
+                    </>
                   ) : null}
                   {operationState === "cleanup_failed"
                     ? "Status server diketahui; pembersihan foto lokal gagal. Operasi baru diblokir."
@@ -1637,8 +1843,13 @@ function AttendancePage() {
                   >
                     Periksa status lagi
                   </Button>
-                  {operationState === "not_found" && pending.location && (pending.photo || pending.photoSkipped) ? (
-                    <Button disabled={busy} onClick={() => void retrySameOperation()}>
+                  {operationState === "not_found" &&
+                  pending.location &&
+                  (pending.photo || pending.photoSkipped) ? (
+                    <Button
+                      disabled={busy}
+                      onClick={() => void retrySameOperation()}
+                    >
                       Periksa lalu kirim ulang
                     </Button>
                   ) : null}
@@ -1657,30 +1868,63 @@ function AttendancePage() {
 
             {stateFresh && locationPolicy?.required && selectedOutletId && (
               <p className="text-caption" role="status">
-                {locating ? "Memeriksa lokasi…" : currentLocation?.status === "provided"
-                  ? locationEligibility(locationPolicy, currentLocation).eligible ? "Lokasi terverifikasi di perangkat." : "Lokasi perlu diperiksa kembali."
-                  : currentLocation?.status === "permission_denied" ? "Izin lokasi ditolak."
-                    : "Lokasi diperiksa saat memulai presensi."}
+                {locating
+                  ? "Memeriksa lokasi…"
+                  : currentLocation?.status === "provided"
+                    ? locationEligibility(locationPolicy, currentLocation)
+                        .eligible
+                      ? "Lokasi terverifikasi di perangkat."
+                      : "Lokasi perlu diperiksa kembali."
+                    : currentLocation?.status === "permission_denied"
+                      ? "Izin lokasi ditolak."
+                      : "Lokasi diperiksa saat memulai presensi."}
               </p>
             )}
             {stateFresh && locationPolicy?.required && selectedOutletId && (
               <Collapsible>
-                <CollapsibleTrigger render={<Button className="min-h-11" variant="outline" />}>
+                <CollapsibleTrigger
+                  render={<Button className="min-h-11" variant="outline" />}
+                >
                   Detail lokasi presensi
                 </CollapsibleTrigger>
                 <CollapsibleContent className="flex flex-col gap-3 pt-3">
-                  <p className="text-label">{checkoutDestination?.name ?? selectedOutlet}</p>
-                  <p className="text-caption text-muted-foreground">Radius yang diizinkan · {locationPolicy.radius_meters ?? "Belum tersedia"} m</p>
+                  <p className="text-label">
+                    {checkoutDestination?.name ?? selectedOutlet}
+                  </p>
+                  <p className="text-caption text-muted-foreground">
+                    Radius yang diizinkan ·{" "}
+                    {locationPolicy.radius_meters ?? "Belum tersedia"} m
+                  </p>
                   <OutletGeofenceMap
-                    outletName={checkoutDestination?.name ?? selectedOutlet ?? "Outlet"}
+                    outletName={
+                      checkoutDestination?.name ?? selectedOutlet ?? "Outlet"
+                    }
                     latitude={locationPolicy.latitude ?? null}
                     longitude={locationPolicy.longitude ?? null}
                     radiusMeters={locationPolicy.radius_meters}
-                    position={currentLocation?.status === "provided" && currentLocation.latitude != null && currentLocation.longitude != null && currentLocation.accuracy_meters != null ? { latitude: currentLocation.latitude, longitude: currentLocation.longitude, accuracy_meters: currentLocation.accuracy_meters } : null}
-                    onLocate={() => { void captureLocation() }}
+                    position={
+                      currentLocation?.status === "provided" &&
+                      currentLocation.latitude != null &&
+                      currentLocation.longitude != null &&
+                      currentLocation.accuracy_meters != null
+                        ? {
+                            latitude: currentLocation.latitude,
+                            longitude: currentLocation.longitude,
+                            accuracy_meters: currentLocation.accuracy_meters,
+                          }
+                        : null
+                    }
+                    onLocate={() => {
+                      void captureLocation()
+                    }}
                     locating={locating || busy || Boolean(pending)}
                   />
-                  <p className="text-caption" role="status">{locationEligibility(locationPolicy, currentLocation).message}</p>
+                  <p className="text-caption" role="status">
+                    {
+                      locationEligibility(locationPolicy, currentLocation)
+                        .message
+                    }
+                  </p>
                 </CollapsibleContent>
               </Collapsible>
             )}
@@ -1715,7 +1959,8 @@ function AttendancePage() {
             </div>
             {draft?.operation === "check_in" && today ? (
               <p className="pb-2 text-center text-caption text-muted-foreground">
-                Work Date · <time dateTime={today}>{formatWorkDate(today)}</time>
+                Work Date ·{" "}
+                <time dateTime={today}>{formatWorkDate(today)}</time>
               </p>
             ) : null}
             <DialogDescription className="sr-only">
@@ -1733,45 +1978,71 @@ function AttendancePage() {
                   <h2 className="text-label">Sesi asal</h2>
                   <dl className="mt-2 grid grid-cols-2 gap-3 text-body">
                     <div>
-                      <dt className="text-caption text-muted-foreground">Work Date asal</dt>
-                      <dd><time dateTime={openSession.work_date}>{formatWorkDate(openSession.work_date)}</time></dd>
+                      <dt className="text-caption text-muted-foreground">
+                        Work Date asal
+                      </dt>
+                      <dd>
+                        <time dateTime={openSession.work_date}>
+                          {formatWorkDate(openSession.work_date)}
+                        </time>
+                      </dd>
                     </div>
                     <div className="min-w-0">
-                      <dt className="text-caption text-muted-foreground">Outlet asal</dt>
-                      <dd className="truncate" title={openSession.outlet.name ?? undefined}>
-                        {openSession.outlet.name ?? "Outlet asal belum tersedia"}
+                      <dt className="text-caption text-muted-foreground">
+                        Outlet asal
+                      </dt>
+                      <dd
+                        className="truncate"
+                        title={openSession.outlet.name ?? undefined}
+                      >
+                        {openSession.outlet.name ??
+                          "Outlet asal belum tersedia"}
                       </dd>
                     </div>
                   </dl>
                 </section>
               )}
 
-              <section aria-labelledby="verification-outlet-title" className="py-4">
+              <section
+                aria-labelledby="verification-outlet-title"
+                className="py-4"
+              >
                 <h2 className="text-subtitle" id="verification-outlet-title">
-                  {draft?.operation === "check_out" ? "Outlet tujuan checkout" : "Outlet presensi"}
+                  {draft?.operation === "check_out"
+                    ? "Outlet tujuan checkout"
+                    : "Outlet presensi"}
                 </h2>
                 {draft?.operation === "check_out" ? (
                   <FieldGroup className="mt-2">
                     <Field data-disabled={busy || pending ? true : undefined}>
-                      <FieldLabel htmlFor="checkout-destination">Pilih Outlet tujuan checkout</FieldLabel>
+                      <FieldLabel htmlFor="checkout-destination">
+                        Pilih Outlet tujuan checkout
+                      </FieldLabel>
                       <NativeSelect
                         disabled={Boolean(pending) || busy}
                         id="checkout-destination"
-                        onChange={(event) => void changeCheckoutDestination(event.target.value)}
+                        onChange={(event) =>
+                          void changeCheckoutDestination(event.target.value)
+                        }
                         value={selectedOutletId}
                       >
                         <NativeSelectOption value="" disabled>
                           Pilih Outlet tujuan
                         </NativeSelectOption>
                         {checkoutDestinations.map((destination) => (
-                          <NativeSelectOption key={destination.id} value={String(destination.id)}>
+                          <NativeSelectOption
+                            key={destination.id}
+                            value={String(destination.id)}
+                          >
                             {destination.name}
                           </NativeSelectOption>
                         ))}
                       </NativeSelect>
                     </Field>
                     {error && verificationStage === "destination" && (
-                      <p className="text-caption text-destructive" role="alert">{error}</p>
+                      <p className="text-caption text-destructive" role="alert">
+                        {error}
+                      </p>
                     )}
                   </FieldGroup>
                 ) : (
@@ -1783,8 +2054,13 @@ function AttendancePage() {
 
               <Separator className="bg-border/70" />
 
-              <section aria-labelledby="verification-photo-title" className="py-4">
-                <h2 className="text-subtitle" id="verification-photo-title">Foto personal</h2>
+              <section
+                aria-labelledby="verification-photo-title"
+                className="py-4"
+              >
+                <h2 className="text-subtitle" id="verification-photo-title">
+                  Foto personal
+                </h2>
                 {cameraError ? (
                   <Alert
                     className="mt-3 rounded-none border-0 border-l-2 bg-transparent p-0 pl-3 shadow-none"
@@ -1797,11 +2073,17 @@ function AttendancePage() {
 
                 <div className="mt-3 flex flex-col items-center gap-3 text-center">
                   {verificationStage === "destination" ? (
-                    <p className="text-body text-muted-foreground" role="status">
+                    <p
+                      className="text-body text-muted-foreground"
+                      role="status"
+                    >
                       Pilih Outlet tujuan checkout untuk melanjutkan.
                     </p>
                   ) : verificationStage === "location" ? (
-                    <p className="text-body text-muted-foreground" role="status">
+                    <p
+                      className="text-body text-muted-foreground"
+                      role="status"
+                    >
                       Kamera dibuka setelah lokasi lolos pemeriksaan.
                     </p>
                   ) : cameraMode === "capture" ? (
@@ -1844,7 +2126,8 @@ function AttendancePage() {
                     >
                       Coba buka kamera lagi
                     </Button>
-                  ) : verificationStage === "photo" && cameraMode === "capture" ? (
+                  ) : verificationStage === "photo" &&
+                    cameraMode === "capture" ? (
                     <Button
                       className="min-h-11"
                       disabled={!cameraReady || busy}
@@ -1852,7 +2135,8 @@ function AttendancePage() {
                     >
                       Ambil foto
                     </Button>
-                  ) : verificationStage === "photo" && cameraMode === "preview" ? (
+                  ) : verificationStage === "photo" &&
+                    cameraMode === "preview" ? (
                     <Button
                       className="min-h-11"
                       disabled={busy}
@@ -1867,8 +2151,13 @@ function AttendancePage() {
 
               <Separator className="bg-border/70" />
 
-              <section aria-labelledby="verification-location-title" className="flex flex-col py-4">
-                <h2 className="text-subtitle" id="verification-location-title">Lokasi</h2>
+              <section
+                aria-labelledby="verification-location-title"
+                className="flex flex-col py-4"
+              >
+                <h2 className="text-subtitle" id="verification-location-title">
+                  Lokasi
+                </h2>
                 {locationError ? (
                   <Alert
                     className="mt-2 rounded-none border-0 border-l-2 bg-transparent p-0 pl-3 shadow-none"
@@ -1878,24 +2167,38 @@ function AttendancePage() {
                     <AlertDescription>{locationError}</AlertDescription>
                   </Alert>
                 ) : (
-                  <p className="mt-1 text-caption text-muted-foreground" role="status">
+                  <p
+                    className="mt-1 text-caption text-muted-foreground"
+                    role="status"
+                  >
                     {locating
                       ? "Mendapatkan lokasi…"
                       : verificationStage === "destination"
                         ? "Pilih Outlet tujuan checkout."
                         : locationPolicy
-                          ? locationEligibility(locationPolicy, verificationLocation).message
+                          ? locationEligibility(
+                              locationPolicy,
+                              verificationLocation
+                            ).message
                           : "Outlet tujuan belum dapat diverifikasi."}
                   </p>
                 )}
                 <div className="mt-3 grid grid-cols-2 gap-3 text-body">
                   <p>
-                    <span className="block text-caption text-muted-foreground">Jarak ke Outlet</span>
-                    {verificationDistanceMeters == null ? "Belum tersedia" : `${verificationDistanceMeters} m`}
+                    <span className="block text-caption text-muted-foreground">
+                      Jarak ke Outlet
+                    </span>
+                    {verificationDistanceMeters == null
+                      ? "Belum tersedia"
+                      : `${verificationDistanceMeters} m`}
                   </p>
                   <p>
-                    <span className="block text-caption text-muted-foreground">Akurasi</span>
-                    {verificationAccuracyMeters == null ? "Belum tersedia" : `±${verificationAccuracyMeters} m`}
+                    <span className="block text-caption text-muted-foreground">
+                      Akurasi
+                    </span>
+                    {verificationAccuracyMeters == null
+                      ? "Belum tersedia"
+                      : `±${verificationAccuracyMeters} m`}
                   </p>
                 </div>
                 <div className="mt-3">
@@ -1904,19 +2207,25 @@ function AttendancePage() {
                     latitude={locationPolicy?.latitude ?? null}
                     longitude={locationPolicy?.longitude ?? null}
                     radiusMeters={locationPolicy?.radius_meters ?? null}
-                    position={verificationLocation?.status === "provided" &&
+                    position={
+                      verificationLocation?.status === "provided" &&
                       verificationLocation.latitude != null &&
                       verificationLocation.longitude != null &&
                       verificationLocation.accuracy_meters != null
-                      ? {
-                          latitude: verificationLocation.latitude,
-                          longitude: verificationLocation.longitude,
-                          accuracy_meters: verificationLocation.accuracy_meters,
-                        }
-                      : null}
-                    onLocate={locationPolicy?.required && locationPolicy.geofence_configured
-                      ? () => void refreshVerificationLocation()
-                      : undefined}
+                        ? {
+                            latitude: verificationLocation.latitude,
+                            longitude: verificationLocation.longitude,
+                            accuracy_meters:
+                              verificationLocation.accuracy_meters,
+                          }
+                        : null
+                    }
+                    onLocate={
+                      locationPolicy?.required &&
+                      locationPolicy.geofence_configured
+                        ? () => void refreshVerificationLocation()
+                        : undefined
+                    }
                     locating={locating || busy || Boolean(pending)}
                   />
                 </div>
@@ -1957,7 +2266,8 @@ function eligibleCheckoutDestination(
     destination?.id !== outletId ||
     !destination.mode_allowed ||
     !destination.personal_location.geofence_configured
-  ) return null
+  )
+    return null
   return destination
 }
 
@@ -1994,29 +2304,33 @@ async function loadAttendanceHome(
       }
     }
 
-    const previews = await Promise.all(attendance.outlets.map(async (outlet) => {
-      if (attendance.checkout_destination?.id === outlet.id) {
-        return { outlet, state: attendance }
-      }
-      try {
-        return {
-          outlet,
-          state: await apiRequest<AttendanceState>(
-            `/attendance/me?checkout_outlet_id=${outlet.id}`
-          ),
+    const previews = await Promise.all(
+      attendance.outlets.map(async (outlet) => {
+        if (attendance.checkout_destination?.id === outlet.id) {
+          return { outlet, state: attendance }
         }
-      } catch (caught) {
-        if (caught instanceof ApiError && caught.status === 403) {
-          return { outlet, state: null }
+        try {
+          return {
+            outlet,
+            state: await apiRequest<AttendanceState>(
+              `/attendance/me?checkout_outlet_id=${outlet.id}`
+            ),
+          }
+        } catch (caught) {
+          if (caught instanceof ApiError && caught.status === 403) {
+            return { outlet, state: null }
+          }
+          throw caught
         }
-        throw caught
-      }
-    }))
-    const changed = previews.find(({ state }) => state && (
-      !state.employee ||
-      state.employee.id !== attendance.employee.id ||
-      state.active_session?.id !== activeSessionId
-    ))
+      })
+    )
+    const changed = previews.find(
+      ({ state }) =>
+        state &&
+        (!state.employee ||
+          state.employee.id !== attendance.employee.id ||
+          state.active_session?.id !== activeSessionId)
+    )
     if (changed?.state) {
       return {
         attendance: changed.state,
@@ -2027,7 +2341,12 @@ async function loadAttendanceHome(
     }
     const checkoutDestinations = previews.flatMap(({ outlet, state }) => {
       const destination = state
-        ? eligibleCheckoutDestination(state, attendance.employee.id, activeSessionId, outlet.id)
+        ? eligibleCheckoutDestination(
+            state,
+            attendance.employee.id,
+            activeSessionId,
+            outlet.id
+          )
         : null
       return destination ? [destination] : []
     })
@@ -2091,10 +2410,13 @@ async function loadAttendanceHome(
   }
 }
 
-function checkoutSelectionFor(operation: PendingOperation): CheckoutSelection | undefined {
+function checkoutSelectionFor(
+  operation: PendingOperation
+): CheckoutSelection | undefined {
   if (operation.operation !== "check_out") return undefined
   return {
-    outletId: operation.checkoutSessionId === undefined ? null : operation.outletId,
+    outletId:
+      operation.checkoutSessionId === undefined ? null : operation.outletId,
     sessionId: operation.checkoutSessionId ?? null,
     employeeId: operation.employeeId,
   }

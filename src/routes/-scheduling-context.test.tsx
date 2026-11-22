@@ -179,7 +179,9 @@ beforeEach(() => {
       if (!week) throw new Error("Missing personal week start")
       const response = personalWeek(week)
       if (duplicateToday && week === "2026-11-09") {
-        const today = response.days.find((day) => day.work_date === "2026-11-11")
+        const today = response.days.find(
+          (day) => day.work_date === "2026-11-11"
+        )
         if (today) response.days.push({ ...today })
       }
       return response
@@ -351,7 +353,9 @@ it("keeps server Today visible while browsing another week and distinguishes res
     expect(today.textContent).toContain("Senin, 16 November 2026")
   )
   expect(
-    screen.getByRole("button", { name: /Pilih tanggal untuk minggu/ }).getAttribute("aria-label")
+    screen
+      .getByRole("button", { name: /Pilih tanggal untuk minggu/ })
+      .getAttribute("aria-label")
   ).toContain("Senin, 2 November 2026")
 })
 it("does not choose the first of duplicate Today schedule rows", async () => {
@@ -375,7 +379,9 @@ it("uses a newly verified server date after returning to the page", async () => 
   serverTime = "2026-11-08T13:37:31Z"
   mount()
   const today = await screen.findByRole("region", { name: "Hari ini" })
-  await waitFor(() => expect(today.textContent).toContain("Minggu, 8 November 2026"))
+  await waitFor(() =>
+    expect(today.textContent).toContain("Minggu, 8 November 2026")
+  )
   expect(apiRequest).toHaveBeenCalledWith(
     "/management/scheduling/me/week?week_start=2026-11-02"
   )
@@ -388,7 +394,9 @@ it("uses a newly verified server date after returning to the page", async () => 
   )
   await waitFor(() =>
     expect(
-      screen.getByRole("button", { name: /Pilih tanggal untuk minggu/ }).getAttribute("aria-label")
+      screen
+        .getByRole("button", { name: /Pilih tanggal untuk minggu/ })
+        .getAttribute("aria-label")
     ).toContain("Senin, 9 November 2026")
   )
   expect(apiRequest).toHaveBeenCalledWith(
@@ -434,14 +442,18 @@ it("opens an accessible date detail and restores focus after Escape", async () =
   employee = true
   mount()
   const restRow = await screen.findByRole("button", { name: /Sen, 9 Nov/ })
-  const outside = screen.getByRole("button", { name: /Pilih tanggal untuk minggu/ })
+  const outside = screen.getByRole("button", {
+    name: /Pilih tanggal untuk minggu/,
+  })
   fireEvent.click(restRow)
   const dialog = await screen.findByRole("dialog")
   expect(dialog.getAttribute("aria-modal")).toBe("true")
   expect(dialog.contains(document.activeElement)).toBe(true)
   expect(screen.getAllByText("Libur").length).toBeGreaterThan(1)
   outside.focus()
-  await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true))
+  await waitFor(() =>
+    expect(dialog.contains(document.activeElement)).toBe(true)
+  )
   fireEvent.keyDown(document, { key: "Escape" })
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
   await waitFor(() => expect(document.activeElement).toBe(restRow))
