@@ -11,8 +11,8 @@ describe("UI Kit organization fixture", () => {
 
   it("represents the two business units and five distinct outlets", () => {
     expect(demoOrganization.businessUnits.map(({ name }) => name)).toEqual([
-      "Cepat Kopi",
-      "Teh Poci",
+      "Kopi Kelana",
+      "Teh Sejuk",
     ])
     expect(demoOrganization.outlets).toHaveLength(5)
     expect(new Set(demoOrganization.outlets.map(({ id }) => id)).size).toBe(5)
@@ -31,16 +31,16 @@ describe("UI Kit organization fixture", () => {
 
   it("keeps outlets with the same locality distinguishable by business unit", () => {
     expect(demoOrganization.outlets.map(demoOutletLabel)).toContain(
-      "Cepat Kopi · Cepat Kopi Karangawen"
+      "Kopi Kelana · Kopi Kelana Cendana"
     )
     expect(demoOrganization.outlets.map(demoOutletLabel)).toContain(
-      "Teh Poci · Teh Poci Karangawen"
+      "Teh Sejuk · Teh Sejuk Cendana"
     )
     expect(demoOrganization.outlets.map(demoOutletLabel)).toContain(
-      "Cepat Kopi · Cepat Kopi Kaliceret"
+      "Kopi Kelana · Kopi Kelana Mawar"
     )
     expect(demoOrganization.outlets.map(demoOutletLabel)).toContain(
-      "Teh Poci · Teh Poci Kaliceret"
+      "Teh Sejuk · Teh Sejuk Mawar"
     )
   })
 })
