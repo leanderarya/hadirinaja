@@ -328,13 +328,6 @@ function EmployeeAttendanceStatesPreview() {
 
       <main className="min-h-0 overflow-y-auto overscroll-contain">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 pb-5 sm:px-5">
-          <section aria-labelledby="preview-outlet-title" className="py-2">
-            <h2 className="text-label" id="preview-outlet-title">
-              Outlet presensi
-            </h2>
-            <p className="mt-1 text-body font-medium">{outlet.name}</p>
-          </section>
-
           <Card
             aria-labelledby="preview-photo-title"
             className="border-border/70"

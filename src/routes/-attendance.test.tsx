@@ -721,21 +721,11 @@ describe("Employee attendance camera", () => {
     expect(
       screen.getByRole("region", { name: "Peta batas lokasi Outlet Pusat" })
     ).toBeTruthy()
-    const outletSection = screen.getByRole("region", {
-      name: "Outlet presensi",
-    })
+    expect(screen.queryByRole("region", { name: "Outlet presensi" })).toBeNull()
     const locationSection = screen.getByRole("region", { name: "Lokasi" })
     const photoSection = screen.getByRole("region", { name: "Foto" })
     expect(
-      outletSection.compareDocumentPosition(locationSection) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-    expect(
       photoSection.compareDocumentPosition(locationSection) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
-    expect(
-      outletSection.compareDocumentPosition(photoSection) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     expect(

@@ -2119,28 +2119,29 @@ function AttendancePage() {
 
       <main className="min-h-0 overflow-y-auto overscroll-contain">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 pb-5 sm:px-5">
-          <section aria-labelledby="verification-outlet-title" className="py-2">
-            <h2 className="text-label" id="verification-outlet-title">
-              {draft?.operation === "check_out"
-                ? "Outlet tujuan checkout"
-                : "Outlet presensi"}
-            </h2>
-            {draft?.operation === "check_out" && openSession ? (
-              <section
-                aria-label="Sesi asal checkout"
-                className="mt-1 flex flex-wrap gap-x-1 text-caption text-muted-foreground"
-              >
-                <span>Work Date asal</span>
-                <time dateTime={openSession.work_date}>
-                  {formatWorkDate(openSession.work_date)}
-                </time>
-                <span>Outlet asal</span>
-                <span>
-                  {openSession.outlet.name ?? "Outlet asal belum tersedia"}
-                </span>
-              </section>
-            ) : null}
-            {draft?.operation === "check_out" ? (
+          {draft?.operation === "check_out" ? (
+            <section
+              aria-labelledby="verification-outlet-title"
+              className="py-2"
+            >
+              <h2 className="text-label" id="verification-outlet-title">
+                Outlet tujuan checkout
+              </h2>
+              {openSession ? (
+                <section
+                  aria-label="Sesi asal checkout"
+                  className="mt-1 flex flex-wrap gap-x-1 text-caption text-muted-foreground"
+                >
+                  <span>Work Date asal</span>
+                  <time dateTime={openSession.work_date}>
+                    {formatWorkDate(openSession.work_date)}
+                  </time>
+                  <span>Outlet asal</span>
+                  <span>
+                    {openSession.outlet.name ?? "Outlet asal belum tersedia"}
+                  </span>
+                </section>
+              ) : null}
               <FieldGroup className="mt-1">
                 <Field data-disabled={busy || pending ? true : undefined}>
                   <FieldLabel htmlFor="checkout-destination">
@@ -2173,12 +2174,8 @@ function AttendancePage() {
                   </p>
                 )}
               </FieldGroup>
-            ) : (
-              <p className="mt-1 break-words text-body font-medium">
-                {verificationOutletName ?? "Outlet belum tersedia"}
-              </p>
-            )}
-          </section>
+            </section>
+          ) : null}
 
           <Card
             aria-labelledby="verification-photo-title"
