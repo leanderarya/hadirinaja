@@ -207,6 +207,11 @@ export const catalogCategories: CatalogCategory[] = [
         importPath: "@/components/employee-attendance-home-card",
       },
       {
+        id: "employee-attendance-verification-header",
+        label: "Employee Attendance Verification Header · Mobile",
+        importPath: "@/components/employee-attendance-verification-header",
+      },
+      {
         id: "employee-attendance-history",
         label: "Employee Attendance History · Sessions, evidence & corrections",
         importPath: "@/components/employee-attendance-history",

@@ -6,6 +6,7 @@ import { CtaSection } from "@/components/cta-section"
 import { EmployeeAttendanceClock } from "@/components/employee-attendance-clock"
 import { EmployeeAttendanceHistory } from "@/components/employee-attendance-history"
 import { EmployeeAttendanceHomeCard } from "@/components/employee-attendance-home-card"
+import { EmployeeAttendanceVerificationHeader } from "@/components/employee-attendance-verification-header"
 import { EmployeeNavigation, EmployeeTopbar } from "@/components/employee-shell"
 import { FacebookIcon } from "@/components/facebook-icon"
 import { Footer } from "@/components/footer"
@@ -162,6 +163,16 @@ export function AppComponentsSection() {
           canCheckOut
           onCheckIn={() => undefined}
           onCheckOut={() => undefined}
+        />
+      </UiKitSection>
+      <UiKitSection
+        id="employee-attendance-verification-header"
+        importPath="@/components/employee-attendance-verification-header"
+        title="Employee Attendance Verification Header"
+      >
+        <EmployeeAttendanceVerificationHeader
+          title="Absen masuk"
+          onBack={() => undefined}
         />
       </UiKitSection>
       <UiKitSection
