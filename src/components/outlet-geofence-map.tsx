@@ -13,6 +13,8 @@ type Props = {
   longitude: number | null
   radiusMeters: number | null
   outletName: string
+  description?: string
+  compact?: boolean
   onChange?: (point: Coordinates) => void
   position?: (Coordinates & { accuracy_meters: number }) | null
   onLocate?: () => void
@@ -24,6 +26,8 @@ export function OutletGeofenceMap({
   longitude,
   radiusMeters,
   outletName,
+  description,
+  compact = false,
   onChange,
   position,
   onLocate,
@@ -213,6 +217,7 @@ export function OutletGeofenceMap({
         className="outlet-geofence-map"
         role="region"
         aria-label={`Peta batas lokasi ${outletName}`}
+        style={compact ? { height: "152px" } : undefined}
       />
       {error ? (
         <Alert variant="destructive">
@@ -221,9 +226,10 @@ export function OutletGeofenceMap({
         </Alert>
       ) : null}
       <p className="text-caption text-muted-foreground">
-        {editable
-          ? "Klik peta untuk memilih titik, lalu geser marker Outlet. Koordinat juga dapat diisi di bawah peta. Perubahan berlaku setelah disimpan."
-          : "Marker menunjukkan Outlet, lingkaran ungu menunjukkan batas presensi. Titik biru dan lingkaran biru menunjukkan lokasi serta akurasi Anda setelah lokasi diperbarui."}
+        {description ??
+          (editable
+            ? "Klik peta untuk memilih titik, lalu geser marker Outlet. Koordinat juga dapat diisi di bawah peta. Perubahan berlaku setelah disimpan."
+            : "Marker menunjukkan Outlet, lingkaran ungu menunjukkan batas presensi. Titik biru dan lingkaran biru menunjukkan lokasi serta akurasi Anda setelah lokasi diperbarui.")}
       </p>
       {onLocate ? (
         <Button

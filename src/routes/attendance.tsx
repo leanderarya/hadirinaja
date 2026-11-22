@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { EmployeeAttendanceHistory } from "@/components/employee-attendance-history"
 import { EmployeeAttendanceHomeCard } from "@/components/employee-attendance-home-card"
+import { EmployeeAttendanceVerificationHeader } from "@/components/employee-attendance-verification-header"
 import { EmployeeShell } from "@/components/employee-shell"
 import { OutletGeofenceMap } from "@/components/outlet-geofence-map"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -1156,45 +1157,8 @@ function AttendancePage() {
       setVerificationStage("photo")
     } catch {
       if (attempt === verificationAttempt.current) {
-        const message = "Lokasi belum dapat diperiksa. Coba perbarui lokasi."
-        setLocationError(message)
-        setError(message)
-      }
-    } finally {
-      if (attempt === verificationAttempt.current) setBusy(false)
-    }
-  }
-
-  async function refreshVerificationLocation() {
-    if (!draft || !locationPolicy || busy || operationState === "sending")
-      return
-    const attempt = ++verificationAttempt.current
-    const context = locationContext.current
-    setBusy(true)
-    setLocationError("")
-    setError("")
-    setCurrentLocation(null)
-    setVerificationStage("location")
-    try {
-      const location = await captureLocation()
-      if (
-        attempt !== verificationAttempt.current ||
-        identityChangeInProgress.current ||
-        context !== locationContext.current
-      )
-        return
-      const eligibility = locationEligibility(locationPolicy, location)
-      setCurrentLocation(location)
-      setDraft((current) => (current ? { ...current, location } : current))
-      if (!eligibility.eligible) {
-        setLocationError(eligibility.message)
-        setError(eligibility.message)
-        return
-      }
-      setVerificationStage("photo")
-    } catch {
-      if (attempt === verificationAttempt.current) {
-        const message = "Lokasi belum dapat diperiksa. Coba perbarui lokasi."
+        const message =
+          "Lokasi belum dapat diperiksa. Kembali, lalu mulai ulang verifikasi."
         setLocationError(message)
         setError(message)
       }
@@ -1221,6 +1185,24 @@ function AttendancePage() {
       stopCamera()
       void submitOperation({ ...next, photoSkipped: true })
     }
+  }
+
+  function handleVerificationPrimaryAction() {
+    if (verificationStage !== "photo") return
+    if (cameraMode === "capture") {
+      if (cameraError) {
+        if (canSkipOptionalPhoto) submitVerifiedAttendance()
+        else setCameraAttempt((attempt) => attempt + 1)
+        return
+      }
+      void capturePhoto()
+      return
+    }
+    if (!photoAccepted) {
+      setPhotoAccepted(true)
+      return
+    }
+    submitVerifiedAttendance()
   }
 
   async function retrySameOperation() {
@@ -1693,13 +1675,24 @@ function AttendancePage() {
           ? "Tunggu lokasi"
           : verificationStage !== "photo"
             ? "Tunggu lokasi"
-            : cameraMode === "capture" && !canSkipOptionalPhoto
-              ? cameraReady
-                ? "Ambil foto dulu"
-                : "Tunggu kamera"
+            : cameraMode === "capture"
+              ? cameraError
+                ? canSkipOptionalPhoto
+                  ? `Kirim ${verificationSubmitActionLabel}`
+                  : "Coba buka kamera lagi"
+                : "Ambil foto"
               : cameraMode === "preview" && !acceptedPhoto
-                ? "Pilih foto di atas"
+                ? "Pakai foto ini"
                 : `Kirim ${verificationSubmitActionLabel}`
+  const verificationPrimaryActionDisabled =
+    verificationStage !== "photo" ||
+    busy ||
+    Boolean(pending) ||
+    !stateFresh ||
+    !photoStorageReady ||
+    identityChangeInProgress.current ||
+    (cameraMode === "capture" && !cameraError && !cameraReady) ||
+    (cameraMode === "preview" && photoAccepted && !canSubmitVerification)
   const verificationOutletName =
     draft?.operation === "check_out"
       ? (draft.outletName ??
@@ -2079,25 +2072,12 @@ function AttendancePage() {
       className="attendance-focus-view fixed inset-0 z-50 grid h-[100dvh] min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-canvas text-foreground [&_[data-slot=alert-title]]:text-label [&_[data-slot=alert-title]]:font-semibold [&_[data-slot=alert-description]]:text-body [&_button]:font-semibold"
       data-verification-mode="focus"
     >
-      <header className="shrink-0 border-b border-border bg-surface pt-[env(safe-area-inset-top)]">
-        <div className="relative mx-auto flex min-h-14 w-full max-w-2xl items-center justify-center px-16">
-          <Button
-            aria-label="Kembali ke halaman presensi"
-            className="absolute left-2 top-1/2 -translate-y-1/2"
-            disabled={operationState === "sending"}
-            onClick={closeCamera}
-            variant="ghost"
-          >
-            Kembali
-          </Button>
-          <h1
-            className="text-title text-center outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            ref={verificationHeadingRef}
-            tabIndex={-1}
-          >
-            {verificationActionLabel}
-          </h1>
-        </div>
+      <EmployeeAttendanceVerificationHeader
+        title={verificationActionLabel}
+        headingRef={verificationHeadingRef}
+        disabled={operationState === "sending"}
+        onBack={closeCamera}
+      >
         {draft?.operation === "check_in" && today ? (
           <p className="pb-2 text-center text-caption text-muted-foreground">
             Work Date · <time dateTime={today}>{formatWorkDate(today)}</time>
@@ -2106,7 +2086,7 @@ function AttendancePage() {
         <p className="sr-only">
           Verifikasi Outlet, lokasi, dan foto sebelum presensi dikirim.
         </p>
-      </header>
+      </EmployeeAttendanceVerificationHeader>
 
       <main className="min-h-0 overflow-y-auto overscroll-contain">
         <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-5 sm:px-5">
@@ -2173,83 +2153,6 @@ function AttendancePage() {
 
           <Separator className="bg-border/70" />
 
-          <section
-            aria-labelledby="verification-location-title"
-            className="flex flex-col py-2"
-          >
-            <h2 className="text-label" id="verification-location-title">
-              Lokasi
-            </h2>
-            <p className="mt-1 text-body" role="status">
-              {locating
-                ? "Mendapatkan lokasi…"
-                : locationState === "inside"
-                  ? `Lokasi berada di area absen (${verificationDistanceMeters} m; akurasi ±${verificationAccuracyMeters} m).`
-                  : locationState === "outside"
-                    ? `Lokasi di luar area absen (${verificationDistanceMeters} m). Datang ke Outlet, lalu tekan Perbarui lokasi.`
-                    : locationState === "weak"
-                      ? `Sinyal lokasi lemah (akurasi ±${verificationAccuracyMeters} m). Pindah dekat pintu atau jendela, lalu tekan Perbarui lokasi.`
-                      : locationState === "denied"
-                        ? "Izin lokasi ditolak. Izinkan lokasi di setelan browser atau ponsel, lalu tekan Perbarui lokasi."
-                        : verificationStage === "destination"
-                          ? "Pilih Outlet tujuan checkout."
-                          : locationPolicy
-                            ? locationError ||
-                              "Lokasi belum tersedia. Aktifkan izin lokasi, lalu tekan Perbarui lokasi."
-                            : "Outlet tujuan belum dapat diverifikasi."}
-            </p>
-            {locationPolicy?.required && verificationStage !== "destination" ? (
-              <Button
-                className="mt-2 min-h-11 self-start"
-                disabled={busy || locating || Boolean(pending)}
-                onClick={() => void refreshVerificationLocation()}
-                variant="outline"
-              >
-                Perbarui lokasi
-              </Button>
-            ) : null}
-            <div className="mt-3 grid grid-cols-2 gap-3 text-body">
-              <p>
-                <span className="block text-caption">Jarak ke Outlet</span>
-                {verificationDistanceMeters == null
-                  ? "Belum tersedia"
-                  : `${verificationDistanceMeters} m`}
-              </p>
-              <p>
-                <span className="block text-caption">Akurasi</span>
-                {verificationAccuracyMeters == null
-                  ? "Belum tersedia"
-                  : `±${verificationAccuracyMeters} m`}
-              </p>
-            </div>
-            <div className="mt-2">
-              <OutletGeofenceMap
-                outletName={verificationOutletName ?? "Outlet"}
-                latitude={locationPolicy?.latitude ?? null}
-                longitude={locationPolicy?.longitude ?? null}
-                radiusMeters={locationPolicy?.radius_meters ?? null}
-                position={
-                  verificationLocation?.status === "provided" &&
-                  verificationLocation.latitude != null &&
-                  verificationLocation.longitude != null &&
-                  verificationLocation.accuracy_meters != null
-                    ? {
-                        latitude: verificationLocation.latitude,
-                        longitude: verificationLocation.longitude,
-                        accuracy_meters: verificationLocation.accuracy_meters,
-                      }
-                    : null
-                }
-                locating={locating || busy || Boolean(pending)}
-              />
-            </div>
-            <p className="text-caption text-muted-foreground">
-              Ungu = area absen · Biru = lokasi Anda
-            </p>
-          </section>
-
-          <Separator className="bg-border/70" />
-
           <section aria-labelledby="verification-photo-title" className="py-2">
             <h2 className="text-label" id="verification-photo-title">
               Foto
@@ -2304,24 +2207,7 @@ function AttendancePage() {
                 </div>
               ) : null}
 
-              {verificationStage === "photo" && cameraError ? (
-                <Button
-                  className="min-h-11"
-                  disabled={busy}
-                  onClick={() => setCameraAttempt((attempt) => attempt + 1)}
-                  variant="outline"
-                >
-                  Coba buka kamera lagi
-                </Button>
-              ) : verificationStage === "photo" && cameraMode === "capture" ? (
-                <Button
-                  className="min-h-11"
-                  disabled={!cameraReady || busy}
-                  onClick={() => void capturePhoto()}
-                >
-                  Ambil foto
-                </Button>
-              ) : verificationStage === "photo" && cameraMode === "preview" ? (
+              {verificationStage === "photo" && cameraMode === "preview" ? (
                 <div className="flex w-full flex-wrap justify-center gap-2">
                   <Button
                     className="min-h-11"
@@ -2331,17 +2217,74 @@ function AttendancePage() {
                   >
                     Ulangi
                   </Button>
-                  <Button
-                    aria-pressed={photoAccepted}
-                    className="min-h-11"
-                    disabled={busy}
-                    onClick={() => setPhotoAccepted(true)}
-                    variant={photoAccepted ? "secondary" : "default"}
-                  >
-                    Pakai foto ini
-                  </Button>
                 </div>
               ) : null}
+            </div>
+          </section>
+
+          <Separator className="bg-border/70" />
+
+          <section
+            aria-labelledby="verification-location-title"
+            className="flex flex-col py-2"
+          >
+            <h2 className="text-label" id="verification-location-title">
+              Lokasi
+            </h2>
+            <p className="mt-1 text-body" role="status">
+              {locating
+                ? "Mendapatkan lokasi…"
+                : locationState === "inside"
+                  ? `Lokasi berada di area absen (${verificationDistanceMeters} m; akurasi ±${verificationAccuracyMeters} m).`
+                  : locationState === "outside"
+                    ? `Lokasi di luar area absen (${verificationDistanceMeters} m). Datang ke Outlet, lalu kembali dan mulai ulang verifikasi.`
+                    : locationState === "weak"
+                      ? `Sinyal lokasi lemah (akurasi ±${verificationAccuracyMeters} m). Pindah dekat pintu atau jendela, lalu mulai ulang verifikasi.`
+                      : locationState === "denied"
+                        ? "Izin lokasi ditolak. Izinkan di setelan perangkat, lalu kembali dan mulai ulang verifikasi."
+                        : verificationStage === "destination"
+                          ? "Pilih Outlet tujuan checkout."
+                          : locationPolicy
+                            ? locationError ||
+                              "Lokasi belum tersedia. Aktifkan izin lokasi, lalu kembali dan mulai ulang verifikasi."
+                            : "Outlet tujuan belum dapat diverifikasi."}
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-3 text-body">
+              <p>
+                <span className="block text-caption">Jarak ke Outlet</span>
+                {verificationDistanceMeters == null
+                  ? "Belum tersedia"
+                  : `${verificationDistanceMeters} m`}
+              </p>
+              <p>
+                <span className="block text-caption">Akurasi</span>
+                {verificationAccuracyMeters == null
+                  ? "Belum tersedia"
+                  : `±${verificationAccuracyMeters} m`}
+              </p>
+            </div>
+            <div className="mt-2">
+              <OutletGeofenceMap
+                outletName={verificationOutletName ?? "Outlet"}
+                latitude={locationPolicy?.latitude ?? null}
+                longitude={locationPolicy?.longitude ?? null}
+                radiusMeters={locationPolicy?.radius_meters ?? null}
+                description="Lingkaran ungu: area absen · titik biru: lokasi Anda."
+                compact
+                position={
+                  verificationLocation?.status === "provided" &&
+                  verificationLocation.latitude != null &&
+                  verificationLocation.longitude != null &&
+                  verificationLocation.accuracy_meters != null
+                    ? {
+                        latitude: verificationLocation.latitude,
+                        longitude: verificationLocation.longitude,
+                        accuracy_meters: verificationLocation.accuracy_meters,
+                      }
+                    : null
+                }
+                locating={locating || busy || Boolean(pending)}
+              />
             </div>
           </section>
         </div>
@@ -2354,11 +2297,20 @@ function AttendancePage() {
         <div className="mx-auto w-full max-w-2xl">
           <Button
             className="min-h-12 w-full whitespace-normal"
-            disabled={!canSubmitVerification}
-            onClick={submitVerifiedAttendance}
+            disabled={verificationPrimaryActionDisabled}
+            onClick={handleVerificationPrimaryAction}
           >
             {verificationSubmitLabel}
           </Button>
+          {canSkipOptionalPhoto && !cameraError ? (
+            <Button
+              className="mt-1 w-full"
+              onClick={submitVerifiedAttendance}
+              variant="link"
+            >
+              Lewati foto
+            </Button>
+          ) : null}
         </div>
       </footer>
     </div>

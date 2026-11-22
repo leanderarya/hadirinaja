@@ -712,7 +712,9 @@ describe("Employee attendance camera", () => {
         ?.querySelector('time[datetime="2026-10-25"]')
     ).toBeTruthy()
     expect(screen.getByLabelText("Pratinjau kamera karyawan")).toBeTruthy()
-    expect(screen.getByRole("button", { name: "Ambil foto" })).toBeTruthy()
+    expect(screen.getAllByRole("button", { name: "Ambil foto" })).toHaveLength(
+      1
+    )
     expect(
       screen.getByRole("button", { name: "Kembali ke halaman presensi" })
     ).toBeTruthy()
@@ -729,14 +731,32 @@ describe("Employee attendance camera", () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     expect(
-      locationSection.compareDocumentPosition(photoSection) &
+      photoSection.compareDocumentPosition(locationSection) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     expect(
-      within(locationSection).queryAllByRole("button", {
+      outletSection.compareDocumentPosition(photoSection) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      within(photoSection).queryByRole("button", { name: "Ambil foto" })
+    ).toBeNull()
+    expect(screen.getAllByRole("button", { name: "Ambil foto" })).toHaveLength(
+      1
+    )
+    expect(
+      within(locationSection).queryByRole("button", {
         name: "Perbarui lokasi",
-      }).length
-    ).toBeLessThanOrEqual(1)
+      })
+    ).toBeNull()
+    expect(
+      within(locationSection).getByText(
+        "Lingkaran ungu: area absen · titik biru: lokasi Anda."
+      )
+    ).toBeTruthy()
+    expect(
+      within(view.parentElement as HTMLElement).queryByText("Kembali")
+    ).toBeNull()
     expect(screen.queryByRole("link", { name: "Jadwal" })).toBeNull()
     const focusRoot = view.closest("[data-verification-mode='focus']")
     expect(focusRoot?.querySelector("main")).toBeTruthy()
@@ -1104,7 +1124,15 @@ describe("Employee attendance camera", () => {
     expect(screen.queryByLabelText("Pratinjau kamera karyawan")).toBeNull()
     expect(posts).toHaveLength(0)
 
-    fireEvent.click(screen.getByRole("button", { name: "Perbarui lokasi" }))
+    fireEvent.click(
+      screen.getByRole("button", { name: "Kembali ke halaman presensi" })
+    )
+    fireEvent.click(await enabledButton("Absen keluar"))
+    await screen.findByRole("heading", { name: "Absen keluar" })
+    const retrySelect = screen.getByRole<HTMLSelectElement>("combobox", {
+      name: "Pilih Outlet tujuan checkout",
+    })
+    fireEvent.change(retrySelect, { target: { value: "6" } })
     expect(
       await screen.findByLabelText("Pratinjau kamera karyawan")
     ).toBeTruthy()
@@ -1253,7 +1281,7 @@ describe("Employee attendance camera", () => {
       name: "Sesi asal checkout",
     })
     expect(within(originRegion).getByText("Outlet Pusat")).toBeTruthy()
-    fireEvent.click(screen.getByRole("button", { name: "Kirim Absen Keluar" }))
+    fireEvent.click(screen.getByRole("button", { name: "Lewati foto" }))
     await waitFor(() => {
       expect(toast.error).toHaveBeenCalledOnce()
     })

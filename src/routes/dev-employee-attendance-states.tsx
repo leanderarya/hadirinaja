@@ -2,6 +2,7 @@ import { createFileRoute, notFound } from "@tanstack/react-router"
 import { useState } from "react"
 import { EmployeeAttendanceHistory } from "@/components/employee-attendance-history"
 import { EmployeeAttendanceHomeCard } from "@/components/employee-attendance-home-card"
+import { EmployeeAttendanceVerificationHeader } from "@/components/employee-attendance-verification-header"
 import { EmployeeShell } from "@/components/employee-shell"
 import { OutletGeofenceMap } from "@/components/outlet-geofence-map"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -291,28 +292,17 @@ function EmployeeAttendanceStatesPreview() {
       }
   const submitDisabledPhoto = state === "submit-disabled-photo"
   const hasCapturedPhoto = photoCaptured || submitDisabledPhoto
+  const isPhotoAccepted = photoAccepted || submitDisabledPhoto
 
   return (
     <div
       className="attendance-focus-view fixed inset-0 z-50 grid h-[100dvh] min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-canvas text-foreground [&_[data-slot=alert-title]]:text-label [&_[data-slot=alert-title]]:font-semibold [&_[data-slot=alert-description]]:text-body [&_button]:font-semibold"
       data-preview-state={state}
     >
-      <header className="shrink-0 border-b border-border bg-surface pt-[env(safe-area-inset-top)]">
-        <div className="relative mx-auto flex min-h-14 w-full max-w-2xl items-center justify-center px-16">
-          <Button
-            aria-label="Kembali ke halaman presensi"
-            className="absolute left-2 top-1/2 -translate-y-1/2"
-            nativeButton={false}
-            render={<a href={previewHref("home-not-checked-in")} />}
-            variant="ghost"
-          >
-            Kembali
-          </Button>
-          <h1 className="text-title text-center">
-            {operation === "check_in" ? "Absen masuk" : "Absen keluar"}
-          </h1>
-        </div>
-      </header>
+      <EmployeeAttendanceVerificationHeader
+        title={operation === "check_in" ? "Absen masuk" : "Absen keluar"}
+        backHref={previewHref("home-not-checked-in")}
+      />
 
       <main className="min-h-0 overflow-y-auto overscroll-contain">
         <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-5 sm:px-5">
@@ -321,45 +311,6 @@ function EmployeeAttendanceStatesPreview() {
               Outlet presensi
             </h2>
             <p className="mt-1 text-body font-medium">{outlet.name}</p>
-          </section>
-
-          <section aria-labelledby="preview-location-title" className="py-2">
-            <h2 className="text-label" id="preview-location-title">
-              Lokasi
-            </h2>
-            <p className="mt-1 text-body" role="status">
-              {location.denied
-                ? "Izin lokasi ditolak. Izinkan lokasi di setelan browser atau ponsel, lalu tekan Perbarui lokasi."
-                : location.outside
-                  ? `Lokasi di luar area absen (${distance} m). Datang ke Outlet, lalu tekan Perbarui lokasi.`
-                  : location.weak
-                    ? `Sinyal lokasi lemah (akurasi ±${accuracy} m). Pindah dekat pintu atau jendela, lalu tekan Perbarui lokasi.`
-                    : `Lokasi berada di area absen (${distance} m; akurasi ±${accuracy} m).`}
-            </p>
-            <Button
-              className="mt-2 min-h-11 self-start"
-              onClick={() =>
-                void navigate({
-                  search: { operation, state: "loc-inside" },
-                })
-              }
-              variant="outline"
-            >
-              Perbarui lokasi
-            </Button>
-            <div className="mt-2">
-              <OutletGeofenceMap
-                outletName={outlet.name}
-                latitude={outlet.latitude}
-                longitude={outlet.longitude}
-                radiusMeters={outlet.radius}
-                position={position}
-                locating={false}
-              />
-            </div>
-            <p className="text-caption text-muted-foreground">
-              Ungu = area absen · Biru = lokasi Anda
-            </p>
           </section>
 
           <section aria-labelledby="preview-photo-title" className="py-2">
@@ -396,23 +347,35 @@ function EmployeeAttendanceStatesPreview() {
                   >
                     Ulangi
                   </Button>
-                  <Button
-                    aria-pressed={photoAccepted}
-                    className="min-h-11"
-                    onClick={() => setPhotoAccepted(true)}
-                    variant={photoAccepted ? "secondary" : "default"}
-                  >
-                    Pakai foto ini
-                  </Button>
                 </div>
-              ) : (
-                <Button
-                  className="min-h-11"
-                  onClick={() => setPhotoCaptured(true)}
-                >
-                  Ambil foto
-                </Button>
-              )}
+              ) : null}
+            </div>
+          </section>
+
+          <section aria-labelledby="preview-location-title" className="py-2">
+            <h2 className="text-label" id="preview-location-title">
+              Lokasi
+            </h2>
+            <p className="mt-1 text-body" role="status">
+              {location.denied
+                ? "Izin lokasi ditolak. Izinkan di setelan perangkat, lalu kembali dan mulai ulang verifikasi."
+                : location.outside
+                  ? `Lokasi di luar area absen (${distance} m). Datang ke Outlet, lalu mulai ulang verifikasi.`
+                  : location.weak
+                    ? `Sinyal lokasi lemah (akurasi ±${accuracy} m). Pindah dekat pintu atau jendela, lalu mulai ulang verifikasi.`
+                    : `Lokasi berada di area absen (${distance} m; akurasi ±${accuracy} m).`}
+            </p>
+            <div className="mt-2">
+              <OutletGeofenceMap
+                outletName={outlet.name}
+                latitude={outlet.latitude}
+                longitude={outlet.longitude}
+                radiusMeters={outlet.radius}
+                description="Lingkaran ungu: area absen · titik biru: lokasi Anda."
+                compact
+                position={position}
+                locating={false}
+              />
             </div>
           </section>
         </div>
@@ -426,10 +389,18 @@ function EmployeeAttendanceStatesPreview() {
               submitDisabledPhoto ||
               location.outside ||
               location.weak ||
-              location.denied ||
-              (!photoAccepted && !submitDisabledPhoto)
+              location.denied
             }
-            onClick={() =>
+            onClick={() => {
+              if (!hasCapturedPhoto) {
+                setPhotoCaptured(true)
+                return
+              }
+              if (!isPhotoAccepted) {
+                setPhotoAccepted(true)
+                return
+              }
+              if (submitDisabledPhoto) return
               window.location.assign(
                 previewHref(
                   operation === "check_in"
@@ -438,15 +409,13 @@ function EmployeeAttendanceStatesPreview() {
                   operation
                 )
               )
-            }
+            }}
           >
             {!hasCapturedPhoto
-              ? "Ambil foto dulu"
-              : submitDisabledPhoto
-                ? "Pilih foto di atas"
-                : !photoAccepted
-                  ? "Pilih foto di atas"
-                  : `Kirim Absen ${operation === "check_in" ? "Masuk" : "Keluar"}`}
+              ? "Ambil foto"
+              : !isPhotoAccepted
+                ? "Pakai foto ini"
+                : `Kirim Absen ${operation === "check_in" ? "Masuk" : "Keluar"}`}
           </Button>
         </div>
       </footer>
