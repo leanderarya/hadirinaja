@@ -1,3 +1,5 @@
+import { Camera01Icon, Location01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { createFileRoute, notFound } from "@tanstack/react-router"
 import { useState } from "react"
 import { EmployeeAttendanceHistory } from "@/components/employee-attendance-history"
@@ -6,7 +8,15 @@ import { EmployeeAttendanceVerificationHeader } from "@/components/employee-atte
 import { EmployeeShell } from "@/components/employee-shell"
 import { OutletGeofenceMap } from "@/components/outlet-geofence-map"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import {
   attendanceDurationMinutes,
   attendanceGreeting,
@@ -293,6 +303,18 @@ function EmployeeAttendanceStatesPreview() {
   const submitDisabledPhoto = state === "submit-disabled-photo"
   const hasCapturedPhoto = photoCaptured || submitDisabledPhoto
   const isPhotoAccepted = photoAccepted || submitDisabledPhoto
+  const photoStatusBadge = isPhotoAccepted
+    ? { label: "Foto siap", variant: "success" as const }
+    : hasCapturedPhoto
+      ? { label: "Belum dipakai", variant: "neutral" as const }
+      : { label: "Menunggu foto", variant: "neutral" as const }
+  const locationStatusBadge = location.denied
+    ? { label: "Izin ditolak", variant: "destructive" as const }
+    : location.outside
+      ? { label: "Di luar area", variant: "destructive" as const }
+      : location.weak
+        ? { label: "Sinyal lemah", variant: "warning" as const }
+        : { label: "Di area absen", variant: "success" as const }
 
   return (
     <div
@@ -305,7 +327,7 @@ function EmployeeAttendanceStatesPreview() {
       />
 
       <main className="min-h-0 overflow-y-auto overscroll-contain">
-        <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-5 sm:px-5">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 pb-5 sm:px-5">
           <section aria-labelledby="preview-outlet-title" className="py-2">
             <h2 className="text-label" id="preview-outlet-title">
               Outlet presensi
@@ -313,11 +335,27 @@ function EmployeeAttendanceStatesPreview() {
             <p className="mt-1 text-body font-medium">{outlet.name}</p>
           </section>
 
-          <section aria-labelledby="preview-photo-title" className="py-2">
-            <h2 className="text-label" id="preview-photo-title">
-              Foto
-            </h2>
-            <div className="mt-3 flex flex-col items-center gap-3 text-center">
+          <Card
+            aria-labelledby="preview-photo-title"
+            className="border-border/70"
+            role="region"
+            size="sm"
+          >
+            <CardHeader>
+              <CardTitle
+                className="flex items-center gap-2"
+                id="preview-photo-title"
+              >
+                <HugeiconsIcon aria-hidden="true" icon={Camera01Icon} />
+                Foto
+              </CardTitle>
+              <CardAction>
+                <Badge variant={photoStatusBadge.variant}>
+                  {photoStatusBadge.label}
+                </Badge>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="flex flex-col items-center gap-3 text-center">
               {hasCapturedPhoto ? (
                 <div
                   aria-label="Pratinjau foto bukti presensi"
@@ -335,37 +373,39 @@ function EmployeeAttendanceStatesPreview() {
                   Kamera siap
                 </div>
               )}
-              {hasCapturedPhoto ? (
-                <div className="flex flex-wrap justify-center gap-2">
-                  <Button
-                    className="min-h-11"
-                    onClick={() => {
-                      setPhotoCaptured(false)
-                      setPhotoAccepted(false)
-                    }}
-                    variant="outline"
-                  >
-                    Ulangi
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          </section>
+            </CardContent>
+          </Card>
 
-          <section aria-labelledby="preview-location-title" className="py-2">
-            <h2 className="text-label" id="preview-location-title">
-              Lokasi
-            </h2>
-            <p className="mt-1 text-body" role="status">
-              {location.denied
-                ? "Izin lokasi ditolak. Izinkan di setelan perangkat, lalu kembali dan mulai ulang verifikasi."
-                : location.outside
-                  ? `Lokasi di luar area absen (${distance} m). Datang ke Outlet, lalu mulai ulang verifikasi.`
-                  : location.weak
-                    ? `Sinyal lokasi lemah (akurasi ±${accuracy} m). Pindah dekat pintu atau jendela, lalu mulai ulang verifikasi.`
-                    : `Lokasi berada di area absen (${distance} m; akurasi ±${accuracy} m).`}
-            </p>
-            <div className="mt-2">
+          <Card
+            aria-labelledby="preview-location-title"
+            className="border-border/70"
+            role="region"
+            size="sm"
+          >
+            <CardHeader>
+              <CardTitle
+                className="flex items-center gap-2"
+                id="preview-location-title"
+              >
+                <HugeiconsIcon aria-hidden="true" icon={Location01Icon} />
+                Lokasi
+              </CardTitle>
+              <CardAction>
+                <Badge variant={locationStatusBadge.variant}>
+                  {locationStatusBadge.label}
+                </Badge>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <p className="text-body" role="status">
+                {location.denied
+                  ? "Izin lokasi ditolak. Izinkan di setelan perangkat, lalu kembali dan mulai ulang verifikasi."
+                  : location.outside
+                    ? `Lokasi di luar area absen (${distance} m). Datang ke Outlet, lalu mulai ulang verifikasi.`
+                    : location.weak
+                      ? `Sinyal lokasi lemah (akurasi ±${accuracy} m). Pindah dekat pintu atau jendela, lalu mulai ulang verifikasi.`
+                      : `Lokasi berada di area absen (${distance} m; akurasi ±${accuracy} m).`}
+              </p>
               <OutletGeofenceMap
                 outletName={outlet.name}
                 latitude={outlet.latitude}
@@ -376,47 +416,66 @@ function EmployeeAttendanceStatesPreview() {
                 position={position}
                 locating={false}
               />
-            </div>
-          </section>
+            </CardContent>
+          </Card>
         </div>
       </main>
 
       <footer className="shrink-0 border-t border-border bg-surface px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 sm:px-5">
         <div className="mx-auto w-full max-w-2xl">
-          <Button
-            className="min-h-12 w-full whitespace-normal"
-            disabled={
-              submitDisabledPhoto ||
-              location.outside ||
-              location.weak ||
-              location.denied
-            }
-            onClick={() => {
-              if (!hasCapturedPhoto) {
+          {hasCapturedPhoto ? (
+            <div className="flex w-full items-center gap-2">
+              <Button
+                className="shrink-0"
+                onClick={() => {
+                  setPhotoCaptured(false)
+                  setPhotoAccepted(false)
+                }}
+                size="sm"
+                variant="outline"
+              >
+                Ulangi
+              </Button>
+              <Button
+                className="min-h-12 w-full flex-1 whitespace-normal"
+                disabled={
+                  submitDisabledPhoto ||
+                  location.outside ||
+                  location.weak ||
+                  location.denied
+                }
+                onClick={() => {
+                  if (!isPhotoAccepted) {
+                    setPhotoAccepted(true)
+                    return
+                  }
+                  if (submitDisabledPhoto) return
+                  window.location.assign(
+                    previewHref(
+                      operation === "check_in"
+                        ? "success-check-in"
+                        : "success-check-out",
+                      operation
+                    )
+                  )
+                }}
+              >
+                {!isPhotoAccepted
+                  ? "Pakai foto ini"
+                  : `Kirim Absen ${operation === "check_in" ? "Masuk" : "Keluar"}`}
+              </Button>
+            </div>
+          ) : (
+            <Button
+              className="min-h-12 w-full whitespace-normal"
+              disabled={location.outside || location.weak || location.denied}
+              onClick={() => {
                 setPhotoCaptured(true)
-                return
-              }
-              if (!isPhotoAccepted) {
-                setPhotoAccepted(true)
-                return
-              }
-              if (submitDisabledPhoto) return
-              window.location.assign(
-                previewHref(
-                  operation === "check_in"
-                    ? "success-check-in"
-                    : "success-check-out",
-                  operation
-                )
-              )
-            }}
-          >
-            {!hasCapturedPhoto
-              ? "Ambil foto"
-              : !isPhotoAccepted
-                ? "Pakai foto ini"
-                : `Kirim Absen ${operation === "check_in" ? "Masuk" : "Keluar"}`}
-          </Button>
+              }}
+            >
+              Ambil foto
+            </Button>
+          )}
         </div>
       </footer>
     </div>

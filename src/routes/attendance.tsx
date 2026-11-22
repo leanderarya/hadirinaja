@@ -1,3 +1,5 @@
+import { Camera01Icon, Location01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { createFileRoute } from "@tanstack/react-router"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { EmployeeAttendanceHistory } from "@/components/employee-attendance-history"
@@ -6,7 +8,15 @@ import { EmployeeAttendanceVerificationHeader } from "@/components/employee-atte
 import { EmployeeShell } from "@/components/employee-shell"
 import { OutletGeofenceMap } from "@/components/outlet-geofence-map"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import {
   Collapsible,
   CollapsibleContent,
@@ -14,7 +24,6 @@ import {
 } from "@/components/ui/collapsible"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
-import { Separator } from "@/components/ui/separator"
 import { ApiError, type AuthSession, apiRequest } from "@/lib/api"
 import {
   correctionHref,
@@ -1750,6 +1759,26 @@ function AttendancePage() {
                 verificationAccuracyMeters !== null
               ? "inside"
               : "unavailable"
+  const photoStatusBadge = cameraError
+    ? { label: "Kamera bermasalah", variant: "destructive" as const }
+    : acceptedPhoto
+      ? { label: "Foto siap", variant: "success" as const }
+      : cameraMode === "preview"
+        ? { label: "Belum dipakai", variant: "neutral" as const }
+        : { label: "Menunggu foto", variant: "neutral" as const }
+  const locationStatusBadge = locating
+    ? { label: "Mencari lokasi…", variant: "neutral" as const }
+    : locationState === "inside"
+      ? { label: "Di area absen", variant: "success" as const }
+      : locationState === "outside"
+        ? { label: "Di luar area", variant: "destructive" as const }
+        : locationState === "weak"
+          ? { label: "Sinyal lemah", variant: "warning" as const }
+          : locationState === "denied"
+            ? { label: "Izin ditolak", variant: "destructive" as const }
+            : { label: "Belum tersedia", variant: "neutral" as const }
+  const showRetakeAction =
+    verificationStage === "photo" && cameraMode === "preview"
 
   useEffect(() => {
     if (cameraOpen) {
@@ -2089,7 +2118,7 @@ function AttendancePage() {
       </EmployeeAttendanceVerificationHeader>
 
       <main className="min-h-0 overflow-y-auto overscroll-contain">
-        <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-5 sm:px-5">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-4 pb-5 sm:px-5">
           <section aria-labelledby="verification-outlet-title" className="py-2">
             <h2 className="text-label" id="verification-outlet-title">
               {draft?.operation === "check_out"
@@ -2151,23 +2180,37 @@ function AttendancePage() {
             )}
           </section>
 
-          <Separator className="bg-border/70" />
-
-          <section aria-labelledby="verification-photo-title" className="py-2">
-            <h2 className="text-label" id="verification-photo-title">
-              Foto
-            </h2>
-            {cameraError ? (
-              <Alert
-                className="mt-3 rounded-none border-0 border-l-2 bg-transparent p-0 pl-3 shadow-none"
-                variant="destructive"
+          <Card
+            aria-labelledby="verification-photo-title"
+            className="border-border/70"
+            role="region"
+            size="sm"
+          >
+            <CardHeader>
+              <CardTitle
+                className="flex items-center gap-2"
+                id="verification-photo-title"
               >
-                <AlertTitle>Kamera belum siap</AlertTitle>
-                <AlertDescription>{cameraError}</AlertDescription>
-              </Alert>
-            ) : null}
+                <HugeiconsIcon aria-hidden="true" icon={Camera01Icon} />
+                Foto
+              </CardTitle>
+              <CardAction>
+                <Badge variant={photoStatusBadge.variant}>
+                  {photoStatusBadge.label}
+                </Badge>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="flex flex-col items-center gap-3 text-center">
+              {cameraError ? (
+                <Alert
+                  className="w-full rounded-none border-0 border-l-2 bg-transparent p-0 pl-3 text-left shadow-none"
+                  variant="destructive"
+                >
+                  <AlertTitle>Kamera belum siap</AlertTitle>
+                  <AlertDescription>{cameraError}</AlertDescription>
+                </Alert>
+              ) : null}
 
-            <div className="mt-3 flex flex-col items-center gap-3 text-center">
               {verificationStage === "destination" ? (
                 <p className="text-body" role="status">
                   Pilih Outlet tujuan checkout untuk melanjutkan.
@@ -2206,64 +2249,62 @@ function AttendancePage() {
                   ) : null}
                 </div>
               ) : null}
+            </CardContent>
+          </Card>
 
-              {verificationStage === "photo" && cameraMode === "preview" ? (
-                <div className="flex w-full flex-wrap justify-center gap-2">
-                  <Button
-                    className="min-h-11"
-                    disabled={busy}
-                    onClick={retakePhoto}
-                    variant="outline"
-                  >
-                    Ulangi
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          </section>
-
-          <Separator className="bg-border/70" />
-
-          <section
+          <Card
             aria-labelledby="verification-location-title"
-            className="flex flex-col py-2"
+            className="border-border/70"
+            role="region"
+            size="sm"
           >
-            <h2 className="text-label" id="verification-location-title">
-              Lokasi
-            </h2>
-            <p className="mt-1 text-body" role="status">
-              {locating
-                ? "Mendapatkan lokasi…"
-                : locationState === "inside"
-                  ? `Lokasi berada di area absen (${verificationDistanceMeters} m; akurasi ±${verificationAccuracyMeters} m).`
-                  : locationState === "outside"
-                    ? `Lokasi di luar area absen (${verificationDistanceMeters} m). Datang ke Outlet, lalu kembali dan mulai ulang verifikasi.`
-                    : locationState === "weak"
-                      ? `Sinyal lokasi lemah (akurasi ±${verificationAccuracyMeters} m). Pindah dekat pintu atau jendela, lalu mulai ulang verifikasi.`
-                      : locationState === "denied"
-                        ? "Izin lokasi ditolak. Izinkan di setelan perangkat, lalu kembali dan mulai ulang verifikasi."
-                        : verificationStage === "destination"
-                          ? "Pilih Outlet tujuan checkout."
-                          : locationPolicy
-                            ? locationError ||
-                              "Lokasi belum tersedia. Aktifkan izin lokasi, lalu kembali dan mulai ulang verifikasi."
-                            : "Outlet tujuan belum dapat diverifikasi."}
-            </p>
-            <div className="mt-3 grid grid-cols-2 gap-3 text-body">
-              <p>
-                <span className="block text-caption">Jarak ke Outlet</span>
-                {verificationDistanceMeters == null
-                  ? "Belum tersedia"
-                  : `${verificationDistanceMeters} m`}
+            <CardHeader>
+              <CardTitle
+                className="flex items-center gap-2"
+                id="verification-location-title"
+              >
+                <HugeiconsIcon aria-hidden="true" icon={Location01Icon} />
+                Lokasi
+              </CardTitle>
+              <CardAction>
+                <Badge variant={locationStatusBadge.variant}>
+                  {locationStatusBadge.label}
+                </Badge>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <p className="text-body" role="status">
+                {locating
+                  ? "Mendapatkan lokasi…"
+                  : locationState === "inside"
+                    ? `Lokasi berada di area absen (${verificationDistanceMeters} m; akurasi ±${verificationAccuracyMeters} m).`
+                    : locationState === "outside"
+                      ? `Lokasi di luar area absen (${verificationDistanceMeters} m). Datang ke Outlet, lalu kembali dan mulai ulang verifikasi.`
+                      : locationState === "weak"
+                        ? `Sinyal lokasi lemah (akurasi ±${verificationAccuracyMeters} m). Pindah dekat pintu atau jendela, lalu mulai ulang verifikasi.`
+                        : locationState === "denied"
+                          ? "Izin lokasi ditolak. Izinkan di setelan perangkat, lalu kembali dan mulai ulang verifikasi."
+                          : verificationStage === "destination"
+                            ? "Pilih Outlet tujuan checkout."
+                            : locationPolicy
+                              ? locationError ||
+                                "Lokasi belum tersedia. Aktifkan izin lokasi, lalu kembali dan mulai ulang verifikasi."
+                              : "Outlet tujuan belum dapat diverifikasi."}
               </p>
-              <p>
-                <span className="block text-caption">Akurasi</span>
-                {verificationAccuracyMeters == null
-                  ? "Belum tersedia"
-                  : `±${verificationAccuracyMeters} m`}
-              </p>
-            </div>
-            <div className="mt-2">
+              <div className="grid grid-cols-2 gap-3 text-body">
+                <p>
+                  <span className="block text-caption">Jarak ke Outlet</span>
+                  {verificationDistanceMeters == null
+                    ? "Belum tersedia"
+                    : `${verificationDistanceMeters} m`}
+                </p>
+                <p>
+                  <span className="block text-caption">Akurasi</span>
+                  {verificationAccuracyMeters == null
+                    ? "Belum tersedia"
+                    : `±${verificationAccuracyMeters} m`}
+                </p>
+              </div>
               <OutletGeofenceMap
                 outletName={verificationOutletName ?? "Outlet"}
                 latitude={locationPolicy?.latitude ?? null}
@@ -2285,8 +2326,8 @@ function AttendancePage() {
                 }
                 locating={locating || busy || Boolean(pending)}
               />
-            </div>
-          </section>
+            </CardContent>
+          </Card>
         </div>
       </main>
 
@@ -2295,13 +2336,34 @@ function AttendancePage() {
         className="shrink-0 border-t border-border bg-surface px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 sm:px-5"
       >
         <div className="mx-auto w-full max-w-2xl">
-          <Button
-            className="min-h-12 w-full whitespace-normal"
-            disabled={verificationPrimaryActionDisabled}
-            onClick={handleVerificationPrimaryAction}
-          >
-            {verificationSubmitLabel}
-          </Button>
+          {showRetakeAction ? (
+            <div className="flex w-full items-center gap-2">
+              <Button
+                className="shrink-0"
+                disabled={busy}
+                onClick={retakePhoto}
+                size="sm"
+                variant="outline"
+              >
+                Ulangi
+              </Button>
+              <Button
+                className="min-h-12 w-full flex-1 whitespace-normal"
+                disabled={verificationPrimaryActionDisabled}
+                onClick={handleVerificationPrimaryAction}
+              >
+                {verificationSubmitLabel}
+              </Button>
+            </div>
+          ) : (
+            <Button
+              className="min-h-12 w-full whitespace-normal"
+              disabled={verificationPrimaryActionDisabled}
+              onClick={handleVerificationPrimaryAction}
+            >
+              {verificationSubmitLabel}
+            </Button>
+          )}
           {canSkipOptionalPhoto && !cameraError ? (
             <Button
               className="mt-1 w-full"
