@@ -19,13 +19,17 @@ describe("UI Kit organization fixture", () => {
     expect(
       new Set(
         demoOrganization.outlets.map(({ businessUnitId }) => businessUnitId)
-      ),
+      )
     ).toEqual(new Set([201, 202]))
     expect(
-      demoOrganization.outlets.filter(({ businessUnitId }) => businessUnitId === 201),
+      demoOrganization.outlets.filter(
+        ({ businessUnitId }) => businessUnitId === 201
+      )
     ).toHaveLength(2)
     expect(
-      demoOrganization.outlets.filter(({ businessUnitId }) => businessUnitId === 202),
+      demoOrganization.outlets.filter(
+        ({ businessUnitId }) => businessUnitId === 202
+      )
     ).toHaveLength(3)
   })
 

@@ -34,9 +34,11 @@ export const demoOrganization = {
   ],
 } as const
 
-export function demoOutletLabel(outlet: (typeof demoOrganization.outlets)[number]) {
+export function demoOutletLabel(
+  outlet: (typeof demoOrganization.outlets)[number]
+) {
   const businessUnit = demoOrganization.businessUnits.find(
-    (unit) => unit.id === outlet.businessUnitId,
+    (unit) => unit.id === outlet.businessUnitId
   )
 
   return businessUnit ? `${businessUnit.name} · ${outlet.name}` : outlet.name
