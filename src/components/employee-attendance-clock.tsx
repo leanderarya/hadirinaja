@@ -94,7 +94,7 @@ export function EmployeeAttendanceClock({
       <p className="text-caption">Waktu saat ini</p>
       <time
         aria-label={`Waktu saat ini ${time}`}
-        className="text-display font-sans font-semibold leading-none tracking-normal tabular-nums"
+        className="text-title font-sans font-semibold leading-none tracking-normal tabular-nums"
         dateTime={now?.toISOString()}
         role="timer"
       >

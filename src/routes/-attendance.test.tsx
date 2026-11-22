@@ -23,8 +23,23 @@ vi.mock("@tanstack/react-router", () => ({
   }),
 }))
 vi.mock("@/components/employee-shell", () => ({
-  EmployeeShell: ({ children }: { children: React.ReactNode }) => (
+  EmployeeShell: ({
+    children,
+    outletContext,
+  }: {
+    children: React.ReactNode
+    outletContext?: {
+      outlets: Array<{ id: number; name: string }>
+      selectedOutletName?: string | null
+    }
+  }) => (
     <main>
+      <p data-testid="outlet-header">
+        {outletContext?.selectedOutletName ??
+          (outletContext?.outlets.length === 1
+            ? outletContext.outlets[0].name
+            : null)}
+      </p>
       <nav aria-label="Navigasi karyawan">
         <a href="/scheduling">Jadwal</a>
       </nav>
@@ -33,9 +48,22 @@ vi.mock("@/components/employee-shell", () => ({
   ),
 }))
 vi.mock("@/components/employee-attendance-history", () => ({
-  EmployeeAttendanceHistory: () => (
+  EmployeeAttendanceHistory: ({
+    days,
+  }: {
+    days?: Array<{ work_date: string }>
+  }) => (
     <section aria-label="Riwayat minggu ini">
       <h2>Riwayat minggu ini</h2>
+      {days?.length ? (
+        <ol aria-label="Riwayat minggu ini, terbaru lebih dulu">
+          {days.map((day) => (
+            <li key={day.work_date}>
+              <time dateTime={day.work_date}>{day.work_date}</time>
+            </li>
+          ))}
+        </ol>
+      ) : null}
     </section>
   ),
 }))
@@ -433,7 +461,10 @@ describe("Employee attendance camera", () => {
     })
     render(<AttendancePage />)
     await enabledButton("Absen Masuk")
-    expect(screen.getByText("Outlet aktif · Outlet Makassar")).toBeTruthy()
+    expect(screen.getByTestId("outlet-header").textContent).toBe(
+      "Outlet Makassar"
+    )
+    expect(screen.queryByText(/Outlet aktif ·/)).toBeNull()
     expect(
       screen.queryByRole("combobox", { name: "Outlet presensi" })
     ).toBeNull()
@@ -506,7 +537,10 @@ describe("Employee attendance camera", () => {
     ).toBe(true)
     fireEvent.change(select, { target: { value: "6" } })
     await enabledButton("Absen Masuk")
-    expect(screen.getByText("Outlet aktif · Outlet Makassar")).toBeTruthy()
+    expect(screen.getByTestId("outlet-header").textContent).toBe(
+      "Outlet Makassar"
+    )
+    expect(screen.queryByText(/Outlet aktif ·/)).toBeNull()
   })
 
   it("keeps a prior Work Date open while its correction is pending", async () => {
@@ -648,6 +682,46 @@ describe("Employee attendance camera", () => {
     expect(historyBoundary?.className).toContain("pt-4")
   })
 
+  it("renders current-week attendance history newest first on Home", async () => {
+    const days = [
+      { work_date: "2026-10-19", outcome: "present" },
+      { work_date: "2026-10-24", outcome: "present" },
+      { work_date: "2026-10-25", outcome: "present" },
+    ].map((day) => ({
+      ...day,
+      sessions: [],
+      review: { status: "none", indicators: [] },
+      unresolved_conflicts: [],
+      is_finalized: false,
+    }))
+    apiRequest.mockImplementation(async (path: string) => {
+      if (path === "/auth/me") {
+        return {
+          user: { id: 7, name: "Rani", email: "rani@example.test" },
+          active_membership: {
+            id: 19,
+            tenant: { id: 2, name: "Tenant Uji" },
+            roles: ["employee"],
+          },
+        }
+      }
+      if (path === "/attendance/me")
+        return { ...readyAttendance, effective_attendance: days }
+      return readyAttendance
+    })
+
+    render(<AttendancePage />)
+
+    const history = await screen.findByRole("list", {
+      name: "Riwayat minggu ini, terbaru lebih dulu",
+    })
+    expect(
+      within(history)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent)
+    ).toEqual(["2026-10-25", "2026-10-24", "2026-10-19"])
+  })
+
   it.each([
     320, 390, 768, 1440,
   ])("opens an accessible Focus Mode with the sticky verification bar at %i CSS px", async (width) => {
@@ -725,6 +799,12 @@ describe("Employee attendance camera", () => {
     expect(mutation?.[1].headers["Idempotency-Key"]).toMatch(/^[0-9a-f-]{36}$/i)
     expect(storedPhotos.size).toBe(0)
     expect(toast.success).toHaveBeenCalledOnce()
+    expect(toast.success).toHaveBeenCalledWith(
+      "Absen tercatat",
+      expect.objectContaining({
+        id: expect.stringMatching(/^attendance:.*:completed$/),
+      })
+    )
     expect(track.stop).toHaveBeenCalled()
   })
 
@@ -756,6 +836,12 @@ describe("Employee attendance camera", () => {
       "Status terbaru belum dapat dimuat. Muat ulang status sebelum mencatat lagi."
     )
     expect(toast.success).toHaveBeenCalledOnce()
+    expect(toast.success).toHaveBeenCalledWith(
+      "Absen tercatat",
+      expect.objectContaining({
+        id: expect.stringMatching(/^attendance:.*:completed$/),
+      })
+    )
     expect(storedPhotos.size).toBe(0)
     fireEvent.click(screen.getByRole("button", { name: "Muat Ulang Status" }))
     await waitFor(() =>
@@ -801,6 +887,12 @@ describe("Employee attendance camera", () => {
     await screen.findByText(/Izin kamera ditolak/)
     fireEvent.click(screen.getByRole("button", { name: "Kirim Absen Masuk" }))
     await screen.findByText(/Presensi masuk dikonfirmasi oleh server/)
+    expect(toast.success).toHaveBeenCalledWith(
+      "Absen tercatat",
+      expect.objectContaining({
+        id: expect.stringMatching(/^attendance:.*:completed$/),
+      })
+    )
     const posts = apiRequest.mock.calls.filter(
       ([path]) => path === "/attendance/me/check-in"
     )

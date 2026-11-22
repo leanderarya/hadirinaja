@@ -1,29 +1,33 @@
 "use client"
 
-import { CorrectionEvidencePanel } from "@/components/correction-evidence-panel"
-import { OutletGeofenceMap } from "@/components/outlet-geofence-map"
-import { EmployeeNavigation, EmployeeTopbar } from "@/components/employee-shell"
-import { EmployeeAttendanceHistory } from "@/components/employee-attendance-history"
-import { EmployeeAttendanceClock } from "@/components/employee-attendance-clock"
 import { useState } from "react"
+import { CorrectionEvidencePanel } from "@/components/correction-evidence-panel"
+import { CtaSection } from "@/components/cta-section"
+import { EmployeeAttendanceClock } from "@/components/employee-attendance-clock"
+import { EmployeeAttendanceHistory } from "@/components/employee-attendance-history"
+import { EmployeeNavigation, EmployeeTopbar } from "@/components/employee-shell"
 import { FacebookIcon } from "@/components/facebook-icon"
+import { Footer } from "@/components/footer"
 import { Header } from "@/components/header"
 import { HeaderMenu } from "@/components/header-menu"
 import { HeroSection } from "@/components/hero"
+import { InfrastructureSection } from "@/components/infrastructure-section"
 import { LinkedinIcon } from "@/components/linkedin-icon"
 import { Logo, LogoIcon } from "@/components/logo"
 import { LogoCloud } from "@/components/logo-cloud"
 import { LogosSection } from "@/components/logos-section"
-import { PricingSection } from "@/components/pricing-section"
-import { InfrastructureSection } from "@/components/infrastructure-section"
-import { TeamSection } from "@/components/team-section"
-import { NewsSection } from "@/components/news-section"
-import { CtaSection } from "@/components/cta-section"
-import { SupportSection } from "@/components/support-section"
+import {
+  ManagementSidebar,
+  ManagementTopbar,
+  OrganizationSwitcher,
+} from "@/components/management-sidebar"
 import { MetricsSection } from "@/components/metrics-section"
-import { ManagementSidebar, ManagementTopbar, OrganizationSwitcher } from "@/components/management-sidebar"
-import { Footer } from "@/components/footer"
+import { NewsSection } from "@/components/news-section"
+import { OutletGeofenceMap } from "@/components/outlet-geofence-map"
 import { Portal, PortalBackdrop } from "@/components/portal"
+import { PricingSection } from "@/components/pricing-section"
+import { SupportSection } from "@/components/support-section"
+import { TeamSection } from "@/components/team-section"
 import { Button } from "@/components/ui/button"
 import { SidebarProvider } from "@/components/ui/sidebar"
 import { UiKitSection } from "@/components/ui-kit/ui-kit-section"
@@ -32,25 +36,74 @@ import { YoutubeIcon } from "@/components/youtube-icon"
 
 export function AppComponentsSection() {
   const [portalOpen, setPortalOpen] = useState(false)
-  const [mapPoint, setMapPoint] = useState({ latitude: -6.2, longitude: 106.816666 })
+  const [mapPoint, setMapPoint] = useState({
+    latitude: -6.2,
+    longitude: 106.816666,
+  })
   const [demoOutletId, setDemoOutletId] = useState<number | null>(null)
 
   return (
     <div className="flex flex-col gap-6">
-      <UiKitSection id="outlet-geofence-map" importPath="@/components/outlet-geofence-map" title="Outlet Geofence Map">
-        <p className="text-body">Demo lokasi sintetis, tanpa penyimpanan API. Kontrol zoom memiliki target 44 × 44 px dan dapat digunakan dengan keyboard.</p>
-        <OutletGeofenceMap {...mapPoint} radiusMeters={100} outletName="Outlet contoh" onChange={setMapPoint} />
+      <UiKitSection
+        id="outlet-geofence-map"
+        importPath="@/components/outlet-geofence-map"
+        title="Outlet Geofence Map"
+      >
+        <p className="text-body">
+          Demo lokasi sintetis, tanpa penyimpanan API. Kontrol zoom memiliki
+          target 44 × 44 px dan dapat digunakan dengan keyboard.
+        </p>
+        <OutletGeofenceMap
+          {...mapPoint}
+          radiusMeters={100}
+          outletName="Outlet contoh"
+          onChange={setMapPoint}
+        />
       </UiKitSection>
-      <UiKitSection id="management-topbar" title="Management Topbar · R2C" importPath="@/components/management-sidebar">
-        <SidebarProvider className="min-h-0"><div className="w-full"><ManagementTopbar context={{ tenantName: "Uji HadirinAja", roles: ["owner"] }} onLogout={() => undefined} /></div></SidebarProvider>
+      <UiKitSection
+        id="management-topbar"
+        title="Management Topbar · R2C"
+        importPath="@/components/management-sidebar"
+      >
+        <SidebarProvider className="min-h-0">
+          <div className="w-full">
+            <ManagementTopbar
+              context={{ tenantName: "Uji HadirinAja", roles: ["owner"] }}
+              onLogout={() => undefined}
+            />
+          </div>
+        </SidebarProvider>
       </UiKitSection>
-      <UiKitSection id="organization-switcher" title="Organization Switcher · R2C" importPath="@/components/management-sidebar"><div className="max-w-[248px]"><OrganizationSwitcher tenantName="Uji HadirinAja" /></div></UiKitSection>
-      <UiKitSection id="employee-navigation" importPath="@/components/employee-shell" title="Employee Navigation">
+      <UiKitSection
+        id="organization-switcher"
+        title="Organization Switcher · R2C"
+        importPath="@/components/management-sidebar"
+      >
+        <div className="max-w-[248px]">
+          <OrganizationSwitcher tenantName="Uji HadirinAja" />
+        </div>
+      </UiKitSection>
+      <UiKitSection
+        id="employee-navigation"
+        importPath="@/components/employee-shell"
+        title="Employee Navigation"
+      >
         <div className="employee-navigation employee-navigation-demo">
           <EmployeeNavigation active="profile" />
         </div>
       </UiKitSection>
-      <UiKitSection id="employee-topbar" importPath="@/components/employee-shell" title="Employee Top Bar">
+      <UiKitSection
+        id="employee-topbar"
+        importPath="@/components/employee-shell"
+        title="Employee Top Bar"
+      >
+        <EmployeeTopbar
+          accountName="Rani Karyawan"
+          outletContext={{
+            outlets: [{ id: 1, name: "Outlet Menteng" }],
+            selectedOutletId: 1,
+          }}
+        />
         <EmployeeTopbar
           accountName="Rani Karyawan"
           outletContext={{
@@ -63,48 +116,133 @@ export function AppComponentsSection() {
           }}
         />
       </UiKitSection>
-      <UiKitSection id="correction-evidence-panel" title="Correction Evidence" importPath="@/components/correction-evidence-panel">
-        <p className="text-body">Lampiran tetap opsional. Pada permintaan yang dapat diakses, tindakan bukti dan pembuka permintaan bukti tambahan memiliki target minimal 44 × 44 px.</p>
-        <CorrectionEvidencePanel preview={{
-          files: [{ id: 1, mime_type: "application/pdf", size_bytes: 4096, available: true, hold_state: "held", expires_at: "2027-01-01", decision_id: null }],
-          supplement: { reason: "Lampirkan catatan waktu kerja.", satisfied: false },
-        }} />
+      <UiKitSection
+        id="correction-evidence-panel"
+        title="Correction Evidence"
+        importPath="@/components/correction-evidence-panel"
+      >
+        <p className="text-body">
+          Lampiran tetap opsional. Pada permintaan yang dapat diakses, tindakan
+          bukti dan pembuka permintaan bukti tambahan memiliki target minimal 44
+          × 44 px.
+        </p>
+        <CorrectionEvidencePanel
+          preview={{
+            files: [
+              {
+                id: 1,
+                mime_type: "application/pdf",
+                size_bytes: 4096,
+                available: true,
+                hold_state: "held",
+                expires_at: "2027-01-01",
+                decision_id: null,
+              },
+            ],
+            supplement: {
+              reason: "Lampirkan catatan waktu kerja.",
+              satisfied: false,
+            },
+          }}
+        />
       </UiKitSection>
-      <UiKitSection id="employee-attendance-history" importPath="@/components/employee-attendance-history" title="Employee Attendance History">
-        <p className="text-body">Contoh sintetis dua sesi dalam urutan waktu pada satu Work Date.</p>
-        <EmployeeAttendanceHistory id="history-demo" days={[{
-          work_date: "2026-11-05",
-          outcome: "present",
-          sessions: [{
-            id: 1,
-            recording_status: "closed",
-            outlet: { id: 1, name: "Outlet contoh" },
-            original: { work_date: "2026-11-05", check_in_at: "2026-11-05T01:00:00Z", check_out_at: "2026-11-05T05:00:00Z" },
-            effective: { work_date: "2026-11-05", check_in_at: "2026-11-05T01:00:00Z", check_out_at: "2026-11-05T05:00:00Z" },
-            schedule_snapshot: { timezone: "Asia/Jakarta" },
-            review_indicators: [],
-            correction: null,
-            checkout_destination: { id: 1, name: "Outlet contoh", timezone: "Asia/Jakarta" },
-            evidence: [{ event_id: 1, type: "check_in", available: false, expires_at: "2026-11-05T12:00:00Z" }],
-          }, {
-            id: 2,
-            recording_status: "closed",
-            outlet: { id: 2, name: "Outlet tujuan contoh" },
-            original: { outlet_id: 2, outlet: { id: 2, name: "Outlet tujuan contoh" }, work_date: "2026-11-05", check_in_at: "2026-11-05T06:00:00Z", check_out_at: "2026-11-05T09:00:00Z" },
-            effective: { work_date: "2026-11-05", check_in_at: "2026-11-05T06:00:00Z", check_out_at: "2026-11-05T09:00:00Z" },
-            schedule_snapshot: { timezone: "Asia/Makassar" },
-            review_indicators: [],
-            correction: null,
-            checkout_destination: { id: 2, name: "Outlet tujuan contoh", timezone: "Asia/Makassar" },
-            evidence: [{ event_id: 2, type: "check_in", available: false, expires_at: "2026-11-05T12:00:00Z" }],
-          }],
-          review: { status: "none", indicators: [] },
-          unresolved_conflicts: [],
-          is_finalized: false,
-        }]} currentWorkDate="2026-11-07" />
+      <UiKitSection
+        id="employee-attendance-history"
+        importPath="@/components/employee-attendance-history"
+        title="Employee Attendance History"
+      >
+        <p className="text-body">
+          Contoh sintetis dua sesi dalam urutan waktu pada satu Work Date.
+        </p>
+        <EmployeeAttendanceHistory
+          id="history-demo"
+          days={[
+            {
+              work_date: "2026-11-05",
+              outcome: "present",
+              sessions: [
+                {
+                  id: 1,
+                  recording_status: "closed",
+                  outlet: { id: 1, name: "Outlet contoh" },
+                  original: {
+                    work_date: "2026-11-05",
+                    check_in_at: "2026-11-05T01:00:00Z",
+                    check_out_at: "2026-11-05T05:00:00Z",
+                  },
+                  effective: {
+                    work_date: "2026-11-05",
+                    check_in_at: "2026-11-05T01:00:00Z",
+                    check_out_at: "2026-11-05T05:00:00Z",
+                  },
+                  schedule_snapshot: { timezone: "Asia/Jakarta" },
+                  review_indicators: [],
+                  correction: null,
+                  checkout_destination: {
+                    id: 1,
+                    name: "Outlet contoh",
+                    timezone: "Asia/Jakarta",
+                  },
+                  evidence: [
+                    {
+                      event_id: 1,
+                      type: "check_in",
+                      available: false,
+                      expires_at: "2026-11-05T12:00:00Z",
+                    },
+                  ],
+                },
+                {
+                  id: 2,
+                  recording_status: "closed",
+                  outlet: { id: 2, name: "Outlet tujuan contoh" },
+                  original: {
+                    outlet_id: 2,
+                    outlet: { id: 2, name: "Outlet tujuan contoh" },
+                    work_date: "2026-11-05",
+                    check_in_at: "2026-11-05T06:00:00Z",
+                    check_out_at: "2026-11-05T09:00:00Z",
+                  },
+                  effective: {
+                    work_date: "2026-11-05",
+                    check_in_at: "2026-11-05T06:00:00Z",
+                    check_out_at: "2026-11-05T09:00:00Z",
+                  },
+                  schedule_snapshot: { timezone: "Asia/Makassar" },
+                  review_indicators: [],
+                  correction: null,
+                  checkout_destination: {
+                    id: 2,
+                    name: "Outlet tujuan contoh",
+                    timezone: "Asia/Makassar",
+                  },
+                  evidence: [
+                    {
+                      event_id: 2,
+                      type: "check_in",
+                      available: false,
+                      expires_at: "2026-11-05T12:00:00Z",
+                    },
+                  ],
+                },
+              ],
+              review: { status: "none", indicators: [] },
+              unresolved_conflicts: [],
+              is_finalized: false,
+            },
+          ]}
+          currentWorkDate="2026-11-07"
+        />
       </UiKitSection>
-      <UiKitSection id="employee-attendance-clock" importPath="@/components/employee-attendance-clock" title="Employee Attendance Clock">
-        <p className="text-body">Jam berjalan mengikuti zona waktu Outlet yang diberikan; zona waktu perangkat ditampilkan sebagai fallback.</p>
+      <UiKitSection
+        id="employee-attendance-clock"
+        importPath="@/components/employee-attendance-clock"
+        title="Employee Attendance Clock"
+      >
+        <p className="text-body">
+          Jam berjalan mengikuti zona waktu Outlet yang diberikan; zona waktu
+          perangkat ditampilkan sebagai fallback.
+        </p>
         <EmployeeAttendanceClock outletTimeZone="Asia/Jakarta" />
       </UiKitSection>
       <UiKitSection id="logo" importPath="@/components/logo" title="Logo">
@@ -181,8 +319,19 @@ export function AppComponentsSection() {
         </div>
       </UiKitSection>
 
-      <UiKitSection id="management-topbar-compact" title="Management topbar · Settings return" importPath="@/components/management-sidebar">
-        <SidebarProvider className="min-h-0"><div className="min-w-0 w-full"><ManagementTopbar settingsBack context={{tenantName:"Organisasi Contoh", roles:["owner"]}} /></div></SidebarProvider>
+      <UiKitSection
+        id="management-topbar-compact"
+        title="Management topbar · Settings return"
+        importPath="@/components/management-sidebar"
+      >
+        <SidebarProvider className="min-h-0">
+          <div className="min-w-0 w-full">
+            <ManagementTopbar
+              settingsBack
+              context={{ tenantName: "Organisasi Contoh", roles: ["owner"] }}
+            />
+          </div>
+        </SidebarProvider>
       </UiKitSection>
 
       <UiKitSection
@@ -192,7 +341,11 @@ export function AppComponentsSection() {
       >
         <SidebarProvider>
           <div className="flex min-h-[320px] w-full overflow-hidden rounded-xl border">
-            <ManagementSidebar activePage="scheduling" preview context={{ tenantName: "Uji HadirinAja", roles: ["owner"] }} />
+            <ManagementSidebar
+              activePage="scheduling"
+              preview
+              context={{ tenantName: "Uji HadirinAja", roles: ["owner"] }}
+            />
             <div className="flex flex-1 items-center justify-center p-4 text-body text-muted-foreground">
               Area konten portal
             </div>
@@ -269,11 +422,7 @@ export function AppComponentsSection() {
         <InfrastructureSection />
       </UiKitSection>
 
-      <UiKitSection
-        id="footer"
-        importPath="@/components/footer"
-        title="Footer"
-      >
+      <UiKitSection id="footer" importPath="@/components/footer" title="Footer">
         <Footer />
       </UiKitSection>
     </div>

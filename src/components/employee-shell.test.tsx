@@ -94,7 +94,7 @@ describe("EmployeeTopbar", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
   })
 
-  it("keeps full outlet names accessible and returns focus after Escape", async () => {
+  it("shows one outlet as plain wrapping text without a picker", () => {
     const longName =
       "Outlet HadirinAja dengan Nama Panjang untuk Pengujian Responsif"
     render(
@@ -107,30 +107,16 @@ describe("EmployeeTopbar", () => {
       />
     )
 
-    const outletTrigger = screen.getByRole("button", {
-      name: `Outlet aktif: ${longName}. Pilih konteks Outlet`,
-    })
-    expect(outletTrigger.getAttribute("title")).toBe(longName)
-    expect(outletTrigger.querySelector(".truncate")).not.toBeNull()
-    fireEvent.click(outletTrigger)
-    const dialog = screen.getByRole("dialog")
-    fireEvent.keyDown(dialog, { key: "Escape" })
-
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
-    await waitFor(() => expect(document.activeElement).toBe(outletTrigger))
+    expect(screen.getByText(longName)).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /Outlet aktif:/ })).toBeNull()
+    expect(screen.queryByRole("dialog")).toBeNull()
   })
 
-  it("does not imply a global outlet view when the page has no outlet contract", async () => {
+  it("shows a static fallback when the page has no outlet contract", () => {
     render(<EmployeeTopbar accountName="Rani Employee" />)
 
-    const outletTrigger = screen.getByRole("button", {
-      name: "Outlet aktif: Konteks Outlet tidak tersedia. Pilih konteks Outlet",
-    })
-    fireEvent.click(outletTrigger)
-
-    expect(
-      screen.getByText("Daftar Outlet belum tersedia pada halaman ini.")
-    ).toBeTruthy()
+    expect(screen.getByText("Outlet belum tersedia")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /Outlet aktif:/ })).toBeNull()
   })
 
   it("exposes the authenticated Profile destination from the account menu", async () => {

@@ -1,6 +1,7 @@
 import { createFileRoute, notFound } from "@tanstack/react-router"
 import { useState } from "react"
 import { EmployeeAttendanceClock } from "@/components/employee-attendance-clock"
+import { EmployeeAttendanceHistory } from "@/components/employee-attendance-history"
 import { EmployeeShell } from "@/components/employee-shell"
 import { OutletGeofenceMap } from "@/components/outlet-geofence-map"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -30,6 +31,33 @@ const outlet = {
   longitude: 106.8456,
   radius: 120,
 }
+
+const previewHistory = [
+  {
+    work_date: "2026-11-19",
+    outcome: "present",
+    sessions: [],
+    review: { status: "none", indicators: [] },
+    unresolved_conflicts: [],
+    is_finalized: false,
+  },
+  {
+    work_date: "2026-11-20",
+    outcome: "present",
+    sessions: [],
+    review: { status: "none", indicators: [] },
+    unresolved_conflicts: [],
+    is_finalized: false,
+  },
+  {
+    work_date: "2026-11-22",
+    outcome: "present",
+    sessions: [],
+    review: { status: "none", indicators: [] },
+    unresolved_conflicts: [],
+    is_finalized: false,
+  },
+]
 
 function previewHref(state: PreviewState, operation = "check_in") {
   return `/dev-employee-attendance-states?state=${state}&operation=${operation}`
@@ -73,15 +101,22 @@ function EmployeeAttendanceStatesPreview() {
     const status = working
       ? "Sedang bekerja sejak 08.05"
       : finished
-        ? "Selesai · 08.05–17.12"
+        ? "Selesai hari ini · 08.05–17.12"
         : state === "problem-banner"
           ? "Status kehadiran belum tersedia"
           : "Belum absen masuk"
 
     return (
       <div data-preview-state={state}>
-        <EmployeeShell active="today" accountName="Rani">
-          <div className="flex min-w-0 flex-col gap-5">
+        <EmployeeShell
+          active="today"
+          accountName="Rani"
+          outletContext={{
+            outlets: [{ id: 4, name: outlet.name }],
+            selectedOutletId: 4,
+          }}
+        >
+          <div className="flex min-w-0 flex-col gap-5 [&_.text-caption]:text-body [&_[aria-label='Riwayat minggu ini, terbaru lebih dulu']_.text-muted-foreground]:text-foreground [&_[aria-label='Riwayat minggu ini, terbaru lebih dulu']_.text-caption]:text-body [&_[data-slot=alert-title]]:text-body [&_[data-slot=alert-title]]:font-semibold [&_[data-slot=alert-description]]:text-body [&_[id=history-title]]:text-label [&_button]:font-semibold">
             <header className="text-center">
               <p className="text-caption text-muted-foreground">
                 <time dateTime="2026-11-22">Minggu, 22 November</time>
@@ -93,16 +128,19 @@ function EmployeeAttendanceStatesPreview() {
             >
               <EmployeeAttendanceClock showTimeZoneLabel={false} />
               <div className="flex max-w-xl flex-col items-center gap-1">
-                <h1 className="text-caption" id="attendance-status-title">
+                <h1
+                  className="text-body font-semibold"
+                  id="attendance-status-title"
+                >
                   Status kehadiran hari ini
                 </h1>
-                <p className="text-subtitle" role="status">
+                <p
+                  className="text-display font-semibold leading-tight"
+                  role="status"
+                >
                   {status}
                 </p>
               </div>
-              <p className="text-caption text-muted-foreground">
-                Outlet aktif · Outlet Contoh
-              </p>
               <div className="grid w-full max-w-xl grid-cols-2 gap-2">
                 <StateAction
                   state="loc-inside"
@@ -131,6 +169,12 @@ function EmployeeAttendanceStatesPreview() {
                 </AlertDescription>
               </Alert>
             ) : null}
+            {working || finished ? (
+              <EmployeeAttendanceHistory
+                currentWorkDate="2026-11-22"
+                days={previewHistory}
+              />
+            ) : null}
           </div>
         </EmployeeShell>
       </div>
@@ -140,7 +184,14 @@ function EmployeeAttendanceStatesPreview() {
   if (state === "schedule-not-used") {
     return (
       <div data-preview-state={state}>
-        <EmployeeShell active="schedule" accountName="Rani">
+        <EmployeeShell
+          active="schedule"
+          accountName="Rani"
+          outletContext={{
+            outlets: [{ id: 4, name: outlet.name }],
+            selectedOutletId: 4,
+          }}
+        >
           <main className="flex flex-col gap-4">
             <header>
               <h1 className="text-title">Jadwal pribadi</h1>
@@ -173,7 +224,14 @@ function EmployeeAttendanceStatesPreview() {
     const checkIn = state === "success-check-in"
     return (
       <div data-preview-state={state}>
-        <EmployeeShell active="today" accountName="Rani">
+        <EmployeeShell
+          active="today"
+          accountName="Rani"
+          outletContext={{
+            outlets: [{ id: 4, name: outlet.name }],
+            selectedOutletId: 4,
+          }}
+        >
           <section
             aria-labelledby="attendance-receipt-title"
             className="flex min-h-[65svh] flex-col items-center justify-center gap-5 text-center"
@@ -186,8 +244,10 @@ function EmployeeAttendanceStatesPreview() {
               ✓
             </span>
             <h1 className="text-title" id="attendance-receipt-title">
-              Absen {checkIn ? "masuk" : "keluar"} tercatat ·{" "}
-              {checkIn ? "08.05" : "17.12"}
+              Absen {checkIn ? "masuk" : "keluar"} tercatat
+              <span className="block text-lead font-normal tabular-nums">
+                {checkIn ? "08.05" : "17.12"}
+              </span>
             </h1>
             <Button
               className="min-h-11"
@@ -223,7 +283,7 @@ function EmployeeAttendanceStatesPreview() {
 
   return (
     <div
-      className="attendance-focus-view fixed inset-0 z-50 grid h-[100dvh] min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-canvas text-foreground"
+      className="attendance-focus-view fixed inset-0 z-50 grid h-[100dvh] min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-canvas text-foreground [&_[data-slot=alert-title]]:text-label [&_[data-slot=alert-title]]:font-semibold [&_[data-slot=alert-description]]:text-body [&_button]:font-semibold"
       data-preview-state={state}
     >
       <header className="shrink-0 border-b border-border bg-surface pt-[env(safe-area-inset-top)]">
@@ -237,7 +297,7 @@ function EmployeeAttendanceStatesPreview() {
           >
             Kembali
           </Button>
-          <h1 className="text-subtitle text-center">
+          <h1 className="text-title text-center">
             {operation === "check_in" ? "Absen Masuk" : "Absen Keluar"}
           </h1>
         </div>
@@ -246,14 +306,57 @@ function EmployeeAttendanceStatesPreview() {
       <main className="min-h-0 overflow-y-auto overscroll-contain">
         <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-5 sm:px-5">
           <section aria-labelledby="preview-outlet-title" className="py-4">
-            <h2 className="text-subtitle" id="preview-outlet-title">
+            <h2 className="text-label" id="preview-outlet-title">
               Outlet presensi
             </h2>
             <p className="mt-2 min-h-11 text-body font-medium">{outlet.name}</p>
           </section>
 
+          <section aria-labelledby="preview-location-title" className="py-4">
+            <h2 className="text-label" id="preview-location-title">
+              Lokasi
+            </h2>
+            <p className="mt-1 text-body" role="status">
+              {location.denied
+                ? "Izin lokasi ditolak. Periksa izin di setelan browser atau ponsel."
+                : location.outside
+                  ? `Di luar area · ${distance} m. Datang ke outlet, lalu`
+                  : location.weak
+                    ? `Sinyal lokasi lemah · akurasi ±${accuracy} m. Pindah dekat pintu atau jendela, lalu`
+                    : `Di area outlet · ${distance} m · akurasi ±${accuracy} m`}
+            </p>
+            {location.outside || location.weak || location.denied ? (
+              <Button
+                className="mt-2 min-h-11"
+                onClick={() =>
+                  void navigate({
+                    search: { operation, state: "loc-inside" },
+                  })
+                }
+                variant="outline"
+              >
+                {refreshLabel}
+              </Button>
+            ) : null}
+            <div className="mt-3">
+              <OutletGeofenceMap
+                outletName={outlet.name}
+                latitude={outlet.latitude}
+                longitude={outlet.longitude}
+                radiusMeters={outlet.radius}
+                position={position}
+                onLocate={() =>
+                  void navigate({
+                    search: { operation, state: "loc-inside" },
+                  })
+                }
+                locating={false}
+              />
+            </div>
+          </section>
+
           <section aria-labelledby="preview-photo-title" className="py-4">
-            <h2 className="text-subtitle" id="preview-photo-title">
+            <h2 className="text-label" id="preview-photo-title">
               Foto
             </h2>
             <div className="mt-3 flex flex-col items-center gap-3 text-center">
@@ -303,49 +406,6 @@ function EmployeeAttendanceStatesPreview() {
                   Ambil foto
                 </Button>
               )}
-            </div>
-          </section>
-
-          <section aria-labelledby="preview-location-title" className="py-4">
-            <h2 className="text-subtitle" id="preview-location-title">
-              Lokasi
-            </h2>
-            <p className="mt-1 text-body text-muted-foreground" role="status">
-              {location.denied
-                ? "Izin lokasi ditolak. Periksa izin di setelan browser atau ponsel."
-                : location.outside
-                  ? `Di luar area · ${distance} m. Datang ke outlet, lalu`
-                  : location.weak
-                    ? `Sinyal lokasi lemah · akurasi ±${accuracy} m. Pindah dekat pintu atau jendela, lalu`
-                    : `Di area outlet · ${distance} m · akurasi ±${accuracy} m`}
-            </p>
-            {location.outside || location.weak || location.denied ? (
-              <Button
-                className="mt-2 min-h-11"
-                onClick={() =>
-                  void navigate({
-                    search: { operation, state: "loc-inside" },
-                  })
-                }
-                variant="outline"
-              >
-                {refreshLabel}
-              </Button>
-            ) : null}
-            <div className="mt-3">
-              <OutletGeofenceMap
-                outletName={outlet.name}
-                latitude={outlet.latitude}
-                longitude={outlet.longitude}
-                radiusMeters={outlet.radius}
-                position={position}
-                onLocate={() =>
-                  void navigate({
-                    search: { operation, state: "loc-inside" },
-                  })
-                }
-                locating={false}
-              />
             </div>
           </section>
         </div>

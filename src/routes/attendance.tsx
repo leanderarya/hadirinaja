@@ -729,7 +729,7 @@ function AttendancePage() {
           const completed = result.result as OperationResult
           setNotice(attendanceConfirmation(completed))
           setError("")
-          notifications.success("Presensi terkonfirmasi oleh server", {
+          notifications.success("Absen tercatat", {
             id: `attendance:${operation.tenantId}:${operation.employeeId}:${operation.key}:completed`,
           })
           if (await clearPendingOperation(operation)) {
@@ -913,7 +913,7 @@ function AttendancePage() {
 
       const receipt = attendanceReceiptFrom(result, next.operation)
       setNotice(attendanceConfirmation(result))
-      notifications.success("Presensi terkonfirmasi oleh server", {
+      notifications.success("Absen tercatat", {
         id: `attendance:${next.tenantId}:${next.employeeId}:${next.key}:completed`,
       })
       if (await clearPendingOperation(next)) {
@@ -1584,7 +1584,7 @@ function AttendancePage() {
     : openSession
       ? `Sedang bekerja sejak ${formatLocalClockTime(openSession.check_in_at, openSession.timezone) ?? "--.--"}`
       : todayCheckIn && todayCheckOut
-        ? `Selesai · ${formatLocalClockTime(todayCheckIn, todayTimezone) ?? "--.--"}–${formatLocalClockTime(todayCheckOut, todayTimezone) ?? "--.--"}`
+        ? `Selesai hari ini · ${formatLocalClockTime(todayCheckIn, todayTimezone) ?? "--.--"}–${formatLocalClockTime(todayCheckOut, todayTimezone) ?? "--.--"}`
         : todayResult &&
             ![
               "no_recorded_outcome",
@@ -1602,6 +1602,25 @@ function AttendancePage() {
     checkoutDestination?.timezone ??
     openSession?.timezone ??
     readyAttendance?.schedule?.timezone
+  const headerOutlets = openSession
+    ? [
+        {
+          id: openSession.outlet.id,
+          name: openSession.outlet.name ?? "Outlet asal belum tersedia",
+        },
+      ]
+    : selectableOutlets
+  const attendanceOutletContext = {
+    outlets: headerOutlets,
+    selectedOutletId: openSession
+      ? openSession.outlet.id
+      : selectedOutletId
+        ? Number(selectedOutletId)
+        : null,
+    selectedOutletName:
+      selectedOutlet ??
+      (headerOutlets.length === 1 ? headerOutlets[0].name : "Semua Outlet"),
+  }
   const verificationActionLabel =
     draft?.operation === "check_out" ? "Absen Keluar" : "Absen Masuk"
   const acceptedPhoto =
@@ -1727,13 +1746,9 @@ function AttendancePage() {
     <EmployeeShell
       active="today"
       accountName={accountName}
-      outletContext={{
-        outlets: readyAttendance?.outlets ?? [],
-        selectedOutletId: null,
-        selectedOutletName: "Semua Outlet",
-      }}
+      outletContext={attendanceOutletContext}
     >
-      <div className="flex min-w-0 flex-col gap-5">
+      <div className="flex min-w-0 flex-col gap-5 [&_.text-caption]:text-body [&_[aria-label='Riwayat minggu ini, terbaru lebih dulu']_.text-muted-foreground]:text-foreground [&_[aria-label='Riwayat minggu ini, terbaru lebih dulu']_.text-caption]:text-body [&_[data-slot=alert-title]]:text-body [&_[data-slot=alert-title]]:font-semibold [&_[data-slot=alert-description]]:text-body [&_[id=history-title]]:text-label [&_button]:font-semibold">
         <header className="text-center">
           {today && (
             <p className="text-caption text-muted-foreground">
@@ -1751,22 +1766,21 @@ function AttendancePage() {
             showTimeZoneLabel={false}
           />
           <div className="flex max-w-xl flex-col items-center gap-1">
-            <h2 className="text-caption" id="attendance-status-title">
+            <h2
+              className="text-body font-semibold"
+              id="attendance-status-title"
+            >
               Status kehadiran hari ini
             </h2>
-            <p className="text-subtitle" role="status">
+            <p
+              className="text-display font-semibold leading-tight"
+              role="status"
+            >
               {loading ? "Memuat kehadiran…" : todayStatus}
             </p>
           </div>
           {readyAttendance && !openSession && (
             <div className="flex w-full max-w-xl flex-col items-center gap-3">
-              <p className="text-caption break-words text-center text-muted-foreground">
-                Outlet aktif ·{" "}
-                {selectedOutlet ??
-                  (!selectableOutlets.length
-                    ? "Belum tersedia"
-                    : "Belum dipilih")}
-              </p>
               {(selectableOutlets.length > 1 || !selectedOutletId) &&
                 selectableOutlets.length > 0 && (
                   <FieldGroup className="w-full text-left">
@@ -1800,7 +1814,7 @@ function AttendancePage() {
             </div>
           )}
           {openSession && (
-            <p className="max-w-xl text-caption text-muted-foreground">
+            <p className="max-w-xl text-body">
               Sesi asal · {formatWorkDate(openSession.work_date)} ·{" "}
               {openSession.outlet.name ?? "Outlet asal belum tersedia"}
             </p>
@@ -2056,7 +2070,7 @@ function AttendancePage() {
 
   const verificationPage = (
     <div
-      className="attendance-focus-view fixed inset-0 z-50 grid h-[100dvh] min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-canvas text-foreground"
+      className="attendance-focus-view fixed inset-0 z-50 grid h-[100dvh] min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-canvas text-foreground [&_[data-slot=alert-title]]:text-label [&_[data-slot=alert-title]]:font-semibold [&_[data-slot=alert-description]]:text-body [&_button]:font-semibold"
       data-verification-mode="focus"
     >
       <header className="shrink-0 border-b border-border bg-surface pt-[env(safe-area-inset-top)]">
@@ -2071,7 +2085,7 @@ function AttendancePage() {
             Kembali
           </Button>
           <h1
-            className="text-subtitle text-center outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="text-title text-center outline-none focus-visible:ring-2 focus-visible:ring-ring"
             ref={verificationHeadingRef}
             tabIndex={-1}
           >
@@ -2111,10 +2125,7 @@ function AttendancePage() {
                   <dt className="text-caption text-muted-foreground">
                     Outlet asal
                   </dt>
-                  <dd
-                    className="truncate"
-                    title={openSession.outlet.name ?? undefined}
-                  >
+                  <dd className="break-words">
                     {openSession.outlet.name ?? "Outlet asal belum tersedia"}
                   </dd>
                 </div>
@@ -2123,7 +2134,7 @@ function AttendancePage() {
           )}
 
           <section aria-labelledby="verification-outlet-title" className="py-4">
-            <h2 className="text-subtitle" id="verification-outlet-title">
+            <h2 className="text-label" id="verification-outlet-title">
               {draft?.operation === "check_out"
                 ? "Outlet tujuan checkout"
                 : "Outlet presensi"}
@@ -2156,7 +2167,7 @@ function AttendancePage() {
                   </NativeSelect>
                 </Field>
                 {error && verificationStage === "destination" && (
-                  <p className="text-caption text-destructive" role="alert">
+                  <p className="text-body text-destructive" role="alert">
                     {error}
                   </p>
                 )}
@@ -2170,8 +2181,107 @@ function AttendancePage() {
 
           <Separator className="bg-border/70" />
 
+          <section
+            aria-labelledby="verification-location-title"
+            className="flex flex-col py-4"
+          >
+            <h2 className="text-label" id="verification-location-title">
+              Lokasi
+            </h2>
+            <p className="mt-1 text-body" role="status">
+              {locating
+                ? "Mendapatkan lokasi…"
+                : locationState === "inside"
+                  ? `Di area outlet · ${verificationDistanceMeters} m · akurasi ±${verificationAccuracyMeters} m`
+                  : locationState === "outside"
+                    ? `Di luar area · ${verificationDistanceMeters} m. Datang ke outlet, lalu`
+                    : locationState === "weak"
+                      ? `Sinyal lokasi lemah · akurasi ±${verificationAccuracyMeters} m. Pindah dekat pintu atau jendela, lalu`
+                      : locationState === "denied"
+                        ? "Izin lokasi ditolak. Periksa izin di setelan browser atau ponsel."
+                        : verificationStage === "destination"
+                          ? "Pilih Outlet tujuan checkout."
+                          : locationPolicy
+                            ? locationError ||
+                              "Lokasi belum tersedia. Perbarui lokasi untuk melanjutkan."
+                            : "Outlet tujuan belum dapat diverifikasi."}
+            </p>
+            {locationState === "outside" || locationState === "weak" ? (
+              <Button
+                className="mt-2 min-h-11 self-start"
+                disabled={busy || locating || Boolean(pending)}
+                onClick={() => void refreshVerificationLocation()}
+                variant="outline"
+              >
+                Perbarui lokasi
+              </Button>
+            ) : locationState === "denied" ? (
+              <Button
+                className="mt-2 min-h-11 self-start"
+                disabled={busy || locating || Boolean(pending)}
+                onClick={() => void refreshVerificationLocation()}
+                variant="outline"
+              >
+                Coba lagi
+              </Button>
+            ) : locationState === "unavailable" &&
+              verificationStage !== "destination" &&
+              locationPolicy?.required ? (
+              <Button
+                className="mt-2 min-h-11 self-start"
+                disabled={busy || locating || Boolean(pending)}
+                onClick={() => void refreshVerificationLocation()}
+                variant="outline"
+              >
+                Perbarui lokasi
+              </Button>
+            ) : null}
+            <div className="mt-3 grid grid-cols-2 gap-3 text-body">
+              <p>
+                <span className="block text-caption">Jarak ke Outlet</span>
+                {verificationDistanceMeters == null
+                  ? "Belum tersedia"
+                  : `${verificationDistanceMeters} m`}
+              </p>
+              <p>
+                <span className="block text-caption">Akurasi</span>
+                {verificationAccuracyMeters == null
+                  ? "Belum tersedia"
+                  : `±${verificationAccuracyMeters} m`}
+              </p>
+            </div>
+            <div className="mt-3">
+              <OutletGeofenceMap
+                outletName={verificationOutletName ?? "Outlet"}
+                latitude={locationPolicy?.latitude ?? null}
+                longitude={locationPolicy?.longitude ?? null}
+                radiusMeters={locationPolicy?.radius_meters ?? null}
+                position={
+                  verificationLocation?.status === "provided" &&
+                  verificationLocation.latitude != null &&
+                  verificationLocation.longitude != null &&
+                  verificationLocation.accuracy_meters != null
+                    ? {
+                        latitude: verificationLocation.latitude,
+                        longitude: verificationLocation.longitude,
+                        accuracy_meters: verificationLocation.accuracy_meters,
+                      }
+                    : null
+                }
+                onLocate={
+                  locationPolicy?.required && locationPolicy.geofence_configured
+                    ? () => void refreshVerificationLocation()
+                    : undefined
+                }
+                locating={locating || busy || Boolean(pending)}
+              />
+            </div>
+          </section>
+
+          <Separator className="bg-border/70" />
+
           <section aria-labelledby="verification-photo-title" className="py-4">
-            <h2 className="text-subtitle" id="verification-photo-title">
+            <h2 className="text-label" id="verification-photo-title">
               Foto
             </h2>
             {cameraError ? (
@@ -2186,11 +2296,11 @@ function AttendancePage() {
 
             <div className="mt-3 flex flex-col items-center gap-3 text-center">
               {verificationStage === "destination" ? (
-                <p className="text-body text-muted-foreground" role="status">
+                <p className="text-body" role="status">
                   Pilih Outlet tujuan checkout untuk melanjutkan.
                 </p>
               ) : verificationStage === "location" ? (
-                <p className="text-body text-muted-foreground" role="status">
+                <p className="text-body" role="status">
                   Kamera dibuka setelah lokasi lolos pemeriksaan.
                 </p>
               ) : cameraMode === "preview" && photoUrl ? (
@@ -2264,109 +2374,6 @@ function AttendancePage() {
               ) : null}
             </div>
           </section>
-
-          <Separator className="bg-border/70" />
-
-          <section
-            aria-labelledby="verification-location-title"
-            className="flex flex-col py-4"
-          >
-            <h2 className="text-subtitle" id="verification-location-title">
-              Lokasi
-            </h2>
-            <p className="mt-1 text-body text-muted-foreground" role="status">
-              {locating
-                ? "Mendapatkan lokasi…"
-                : locationState === "inside"
-                  ? `Di area outlet · ${verificationDistanceMeters} m · akurasi ±${verificationAccuracyMeters} m`
-                  : locationState === "outside"
-                    ? `Di luar area · ${verificationDistanceMeters} m. Datang ke outlet, lalu`
-                    : locationState === "weak"
-                      ? `Sinyal lokasi lemah · akurasi ±${verificationAccuracyMeters} m. Pindah dekat pintu atau jendela, lalu`
-                      : locationState === "denied"
-                        ? "Izin lokasi ditolak. Periksa izin di setelan browser atau ponsel."
-                        : verificationStage === "destination"
-                          ? "Pilih Outlet tujuan checkout."
-                          : locationPolicy
-                            ? locationError ||
-                              "Lokasi belum tersedia. Perbarui lokasi untuk melanjutkan."
-                            : "Outlet tujuan belum dapat diverifikasi."}
-            </p>
-            {locationState === "outside" || locationState === "weak" ? (
-              <Button
-                className="mt-2 min-h-11 self-start"
-                disabled={busy || locating || Boolean(pending)}
-                onClick={() => void refreshVerificationLocation()}
-                variant="outline"
-              >
-                Perbarui lokasi
-              </Button>
-            ) : locationState === "denied" ? (
-              <Button
-                className="mt-2 min-h-11 self-start"
-                disabled={busy || locating || Boolean(pending)}
-                onClick={() => void refreshVerificationLocation()}
-                variant="outline"
-              >
-                Coba lagi
-              </Button>
-            ) : locationState === "unavailable" &&
-              verificationStage !== "destination" &&
-              locationPolicy?.required ? (
-              <Button
-                className="mt-2 min-h-11 self-start"
-                disabled={busy || locating || Boolean(pending)}
-                onClick={() => void refreshVerificationLocation()}
-                variant="outline"
-              >
-                Perbarui lokasi
-              </Button>
-            ) : null}
-            <div className="mt-3 grid grid-cols-2 gap-3 text-body">
-              <p>
-                <span className="block text-caption text-muted-foreground">
-                  Jarak ke Outlet
-                </span>
-                {verificationDistanceMeters == null
-                  ? "Belum tersedia"
-                  : `${verificationDistanceMeters} m`}
-              </p>
-              <p>
-                <span className="block text-caption text-muted-foreground">
-                  Akurasi
-                </span>
-                {verificationAccuracyMeters == null
-                  ? "Belum tersedia"
-                  : `±${verificationAccuracyMeters} m`}
-              </p>
-            </div>
-            <div className="mt-3">
-              <OutletGeofenceMap
-                outletName={verificationOutletName ?? "Outlet"}
-                latitude={locationPolicy?.latitude ?? null}
-                longitude={locationPolicy?.longitude ?? null}
-                radiusMeters={locationPolicy?.radius_meters ?? null}
-                position={
-                  verificationLocation?.status === "provided" &&
-                  verificationLocation.latitude != null &&
-                  verificationLocation.longitude != null &&
-                  verificationLocation.accuracy_meters != null
-                    ? {
-                        latitude: verificationLocation.latitude,
-                        longitude: verificationLocation.longitude,
-                        accuracy_meters: verificationLocation.accuracy_meters,
-                      }
-                    : null
-                }
-                onLocate={
-                  locationPolicy?.required && locationPolicy.geofence_configured
-                    ? () => void refreshVerificationLocation()
-                    : undefined
-                }
-                locating={locating || busy || Boolean(pending)}
-              />
-            </div>
-          </section>
         </div>
       </main>
 
@@ -2391,11 +2398,7 @@ function AttendancePage() {
     <EmployeeShell
       active="today"
       accountName={accountName}
-      outletContext={{
-        outlets: readyAttendance?.outlets ?? [],
-        selectedOutletId: null,
-        selectedOutletName: "Semua Outlet",
-      }}
+      outletContext={attendanceOutletContext}
     >
       <section
         aria-labelledby="attendance-receipt-title"
@@ -2411,7 +2414,10 @@ function AttendancePage() {
         <h1 className="text-title" id="attendance-receipt-title">
           Absen{" "}
           {attendanceReceipt.operation === "check_in" ? "masuk" : "keluar"}{" "}
-          tercatat · {attendanceReceipt.time ?? "--.--"}
+          tercatat
+          <span className="block text-lead font-normal tabular-nums">
+            {attendanceReceipt.time ?? "--.--"}
+          </span>
         </h1>
         <p className="sr-only">{notice}</p>
         <Button className="min-h-11" onClick={() => setAttendanceReceipt(null)}>
