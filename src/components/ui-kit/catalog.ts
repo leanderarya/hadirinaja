@@ -13,24 +13,95 @@ export type CatalogCategory = {
 }
 
 export const catalogCategories: CatalogCategory[] = [
-  { id: "r2c-operations", label: "R2C · Slice 02B", items: [
-    { id: "weekly-planner-board", label: "Weekly planner board", importPath: "@/components/weekly-planner-board" },
-    { id: "r2c-work-week", label: "Work-week control", importPath: "@/components/r2c/operational-blocks" },
-    { id: "r2c-schedule-matrix", label: "Weekly schedule matrix", importPath: "@/components/r2c/operational-blocks" },
-    { id: "r2c-operation-summary", label: "Read-first operational summary", importPath: "@/components/r2c/operational-blocks" },
-  ] },
-  { id: "r2c-screens", label: "R2C · Slice 02A", items: [
-    { id: "r2c-shift-template-explorer", label: "Shift Template Explorer", importPath: "@/components/r2c/shift-template-explorer" },
-    { id: "r2c-organization-explorer", label: "Organization Explorer", importPath: "@/components/r2c/organization-explorer" },
-    { id: "r2c-page-heading-minimal", label: "Minimal Settings heading", importPath: "@/components/r2c/screen-blocks" },
-    { id: "r2c-page-heading", label: "Page heading", importPath: "@/components/r2c/screen-blocks" },
-    { id: "r2c-report-navigation", label: "Report section navigation", importPath: "@/components/r2c/screen-blocks" },
-    { id: "r2c-scope-banner", label: "Scope banner", importPath: "@/components/r2c/screen-blocks" },
-    { id: "r2c-work-date-range", label: "Work-date range", importPath: "@/components/r2c/screen-blocks" },
-    { id: "r2c-followup-card", label: "Operational follow-up", importPath: "@/components/r2c/screen-blocks" },
-    { id: "r2c-context-drawer", label: "Context drawer", importPath: "@/components/r2c/screen-blocks" },
-  ] },
-  { id: "r2c", label: "R2C · Slice 01", items: r2cComponents.map(({ id, label, importPath }) => ({ id, label: id === "r2c-settings" ? "Read-first settings section · optional icon (B1)" : label, importPath })) },
+  {
+    id: "r2c-operations",
+    label: "R2C · Slice 02B",
+    items: [
+      {
+        id: "weekly-planner-board",
+        label: "Weekly planner board",
+        importPath: "@/components/weekly-planner-board",
+      },
+      {
+        id: "r2c-work-week",
+        label: "Work-week control",
+        importPath: "@/components/r2c/operational-blocks",
+      },
+      {
+        id: "r2c-schedule-matrix",
+        label: "Weekly schedule matrix",
+        importPath: "@/components/r2c/operational-blocks",
+      },
+      {
+        id: "r2c-operation-summary",
+        label: "Read-first operational summary",
+        importPath: "@/components/r2c/operational-blocks",
+      },
+    ],
+  },
+  {
+    id: "r2c-screens",
+    label: "R2C · Slice 02A",
+    items: [
+      {
+        id: "r2c-shift-template-explorer",
+        label: "Shift Template Explorer",
+        importPath: "@/components/r2c/shift-template-explorer",
+      },
+      {
+        id: "r2c-organization-explorer",
+        label: "Organization Explorer",
+        importPath: "@/components/r2c/organization-explorer",
+      },
+      {
+        id: "r2c-page-heading-minimal",
+        label: "Minimal Settings heading",
+        importPath: "@/components/r2c/screen-blocks",
+      },
+      {
+        id: "r2c-page-heading",
+        label: "Page heading",
+        importPath: "@/components/r2c/screen-blocks",
+      },
+      {
+        id: "r2c-report-navigation",
+        label: "Report section navigation",
+        importPath: "@/components/r2c/screen-blocks",
+      },
+      {
+        id: "r2c-scope-banner",
+        label: "Scope banner",
+        importPath: "@/components/r2c/screen-blocks",
+      },
+      {
+        id: "r2c-work-date-range",
+        label: "Work-date range",
+        importPath: "@/components/r2c/screen-blocks",
+      },
+      {
+        id: "r2c-followup-card",
+        label: "Operational follow-up",
+        importPath: "@/components/r2c/screen-blocks",
+      },
+      {
+        id: "r2c-context-drawer",
+        label: "Context drawer",
+        importPath: "@/components/r2c/screen-blocks",
+      },
+    ],
+  },
+  {
+    id: "r2c",
+    label: "R2C · Slice 01",
+    items: r2cComponents.map(({ id, label, importPath }) => ({
+      id,
+      label:
+        id === "r2c-settings"
+          ? "Read-first settings section · optional icon (B1)"
+          : label,
+      importPath,
+    })),
+  },
   {
     id: "tokens",
     label: "Design Tokens",
@@ -76,10 +147,26 @@ export const catalogCategories: CatalogCategory[] = [
     id: "app",
     label: "App Components",
     items: [
-      { id: "outlet-geofence-map", label: "Outlet Geofence Map · 44px zoom controls", importPath: "@/components/outlet-geofence-map" },
-      { id: "management-topbar-compact", label: "Settings topbar return", importPath: "@/components/management-sidebar" },
-      { id: "management-topbar", label: "Management Topbar · R2C", importPath: "@/components/management-sidebar" },
-      { id: "organization-switcher", label: "Organization Switcher · R2C", importPath: "@/components/management-sidebar" },
+      {
+        id: "outlet-geofence-map",
+        label: "Outlet Geofence Map · 44px zoom controls",
+        importPath: "@/components/outlet-geofence-map",
+      },
+      {
+        id: "management-topbar-compact",
+        label: "Settings topbar return",
+        importPath: "@/components/management-sidebar",
+      },
+      {
+        id: "management-topbar",
+        label: "Management Topbar · R2C",
+        importPath: "@/components/management-sidebar",
+      },
+      {
+        id: "organization-switcher",
+        label: "Organization Switcher · R2C",
+        importPath: "@/components/management-sidebar",
+      },
       { id: "logo", label: "Logo", importPath: "@/components/logo" },
       { id: "header", label: "Header", importPath: "@/components/header" },
       {
@@ -113,6 +200,11 @@ export const catalogCategories: CatalogCategory[] = [
         id: "correction-evidence-panel",
         label: "Correction Evidence · 44px actions",
         importPath: "@/components/correction-evidence-panel",
+      },
+      {
+        id: "employee-attendance-home-card",
+        label: "Employee Attendance Home Card · One daily action",
+        importPath: "@/components/employee-attendance-home-card",
       },
       {
         id: "employee-attendance-history",
@@ -195,8 +287,16 @@ export const catalogCategories: CatalogCategory[] = [
         label: "Alert Dialog",
         importPath: "@/components/ui/alert-dialog",
       },
-      { id: "badge", label: "Status Badge · Pen", importPath: "@/components/ui/badge" },
-      { id: "button", label: "Button · Pen foundation", importPath: "@/components/ui/button" },
+      {
+        id: "badge",
+        label: "Status Badge · Pen",
+        importPath: "@/components/ui/badge",
+      },
+      {
+        id: "button",
+        label: "Button · Pen foundation",
+        importPath: "@/components/ui/button",
+      },
       {
         id: "button-group",
         label: "Button Group",
@@ -230,7 +330,11 @@ export const catalogCategories: CatalogCategory[] = [
         importPath: "@/components/ui/combobox",
       },
       { id: "field", label: "Field", importPath: "@/components/ui/field" },
-      { id: "input", label: "Input · Pen control", importPath: "@/components/ui/input" },
+      {
+        id: "input",
+        label: "Input · Pen control",
+        importPath: "@/components/ui/input",
+      },
       {
         id: "input-group",
         label: "Input Group",
@@ -355,7 +459,11 @@ export const catalogCategories: CatalogCategory[] = [
         label: "Sidebar",
         importPath: "@/components/ui/sidebar",
       },
-      { id: "tabs", label: "Tabs · keyboard panel focus", importPath: "@/components/ui/tabs" },
+      {
+        id: "tabs",
+        label: "Tabs · keyboard panel focus",
+        importPath: "@/components/ui/tabs",
+      },
     ],
   },
   {
@@ -368,7 +476,11 @@ export const catalogCategories: CatalogCategory[] = [
         importPath: "@/components/ui/aspect-ratio",
       },
       { id: "avatar", label: "Avatar", importPath: "@/components/ui/avatar" },
-      { id: "card", label: "Surface Card · Pen", importPath: "@/components/ui/card" },
+      {
+        id: "card",
+        label: "Surface Card · Pen",
+        importPath: "@/components/ui/card",
+      },
       {
         id: "carousel",
         label: "Carousel",

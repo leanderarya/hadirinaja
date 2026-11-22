@@ -1,11 +1,18 @@
 import { createFileRoute, notFound } from "@tanstack/react-router"
 import { useState } from "react"
-import { EmployeeAttendanceClock } from "@/components/employee-attendance-clock"
 import { EmployeeAttendanceHistory } from "@/components/employee-attendance-history"
+import { EmployeeAttendanceHomeCard } from "@/components/employee-attendance-home-card"
 import { EmployeeShell } from "@/components/employee-shell"
 import { OutletGeofenceMap } from "@/components/outlet-geofence-map"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import {
+  attendanceDurationMinutes,
+  attendanceGreeting,
+  formatAttendanceDuration,
+  formatAttendanceHeaderTime,
+  weeklyAttendanceSummary,
+} from "@/lib/attendance-presentation"
 
 const previewStates = [
   "home-not-checked-in",
@@ -32,61 +39,47 @@ const outlet = {
   radius: 120,
 }
 
+function previewDay(workDate: string, start: string, end: string) {
+  const checkIn = `${workDate}T${start}:00+07:00`
+  const checkOut = `${workDate}T${end}:00+07:00`
+  const id = Number(workDate.slice(-2))
+  return {
+    work_date: workDate,
+    outcome: "present",
+    schedule: { timezone: "Asia/Jakarta" },
+    sessions: [
+      {
+        id,
+        recording_status: "closed",
+        outlet: { id: 4, name: outlet.name },
+        original: {
+          work_date: workDate,
+          check_in_at: checkIn,
+          check_out_at: checkOut,
+        },
+        effective: {
+          work_date: workDate,
+          check_in_at: checkIn,
+          check_out_at: checkOut,
+        },
+        schedule_snapshot: { timezone: "Asia/Jakarta" },
+        review_indicators: [],
+        correction: null,
+      },
+    ],
+    review: { status: "none", indicators: [] },
+    unresolved_conflicts: [],
+    is_finalized: false,
+  }
+}
+
 const previewHistory = [
-  {
-    work_date: "2026-11-19",
-    outcome: "present",
-    sessions: [],
-    review: { status: "none", indicators: [] },
-    unresolved_conflicts: [],
-    is_finalized: false,
-  },
-  {
-    work_date: "2026-11-20",
-    outcome: "present",
-    sessions: [],
-    review: { status: "none", indicators: [] },
-    unresolved_conflicts: [],
-    is_finalized: false,
-  },
-  {
-    work_date: "2026-11-22",
-    outcome: "present",
-    sessions: [],
-    review: { status: "none", indicators: [] },
-    unresolved_conflicts: [],
-    is_finalized: false,
-  },
+  previewDay("2026-11-19", "08:01", "16:55"),
+  previewDay("2026-11-20", "08:02", "17:10"),
 ]
 
 function previewHref(state: PreviewState, operation = "check_in") {
   return `/dev-employee-attendance-states?state=${state}&operation=${operation}`
-}
-
-function StateAction({
-  state,
-  label,
-  variant,
-  operation = "check_in",
-  disabled = false,
-}: {
-  state: PreviewState
-  label: string
-  variant: "default" | "outline" | "secondary"
-  operation?: "check_in" | "check_out"
-  disabled?: boolean
-}) {
-  return (
-    <Button
-      className="min-h-12 w-full"
-      disabled={disabled}
-      nativeButton={false}
-      render={<a href={previewHref(state, operation)} />}
-      variant={variant}
-    >
-      {label}
-    </Button>
-  )
 }
 
 function EmployeeAttendanceStatesPreview() {
@@ -98,13 +91,38 @@ function EmployeeAttendanceStatesPreview() {
   if (state.startsWith("home-") || state === "problem-banner") {
     const working = state === "home-working"
     const finished = state === "home-finished"
-    const status = working
-      ? "Sedang bekerja sejak 08.05"
+    const now = new Date(
+      working ? "2026-11-22T06:28:00Z" : "2026-11-22T11:20:00Z"
+    )
+    const activeCheckIn = "2026-11-22T08:05:00+07:00"
+    const activeSession = working
+      ? {
+          id: 900,
+          work_date: "2026-11-22",
+          check_in_at: activeCheckIn,
+          timezone: "Asia/Jakarta",
+        }
+      : null
+    const days = finished
+      ? [...previewHistory, previewDay("2026-11-22", "08:05", "17:12")]
+      : previewHistory
+    const durationMinutes = working
+      ? attendanceDurationMinutes(activeCheckIn, now)
       : finished
-        ? "Selesai hari ini · 08.05–17.12"
-        : state === "problem-banner"
-          ? "Status kehadiran belum tersedia"
-          : "Belum absen masuk"
+        ? attendanceDurationMinutes(
+            "2026-11-22T08:05:00+07:00",
+            "2026-11-22T17:12:00+07:00"
+          )
+        : null
+    const summary = weeklyAttendanceSummary(days, activeSession, now)
+    const homeState =
+      state === "problem-banner"
+        ? "unavailable"
+        : working
+          ? "working"
+          : finished
+            ? "finished"
+            : "not-checked-in"
 
     return (
       <div data-preview-state={state}>
@@ -116,50 +134,37 @@ function EmployeeAttendanceStatesPreview() {
             selectedOutletId: 4,
           }}
         >
-          <div className="flex min-w-0 flex-col gap-5 [&_.text-caption]:text-body [&_[aria-label='Riwayat minggu ini, terbaru lebih dulu']_.text-muted-foreground]:text-foreground [&_[aria-label='Riwayat minggu ini, terbaru lebih dulu']_.text-caption]:text-body [&_[data-slot=alert-title]]:text-body [&_[data-slot=alert-title]]:font-semibold [&_[data-slot=alert-description]]:text-body [&_[id=history-title]]:text-label [&_button]:font-semibold">
-            <header className="text-center">
-              <p className="text-caption text-muted-foreground">
-                <time dateTime="2026-11-22">Minggu, 22 November</time>
+          <div className="employee-attendance-home flex min-w-0 flex-col gap-5 [&_[data-slot=alert-title]]:text-body [&_[data-slot=alert-title]]:font-semibold [&_[data-slot=alert-description]]:text-body [&_button]:font-semibold">
+            <header className="flex min-w-0 justify-end">
+              <p className="text-caption text-muted-foreground tabular-nums">
+                <time dateTime={now.toISOString()}>
+                  {formatAttendanceHeaderTime(now, "Asia/Jakarta")}
+                </time>
               </p>
             </header>
-            <section
-              aria-labelledby="attendance-status-title"
-              className="flex w-full flex-col items-center gap-6 text-center"
-            >
-              <EmployeeAttendanceClock showTimeZoneLabel={false} />
-              <div className="flex max-w-xl flex-col items-center gap-1">
-                <h1
-                  className="text-body font-semibold"
-                  id="attendance-status-title"
-                >
-                  Status kehadiran hari ini
-                </h1>
-                <p
-                  className="text-display font-semibold leading-tight"
-                  role="status"
-                >
-                  {status}
-                </p>
-              </div>
-              <div className="grid w-full max-w-xl grid-cols-2 gap-2">
-                <StateAction
-                  state="loc-inside"
-                  label="Absen Masuk"
-                  operation="check_in"
-                  variant={finished || working ? "outline" : "default"}
-                  disabled={finished || working || state === "problem-banner"}
-                />
-                <StateAction
-                  state="loc-inside"
-                  label="Absen Keluar"
-                  operation="check_out"
-                  variant={
-                    working ? "default" : finished ? "secondary" : "outline"
-                  }
-                  disabled={!working}
-                />
-              </div>
-            </section>
+            <EmployeeAttendanceHomeCard
+              state={homeState}
+              greeting={attendanceGreeting("Rani Putri", now, "Asia/Jakarta")}
+              duration={
+                durationMinutes === null
+                  ? null
+                  : formatAttendanceDuration(durationMinutes)
+              }
+              checkInTime={working ? "08.05" : null}
+              timeRange={finished ? "08.05 – 17.12" : null}
+              canCheckIn={!working && !finished && state !== "problem-banner"}
+              canCheckOut={working}
+              onCheckIn={() =>
+                void navigate({
+                  search: { operation: "check_in", state: "loc-inside" },
+                })
+              }
+              onCheckOut={() =>
+                void navigate({
+                  search: { operation: "check_out", state: "loc-inside" },
+                })
+              }
+            />
             {state === "problem-banner" ? (
               <Alert variant="destructive">
                 <AlertTitle>Status presensi belum dapat dimuat</AlertTitle>
@@ -169,12 +174,13 @@ function EmployeeAttendanceStatesPreview() {
                 </AlertDescription>
               </Alert>
             ) : null}
-            {working || finished ? (
-              <EmployeeAttendanceHistory
-                currentWorkDate="2026-11-22"
-                days={previewHistory}
-              />
-            ) : null}
+            <EmployeeAttendanceHistory
+              currentWorkDate="2026-11-22"
+              days={days}
+              activeSession={activeSession}
+              now={now}
+              summary={summary}
+            />
           </div>
         </EmployeeShell>
       </div>
@@ -243,12 +249,18 @@ function EmployeeAttendanceStatesPreview() {
             >
               ✓
             </span>
-            <h1 className="text-title" id="attendance-receipt-title">
+            <h1
+              className="text-display font-semibold"
+              id="attendance-receipt-title"
+            >
               Absen {checkIn ? "masuk" : "keluar"} tercatat
-              <span className="block text-lead font-normal tabular-nums">
-                {checkIn ? "08.05" : "17.12"}
-              </span>
             </h1>
+            <time className="text-subtitle tabular-nums">
+              {checkIn ? "08.05" : "17.12"}
+            </time>
+            {!checkIn ? (
+              <p className="text-body">Total hari ini 9 j 07 m</p>
+            ) : null}
             <Button
               className="min-h-11"
               nativeButton={false}
@@ -277,7 +289,6 @@ function EmployeeAttendanceStatesPreview() {
         longitude: outlet.longitude,
         accuracy_meters: accuracy,
       }
-  const refreshLabel = location.denied ? "Coba lagi" : "Perbarui lokasi"
   const submitDisabledPhoto = state === "submit-disabled-photo"
   const hasCapturedPhoto = photoCaptured || submitDisabledPhoto
 
@@ -298,64 +309,60 @@ function EmployeeAttendanceStatesPreview() {
             Kembali
           </Button>
           <h1 className="text-title text-center">
-            {operation === "check_in" ? "Absen Masuk" : "Absen Keluar"}
+            {operation === "check_in" ? "Absen masuk" : "Absen keluar"}
           </h1>
         </div>
       </header>
 
       <main className="min-h-0 overflow-y-auto overscroll-contain">
         <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-5 sm:px-5">
-          <section aria-labelledby="preview-outlet-title" className="py-4">
+          <section aria-labelledby="preview-outlet-title" className="py-2">
             <h2 className="text-label" id="preview-outlet-title">
               Outlet presensi
             </h2>
-            <p className="mt-2 min-h-11 text-body font-medium">{outlet.name}</p>
+            <p className="mt-1 text-body font-medium">{outlet.name}</p>
           </section>
 
-          <section aria-labelledby="preview-location-title" className="py-4">
+          <section aria-labelledby="preview-location-title" className="py-2">
             <h2 className="text-label" id="preview-location-title">
               Lokasi
             </h2>
             <p className="mt-1 text-body" role="status">
               {location.denied
-                ? "Izin lokasi ditolak. Periksa izin di setelan browser atau ponsel."
+                ? "Izin lokasi ditolak. Izinkan lokasi di setelan browser atau ponsel, lalu tekan Perbarui lokasi."
                 : location.outside
-                  ? `Di luar area · ${distance} m. Datang ke outlet, lalu`
+                  ? `Lokasi di luar area absen (${distance} m). Datang ke Outlet, lalu tekan Perbarui lokasi.`
                   : location.weak
-                    ? `Sinyal lokasi lemah · akurasi ±${accuracy} m. Pindah dekat pintu atau jendela, lalu`
-                    : `Di area outlet · ${distance} m · akurasi ±${accuracy} m`}
+                    ? `Sinyal lokasi lemah (akurasi ±${accuracy} m). Pindah dekat pintu atau jendela, lalu tekan Perbarui lokasi.`
+                    : `Lokasi berada di area absen (${distance} m; akurasi ±${accuracy} m).`}
             </p>
-            {location.outside || location.weak || location.denied ? (
-              <Button
-                className="mt-2 min-h-11"
-                onClick={() =>
-                  void navigate({
-                    search: { operation, state: "loc-inside" },
-                  })
-                }
-                variant="outline"
-              >
-                {refreshLabel}
-              </Button>
-            ) : null}
-            <div className="mt-3">
+            <Button
+              className="mt-2 min-h-11 self-start"
+              onClick={() =>
+                void navigate({
+                  search: { operation, state: "loc-inside" },
+                })
+              }
+              variant="outline"
+            >
+              Perbarui lokasi
+            </Button>
+            <div className="mt-2">
               <OutletGeofenceMap
                 outletName={outlet.name}
                 latitude={outlet.latitude}
                 longitude={outlet.longitude}
                 radiusMeters={outlet.radius}
                 position={position}
-                onLocate={() =>
-                  void navigate({
-                    search: { operation, state: "loc-inside" },
-                  })
-                }
                 locating={false}
               />
             </div>
+            <p className="text-caption text-muted-foreground">
+              Ungu = area absen · Biru = lokasi Anda
+            </p>
           </section>
 
-          <section aria-labelledby="preview-photo-title" className="py-4">
+          <section aria-labelledby="preview-photo-title" className="py-2">
             <h2 className="text-label" id="preview-photo-title">
               Foto
             </h2>

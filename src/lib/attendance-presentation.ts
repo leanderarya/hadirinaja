@@ -76,16 +76,156 @@ export function formatWorkDate(value: string): string {
   }).format(new Date(`${value}T00:00:00Z`))
 }
 
+export function formatCompactWorkDate(value: string): string {
+  return new Intl.DateTimeFormat("id-ID", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  }).format(new Date(`${value}T00:00:00Z`))
+}
+
 export function currentWeekAttendance(
   days: EffectiveAttendanceDay[] | undefined,
   today: string
 ) {
+  return days
+    ?.filter((day) => isCurrentWeekWorkDate(day.work_date, today))
+    .sort((left, right) => right.work_date.localeCompare(left.work_date))
+}
+
+export function isCurrentWeekWorkDate(workDate: string, today: string) {
   const monday = new Date(`${today}T00:00:00Z`)
   monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7))
-  const from = monday.toISOString().slice(0, 10)
-  return days
-    ?.filter((day) => day.work_date >= from && day.work_date <= today)
-    .sort((left, right) => right.work_date.localeCompare(left.work_date))
+  const firstWorkDate = monday.toISOString().slice(0, 10)
+  return workDate >= firstWorkDate && workDate <= today
+}
+
+export function attendanceGreeting(
+  name: string,
+  date: Date,
+  timeZone: string
+): string {
+  let hour = 0
+  try {
+    hour = Number(
+      new Intl.DateTimeFormat("en-GB", {
+        hour: "2-digit",
+        hourCycle: "h23",
+        timeZone,
+      })
+        .formatToParts(date)
+        .find((part) => part.type === "hour")?.value ?? 0
+    )
+  } catch {
+    hour = date.getUTCHours()
+  }
+  const greeting =
+    hour < 11
+      ? "Selamat pagi"
+      : hour < 15
+        ? "Selamat siang"
+        : hour < 19
+          ? "Selamat sore"
+          : "Selamat malam"
+  const firstName = name.trim().split(/\s+/)[0] || "Karyawan"
+  return `${greeting}, ${firstName}`
+}
+
+export function formatAttendanceHeaderTime(date: Date, timeZone: string) {
+  const day = new Intl.DateTimeFormat("id-ID", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone,
+  }).format(date)
+  const time = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    hourCycle: "h23",
+    minute: "2-digit",
+    timeZone,
+  })
+    .format(date)
+    .replace(":", ".")
+  return `${day} · ${time}`
+}
+
+export function attendanceDurationMinutes(
+  start: string | Date,
+  end: string | Date
+): number | null {
+  const startTime = new Date(start).getTime()
+  const endTime = new Date(end).getTime()
+  if (
+    !Number.isFinite(startTime) ||
+    !Number.isFinite(endTime) ||
+    endTime < startTime
+  )
+    return null
+  return Math.floor((endTime - startTime) / 60_000)
+}
+
+export function formatAttendanceDuration(minutes: number): string {
+  const safeMinutes = Math.max(0, Math.floor(minutes))
+  const hours = Math.floor(safeMinutes / 60)
+  const remainder = String(safeMinutes % 60).padStart(2, "0")
+  return `${hours} j ${remainder} m`
+}
+
+export type ActiveAttendanceSession = {
+  id: number
+  work_date: string
+  check_in_at: string
+  timezone: string
+}
+
+export function weeklyAttendanceSummary(
+  days: EffectiveAttendanceDay[] | undefined,
+  activeSession: ActiveAttendanceSession | null,
+  now: Date
+): { workedDays: number; totalMinutes: number | null } | null {
+  if (!days) return null
+  const workedDates = new Set<string>()
+  let totalMinutes = 0
+  let complete = true
+
+  for (const day of days) {
+    for (const session of day.sessions) {
+      if (session.id === activeSession?.id) continue
+      const start =
+        session.effective.check_in_at ?? session.original.check_in_at
+      const end =
+        session.effective.check_out_at ?? session.original.check_out_at
+      if (!start && !end) continue
+      workedDates.add(day.work_date)
+      const minutes =
+        start && end ? attendanceDurationMinutes(start, end) : null
+      if (minutes === null) complete = false
+      else totalMinutes += minutes
+    }
+    for (const source of day.sources ?? []) {
+      if (source.source_kind !== "reconstruction") continue
+      workedDates.add(day.work_date)
+      const minutes = attendanceDurationMinutes(
+        source.effective.check_in_at,
+        source.effective.check_out_at
+      )
+      if (minutes === null) complete = false
+      else totalMinutes += minutes
+    }
+  }
+
+  if (activeSession) {
+    workedDates.add(activeSession.work_date)
+    const minutes = attendanceDurationMinutes(activeSession.check_in_at, now)
+    if (minutes === null) complete = false
+    else totalMinutes += minutes
+  }
+
+  return {
+    workedDays: workedDates.size,
+    totalMinutes: complete ? totalMinutes : null,
+  }
 }
 
 export function attendanceOutcomeLabel(outcome: string): string {
@@ -155,7 +295,11 @@ export type EffectiveAttendanceDay = {
     schedule_snapshot: { timezone?: string } | null
     review_indicators: string[]
     correction: { request_id: number; reason: string | null } | null
-    checkout_destination?: { id: number; name: string | null; timezone: string | null } | null
+    checkout_destination?: {
+      id: number
+      name: string | null
+      timezone: string | null
+    } | null
     evidence?: Array<{
       event_id: number
       type: "check_in" | "check_out"
@@ -174,7 +318,8 @@ export function originalOutletId(
   day: EffectiveAttendanceDay,
   session: EffectiveAttendanceSession
 ): number | undefined {
-  if (session.original.outlet_id !== undefined) return session.original.outlet_id
+  if (session.original.outlet_id !== undefined)
+    return session.original.outlet_id
   const source = day.sources?.find(
     (item) =>
       item.source_id === session.id && item.source_kind === "physical_session"

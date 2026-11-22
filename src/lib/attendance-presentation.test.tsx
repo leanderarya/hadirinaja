@@ -11,10 +11,14 @@ import { EmployeeAttendanceHistory } from "@/components/employee-attendance-hist
 import { EmployeeShell } from "@/components/employee-shell"
 import {
   attendanceConfirmation,
+  attendanceDurationMinutes,
+  attendanceGreeting,
   attendanceWorkDate,
   currentWeekAttendance,
   type EffectiveAttendanceDay,
+  formatAttendanceDuration,
   formatAttendanceTime,
+  weeklyAttendanceSummary,
 } from "./attendance-presentation"
 
 afterEach(cleanup)
@@ -132,11 +136,125 @@ describe("employee attendance presentation", () => {
       currentWeekAttendance(days, "2026-10-27")?.map((item) => item.work_date)
     ).toEqual(["2026-10-27", "2026-10-26"])
   })
+  it("formats durations with minute precision, including shifts across midnight", () => {
+    expect(formatAttendanceDuration(5)).toBe("0 j 05 m")
+    expect(formatAttendanceDuration(9 * 60 + 7)).toBe("9 j 07 m")
+    expect(
+      attendanceDurationMinutes("2026-11-20T23:00:00Z", "2026-11-21T08:07:00Z")
+    ).toBe(9 * 60 + 7)
+  })
+  it("computes worked days and weekly duration from fetched sessions and the open session", () => {
+    const completedDay: EffectiveAttendanceDay = {
+      ...day,
+      work_date: "2026-11-20",
+      sources: [],
+      sessions: [
+        {
+          ...day.sessions[0],
+          original: {
+            ...day.sessions[0].original,
+            work_date: "2026-11-20",
+            check_in_at: "2026-11-20T23:00:00Z",
+            check_out_at: "2026-11-21T08:07:00Z",
+          },
+          effective: {
+            ...day.sessions[0].effective,
+            work_date: "2026-11-20",
+            check_in_at: "2026-11-20T23:00:00Z",
+            check_out_at: "2026-11-21T08:07:00Z",
+          },
+        },
+      ],
+    }
+    expect(
+      weeklyAttendanceSummary(
+        [completedDay],
+        {
+          id: 99,
+          work_date: "2026-11-22",
+          check_in_at: "2026-11-22T08:05:00Z",
+          timezone: "Asia/Jakarta",
+        },
+        new Date("2026-11-22T13:28:00Z")
+      )
+    ).toEqual({ workedDays: 2, totalMinutes: 14 * 60 + 30 })
+    expect(weeklyAttendanceSummary(undefined, null, new Date())).toBeNull()
+  })
+  it("chooses the greeting from the business timezone and the employee's first name", () => {
+    const morning = new Date("2026-11-21T23:00:00Z")
+    const afternoon = new Date("2026-11-22T09:00:00Z")
+    expect(attendanceGreeting("Rani Putri", morning, "Asia/Jakarta")).toBe(
+      "Selamat pagi, Rani"
+    )
+    expect(attendanceGreeting("Rani Putri", afternoon, "Asia/Jakarta")).toBe(
+      "Selamat sore, Rani"
+    )
+  })
   it("distinguishes unavailable projection from an empty response", () => {
     const view = render(<EmployeeAttendanceHistory days={undefined} />)
     expect(screen.getByText("Riwayat kehadiran belum tersedia")).toBeTruthy()
     view.rerender(<EmployeeAttendanceHistory days={[]} />)
     expect(screen.getByText("Belum ada riwayat")).toBeTruthy()
+  })
+  it("renders weekly totals and per-day in–out ranges newest first", () => {
+    const completedDay: EffectiveAttendanceDay = {
+      ...day,
+      work_date: "2026-11-20",
+      sources: [],
+      sessions: [
+        {
+          ...day.sessions[0],
+          original: {
+            ...day.sessions[0].original,
+            work_date: "2026-11-20",
+            check_in_at: "2026-11-20T01:02:00Z",
+            check_out_at: "2026-11-20T10:10:00Z",
+          },
+          correction: null,
+          effective: {
+            ...day.sessions[0].effective,
+            work_date: "2026-11-20",
+            check_in_at: "2026-11-20T01:02:00Z",
+            check_out_at: "2026-11-20T10:10:00Z",
+          },
+        },
+      ],
+    }
+    render(
+      <EmployeeAttendanceHistory
+        days={[completedDay]}
+        currentWorkDate="2026-11-22"
+        now={new Date("2026-11-22T13:28:00Z")}
+      />
+    )
+    expect(screen.getByText("1 hari · 9 j 08 m")).toBeTruthy()
+    expect(
+      screen.getByRole("button", {
+        name: /Jumat, 20 November.*08\.02–17\.10 · 9 j 08 m/,
+      })
+    ).toBeTruthy()
+  })
+  it("shows an open session row when the effective history projection is absent", () => {
+    render(
+      <EmployeeAttendanceHistory
+        days={undefined}
+        currentWorkDate="2026-11-22"
+        activeSession={{
+          id: 99,
+          work_date: "2026-11-22",
+          check_in_at: "2026-11-22T01:05:00Z",
+          timezone: "Asia/Jakarta",
+        }}
+        now={new Date("2026-11-22T06:28:00Z")}
+        summary={null}
+      />
+    )
+    expect(
+      screen.getByRole("button", {
+        name: /Minggu, 22 November.*08\.05–… · berjalan/,
+      })
+    ).toBeTruthy()
+    expect(screen.queryByText(/hari ·/)).toBeNull()
   })
   it("does not convert a missing timezone using the browser timezone", () => {
     expect(formatAttendanceTime("2026-10-24T23:00:00Z", undefined)).toContain(

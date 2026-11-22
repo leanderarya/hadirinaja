@@ -9,10 +9,10 @@ import {
   within,
 } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { EmployeeAttendanceHistory } from "./employee-attendance-history"
-import type { EffectiveAttendanceDay } from "@/lib/attendance-presentation"
-import { attendanceIdentityChangeEventName } from "@/lib/attendance-photo-recovery"
 import type { PersonalCorrectionOptions } from "@/lib/attendance-correction-navigation"
+import { attendanceIdentityChangeEventName } from "@/lib/attendance-photo-recovery"
+import type { EffectiveAttendanceDay } from "@/lib/attendance-presentation"
+import { EmployeeAttendanceHistory } from "./employee-attendance-history"
 
 const session = {
   id: 55,
@@ -175,9 +175,9 @@ describe("employee attendance history", () => {
       .getAllByRole("button")
       .map((button) => button.textContent ?? "")
     expect(dates).toHaveLength(3)
-    expect(dates[0]).toContain("Sabtu, 7 November")
-    expect(dates[1]).toContain("Kamis, 5 November")
-    expect(dates[2]).toContain("Senin, 2 November")
+    expect(dates[0]).toContain("Sab, 7 Nov")
+    expect(dates[1]).toContain("Kam, 5 Nov")
+    expect(dates[2]).toContain("Sen, 2 Nov")
     expect(dates.join(" ")).not.toContain("8 November")
     expect(dates.join(" ")).not.toContain("Minggu, 1 November")
   })

@@ -5,6 +5,7 @@ import { CorrectionEvidencePanel } from "@/components/correction-evidence-panel"
 import { CtaSection } from "@/components/cta-section"
 import { EmployeeAttendanceClock } from "@/components/employee-attendance-clock"
 import { EmployeeAttendanceHistory } from "@/components/employee-attendance-history"
+import { EmployeeAttendanceHomeCard } from "@/components/employee-attendance-home-card"
 import { EmployeeNavigation, EmployeeTopbar } from "@/components/employee-shell"
 import { FacebookIcon } from "@/components/facebook-icon"
 import { Footer } from "@/components/footer"
@@ -147,6 +148,23 @@ export function AppComponentsSection() {
         />
       </UiKitSection>
       <UiKitSection
+        id="employee-attendance-home-card"
+        importPath="@/components/employee-attendance-home-card"
+        title="Employee Attendance Home Card"
+      >
+        <EmployeeAttendanceHomeCard
+          state="working"
+          greeting="Selamat pagi, Rani"
+          duration="5 j 23 m"
+          checkInTime="08.05"
+          timeRange={null}
+          canCheckIn={false}
+          canCheckOut
+          onCheckIn={() => undefined}
+          onCheckOut={() => undefined}
+        />
+      </UiKitSection>
+      <UiKitSection
         id="employee-attendance-history"
         importPath="@/components/employee-attendance-history"
         title="Employee Attendance History"
@@ -231,7 +249,7 @@ export function AppComponentsSection() {
               is_finalized: false,
             },
           ]}
-          currentWorkDate="2026-11-07"
+          currentWorkDate="2026-11-05"
         />
       </UiKitSection>
       <UiKitSection

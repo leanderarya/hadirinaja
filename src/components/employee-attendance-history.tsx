@@ -4,6 +4,14 @@ import { useEffect, useId, useRef, useState } from "react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
   Drawer,
   DrawerContent,
   DrawerDescription,
@@ -11,13 +19,11 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogTrigger,
-} from "@/components/ui/dialog"
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import {
   Sheet,
   SheetContent,
@@ -27,57 +33,114 @@ import {
 } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ApiError, apiRequest } from "@/lib/api"
-import { getAuthRecoveryPath } from "@/lib/auth-navigation"
-import {
-  attendanceIdentityChangeEventName,
-  attendanceIdentityChangeSignalKey,
-} from "@/lib/attendance-photo-recovery"
 import {
   correctionHref,
   correctionTypeLabel,
   type PersonalCorrectionOptions,
 } from "@/lib/attendance-correction-navigation"
 import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "@/components/ui/empty"
+  attendanceIdentityChangeEventName,
+  attendanceIdentityChangeSignalKey,
+} from "@/lib/attendance-photo-recovery"
 import {
+  type ActiveAttendanceSession,
+  attendanceDurationMinutes,
   attendanceOutcomeLabel,
   currentWeekAttendance,
   type EffectiveAttendanceDay,
   type EffectiveAttendanceSession,
+  formatAttendanceDuration,
   formatAttendanceTime,
+  formatCompactWorkDate,
   formatWorkDate,
   originalOutletId,
   reviewIndicatorLabel,
+  weeklyAttendanceSummary,
 } from "@/lib/attendance-presentation"
+import { getAuthRecoveryPath } from "@/lib/auth-navigation"
 
 export function EmployeeAttendanceHistory({
   days,
   outletNames,
   correctionOptions,
   currentWorkDate,
+  activeSession = null,
+  now = new Date(),
+  summary: suppliedSummary,
   id = "history",
 }: {
   days: EffectiveAttendanceDay[] | undefined
   outletNames?: ReadonlyMap<number, string | null>
   correctionOptions?: PersonalCorrectionOptions
   currentWorkDate?: string | null
+  activeSession?: ActiveAttendanceSession | null
+  now?: Date
+  summary?: { workedDays: number; totalMinutes: number | null } | null
   id?: string
 }) {
-  const visibleDays = currentWorkDate
+  const fetchedDays = currentWorkDate
     ? currentWeekAttendance(days, currentWorkDate)
     : days
         ?.slice()
         .sort((left, right) => right.work_date.localeCompare(left.work_date))
+  const candidateActiveDay: EffectiveAttendanceDay | null = activeSession
+    ? {
+        work_date: activeSession.work_date,
+        outcome: "present",
+        sessions: [
+          {
+            id: activeSession.id,
+            recording_status: "active",
+            outlet: { id: 0, name: null },
+            original: {
+              work_date: activeSession.work_date,
+              check_in_at: activeSession.check_in_at,
+              check_out_at: null,
+            },
+            effective: {
+              work_date: activeSession.work_date,
+              check_in_at: activeSession.check_in_at,
+              check_out_at: null,
+            },
+            schedule_snapshot: { timezone: activeSession.timezone },
+            review_indicators: [],
+            correction: null,
+          },
+        ],
+        review: { status: "none", indicators: [] },
+        unresolved_conflicts: [],
+        is_finalized: false,
+      }
+    : null
+  const activeDay =
+    candidateActiveDay &&
+    (!currentWorkDate ||
+      Boolean(
+        currentWeekAttendance([candidateActiveDay], currentWorkDate)?.length
+      ))
+      ? candidateActiveDay
+      : null
+  const visibleDays =
+    fetchedDays === undefined
+      ? activeDay
+        ? [activeDay]
+        : undefined
+      : activeDay &&
+          !fetchedDays.some((day) => day.work_date === activeDay.work_date)
+        ? [...fetchedDays, activeDay].sort((left, right) =>
+            right.work_date.localeCompare(left.work_date)
+          )
+        : fetchedDays
   const [selectedWorkDate, setSelectedWorkDate] = useState<string | null>(null)
   const [wide, setWide] = useState(false)
   const opener = useRef<HTMLButtonElement | null>(null)
   const selectedDay = visibleDays?.find(
     (day) => day.work_date === selectedWorkDate
   )
+  const summary =
+    suppliedSummary === undefined
+      ? weeklyAttendanceSummary(visibleDays, activeSession, now)
+      : suppliedSummary
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return
@@ -105,9 +168,17 @@ export function EmployeeAttendanceHistory({
       aria-labelledby={`${id}-title`}
       className="flex min-w-0 scroll-mt-4 flex-col gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-ring"
     >
-      <h2 className="text-subtitle" id={`${id}-title`}>
-        Riwayat minggu ini
+      <h2 className="text-body font-semibold" id={`${id}-title`}>
+        Minggu ini
       </h2>
+      {summary ? (
+        <p className="text-body">
+          {summary.workedDays} hari ·{" "}
+          {summary.totalMinutes === null
+            ? "total belum tersedia"
+            : formatAttendanceDuration(summary.totalMinutes)}
+        </p>
+      ) : null}
       {!visibleDays?.length ? (
         <Empty className="border">
           <EmptyHeader>
@@ -129,7 +200,9 @@ export function EmployeeAttendanceHistory({
           {visibleDays.map((day) => (
             <li key={day.work_date}>
               <HistoryDay
+                activeSession={activeSession}
                 day={day}
+                now={now}
                 onOpen={(button) => {
                   opener.current = button
                   setSelectedWorkDate(day.work_date)
@@ -154,51 +227,95 @@ export function EmployeeAttendanceHistory({
 
 function HistoryDay({
   day,
+  activeSession,
+  now,
   onOpen,
 }: {
   day: EffectiveAttendanceDay
+  activeSession: ActiveAttendanceSession | null
+  now: Date
   onOpen: (button: HTMLButtonElement) => void
 }) {
   const entries = historyEntries(day)
-  const timeSummary = entries
-    .map((entry) => {
-      if (entry.kind === "reconstruction")
-        return formatCompactTime(
-          entry.start,
-          day.outlet?.id === entry.outletId ? day.schedule?.timezone : undefined
-        )
-      const originId = originalOutletId(day, entry.session)
+  const activeToday =
+    activeSession?.work_date === day.work_date ? activeSession : null
+  const displayEntries = entries.filter((entry) => entry.id !== activeToday?.id)
+  let totalMinutes = 0
+  let hasCompleteDurations = true
+  const ranges = displayEntries.flatMap((entry) => {
+    if (entry.kind === "reconstruction") {
+      if (!entry.checkIn || !entry.checkOut) {
+        hasCompleteDurations = false
+        return []
+      }
+      const minutes = attendanceDurationMinutes(entry.checkIn, entry.checkOut)
+      if (minutes === null) {
+        hasCompleteDurations = false
+        return []
+      }
+      totalMinutes += minutes
       const timezone =
-        entry.session.correction && originId !== entry.session.outlet.id
-          ? undefined
-          : entry.session.schedule_snapshot?.timezone
-      return formatCompactTime(entry.start, timezone)
-    })
-    .filter((value) => value !== "Belum tercatat")
-    .join(" · ")
+        day.outlet?.id === entry.outletId ? day.schedule?.timezone : undefined
+      return [
+        `${formatCompactTime(entry.checkIn, timezone)}–${formatCompactTime(entry.checkOut, timezone)}`,
+      ]
+    }
+    const start =
+      entry.session.effective.check_in_at ?? entry.session.original.check_in_at
+    const end =
+      entry.session.effective.check_out_at ??
+      entry.session.original.check_out_at
+    if (!start || !end) {
+      hasCompleteDurations = false
+      return start
+        ? [
+            `${formatCompactTime(start, entry.session.schedule_snapshot?.timezone)}–…`,
+          ]
+        : []
+    }
+    const minutes = attendanceDurationMinutes(start, end)
+    if (minutes === null) {
+      hasCompleteDurations = false
+      return []
+    }
+    totalMinutes += minutes
+    const originId = originalOutletId(day, entry.session)
+    const timezone =
+      entry.session.correction && originId !== entry.session.outlet.id
+        ? undefined
+        : entry.session.schedule_snapshot?.timezone
+    return [
+      `${formatCompactTime(start, timezone)}–${formatCompactTime(end, timezone)}`,
+    ]
+  })
+  const activeMinutes = activeToday
+    ? attendanceDurationMinutes(activeToday.check_in_at, now)
+    : null
+  if (activeToday && activeMinutes !== null) totalMinutes += activeMinutes
+  if (activeToday && activeMinutes === null) hasCompleteDurations = false
+  if (displayEntries.length === 0 && !activeToday) hasCompleteDurations = false
+  const timeSummary = activeToday
+    ? `${formatCompactTime(activeToday.check_in_at, activeToday.timezone)}–… · berjalan`
+    : ranges.length
+      ? `${ranges.join(", ")}${hasCompleteDurations ? ` · ${formatAttendanceDuration(totalMinutes)}` : ""}`
+      : ""
   const label = `${formatWorkDate(day.work_date)}, ${attendanceOutcomeLabel(day.outcome)}${entries.length ? `, ${entries.length} sesi` : ""}${timeSummary ? `, ${timeSummary}` : ""}`
 
   return (
     <button
       aria-label={label}
-      className="flex min-h-[68px] w-full min-w-0 items-center gap-3 px-2 py-3 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      className="flex min-h-[68px] w-full min-w-0 items-center justify-between gap-3 px-2 py-3 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       onClick={(event) => onOpen(event.currentTarget)}
       type="button"
     >
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <time className="text-label" dateTime={day.work_date}>
-          {formatWorkDate(day.work_date)}
+      <span className="min-w-0 flex-1">
+        <time className="text-body font-medium" dateTime={day.work_date}>
+          {formatCompactWorkDate(day.work_date)}
         </time>
-        <span className="truncate text-caption text-muted-foreground">
-          {attendanceOutcomeLabel(day.outcome)}
-          {timeSummary && ` · ${timeSummary}`}
-        </span>
       </span>
-      {entries.length > 0 && (
-        <span className="shrink-0 text-caption text-muted-foreground">
-          {entries.length} sesi
-        </span>
-      )}
+      <span className="min-w-0 flex-1 text-right text-body tabular-nums">
+        {timeSummary || attendanceOutcomeLabel(day.outcome)}
+      </span>
       <HugeiconsIcon
         icon={ArrowDown01Icon}
         className="size-4 shrink-0 -rotate-90 text-muted-foreground"
