@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { EmployeeAttendanceClock } from "@/components/employee-attendance-clock"
 import { EmployeeAttendanceHistory } from "@/components/employee-attendance-history"
+import { EmployeeAttendanceHomeCard } from "@/components/employee-attendance-home-card"
 import { EmployeeShell } from "@/components/employee-shell"
 import { OutletGeofenceMap } from "@/components/outlet-geofence-map"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -36,11 +36,16 @@ import {
 } from "@/lib/attendance-photo-recovery"
 import {
   attendanceConfirmation,
-  attendanceOutcomeLabel,
+  attendanceDurationMinutes,
+  attendanceGreeting,
   attendanceWorkDate,
   currentWeekAttendance,
   type EffectiveAttendanceDay,
+  formatAttendanceDuration,
+  formatAttendanceHeaderTime,
   formatWorkDate,
+  isCurrentWeekWorkDate,
+  weeklyAttendanceSummary,
 } from "@/lib/attendance-presentation"
 import { getAuthRecoveryPath } from "@/lib/auth-navigation"
 import {
@@ -203,6 +208,7 @@ type OperationResult = {
 type AttendanceReceipt = {
   operation: AttendanceOperation
   time: string | null
+  totalDuration: string | null
 }
 
 function AttendancePage() {
@@ -214,6 +220,7 @@ function AttendancePage() {
     useState<AttendancePhotoIdentity | null>(null)
   const [isOwner, setIsOwner] = useState(false)
   const [accountName, setAccountName] = useState("Karyawan")
+  const [presentationNow, setPresentationNow] = useState(() => new Date())
   const [selectableOutlets, setSelectableOutlets] = useState<
     AttendanceReady["outlets"]
   >([])
@@ -265,6 +272,31 @@ function AttendancePage() {
   const statusCheckInFlight = useRef(false)
   const identityChangeInProgress = useRef(false)
   const verificationAttempt = useRef(0)
+  const intervalRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const refresh = () => setPresentationNow(new Date())
+    const timeout = window.setTimeout(
+      () => {
+        refresh()
+        const interval = window.setInterval(refresh, 60_000)
+        intervalRef.current = interval
+      },
+      60_000 - (Date.now() % 60_000)
+    )
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refresh()
+    }
+    window.addEventListener("focus", refresh)
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => {
+      window.clearTimeout(timeout)
+      if (intervalRef.current !== null)
+        window.clearInterval(intervalRef.current)
+      window.removeEventListener("focus", refresh)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+    }
+  }, [])
 
   const stopCamera = useCallback(() => {
     cameraRef.current?.getTracks().forEach((track) => {
@@ -1507,22 +1539,28 @@ function AttendancePage() {
       (outlet) => String(outlet.id) === selectedOutletId
     )?.name ??
     null
+  const businessTimeZone =
+    openSession?.timezone ??
+    readyAttendance?.schedule?.timezone ??
+    "Asia/Jakarta"
   const today = readyAttendance
-    ? attendanceWorkDate(
-        readyAttendance.server_time,
-        readyAttendance.schedule?.timezone ?? "Asia/Jakarta"
-      )
+    ? attendanceWorkDate(readyAttendance.server_time, businessTimeZone)
     : null
   const week = today
     ? currentWeekAttendance(readyAttendance?.effective_attendance, today)
     : undefined
   const serverHistory = readyAttendance?.effective_attendance
-  const historyWorkDate = serverHistory?.length
-    ? serverHistory[serverHistory.length - 1].work_date
-    : today
+  const historyWorkDate = today
   const historyWeek = historyWorkDate
     ? currentWeekAttendance(serverHistory, historyWorkDate)
     : undefined
+  const activeSessionThisWeek =
+    openSession && today && isCurrentWeekWorkDate(openSession.work_date, today)
+      ? openSession
+      : null
+  const weekSummary = readyAttendance
+    ? weeklyAttendanceSummary(week, activeSessionThisWeek, presentationNow)
+    : null
   const todayResult = week?.find((day) => day.work_date === today)
   const todaySession = todayResult?.sessions.at(-1) ?? null
   const todayTimezone =
@@ -1579,29 +1617,33 @@ function AttendancePage() {
     !actionsUnavailable &&
     Boolean(openSession) &&
     checkoutDestinations.length > 0
-  const todayStatus = !stateFresh
-    ? "Status terbaru belum tersedia"
-    : openSession
-      ? `Sedang bekerja sejak ${formatLocalClockTime(openSession.check_in_at, openSession.timezone) ?? "--.--"}`
-      : todayCheckIn && todayCheckOut
-        ? `Selesai hari ini · ${formatLocalClockTime(todayCheckIn, todayTimezone) ?? "--.--"}–${formatLocalClockTime(todayCheckOut, todayTimezone) ?? "--.--"}`
-        : todayResult &&
-            ![
-              "no_recorded_outcome",
-              "no_attendance",
-              "potential_absence",
-            ].includes(todayResult.outcome)
-          ? attendanceOutcomeLabel(todayResult.outcome)
-          : "Belum absen masuk"
   const homeActionState = openSession
     ? "working"
     : todayCheckIn && todayCheckOut
       ? "finished"
       : "not-checked-in"
-  const clockTimeZone =
-    checkoutDestination?.timezone ??
-    openSession?.timezone ??
-    readyAttendance?.schedule?.timezone
+  const homeDisplayState =
+    loading || !readyAttendance ? "unavailable" : homeActionState
+  const homeDurationMinutes = openSession
+    ? attendanceDurationMinutes(openSession.check_in_at, presentationNow)
+    : todayCheckIn && todayCheckOut
+      ? todayResult
+        ? (weeklyAttendanceSummary([todayResult], null, presentationNow)
+            ?.totalMinutes ?? null)
+        : attendanceDurationMinutes(todayCheckIn, todayCheckOut)
+      : null
+  const homeDuration =
+    homeDurationMinutes === null
+      ? null
+      : formatAttendanceDuration(homeDurationMinutes)
+  const homeTimeRange =
+    todayCheckIn && todayCheckOut
+      ? `${formatLocalClockTime(todayCheckIn, todayTimezone) ?? "--.--"} – ${formatLocalClockTime(todayCheckOut, todayTimezone) ?? "--.--"}`
+      : null
+  const homeCheckInTime = openSession
+    ? formatLocalClockTime(openSession.check_in_at, openSession.timezone)
+    : null
+  const clockTimeZone = checkoutDestination?.timezone ?? businessTimeZone
   const headerOutlets = openSession
     ? [
         {
@@ -1622,6 +1664,8 @@ function AttendancePage() {
       (headerOutlets.length === 1 ? headerOutlets[0].name : "Semua Outlet"),
   }
   const verificationActionLabel =
+    draft?.operation === "check_out" ? "Absen keluar" : "Absen masuk"
+  const verificationSubmitActionLabel =
     draft?.operation === "check_out" ? "Absen Keluar" : "Absen Masuk"
   const acceptedPhoto =
     cameraMode === "preview" && Boolean(photoBlob) && photoAccepted
@@ -1655,7 +1699,7 @@ function AttendancePage() {
                 : "Tunggu kamera"
               : cameraMode === "preview" && !acceptedPhoto
                 ? "Pilih foto di atas"
-                : `Kirim ${verificationActionLabel}`
+                : `Kirim ${verificationSubmitActionLabel}`
   const verificationOutletName =
     draft?.operation === "check_out"
       ? (draft.outletName ??
@@ -1748,108 +1792,69 @@ function AttendancePage() {
       accountName={accountName}
       outletContext={attendanceOutletContext}
     >
-      <div className="flex min-w-0 flex-col gap-5 [&_.text-caption]:text-body [&_[aria-label='Riwayat minggu ini, terbaru lebih dulu']_.text-muted-foreground]:text-foreground [&_[aria-label='Riwayat minggu ini, terbaru lebih dulu']_.text-caption]:text-body [&_[data-slot=alert-title]]:text-body [&_[data-slot=alert-title]]:font-semibold [&_[data-slot=alert-description]]:text-body [&_[id=history-title]]:text-label [&_button]:font-semibold">
-        <header className="text-center">
+      <div className="employee-attendance-home flex min-w-0 flex-col gap-5 [&_[data-slot=alert-title]]:text-body [&_[data-slot=alert-title]]:font-semibold [&_[data-slot=alert-description]]:text-body [&_button]:font-semibold">
+        <header className="flex min-w-0 justify-end">
           {today && (
-            <p className="text-caption text-muted-foreground">
-              <time dateTime={today}>{formatWorkDate(today)}</time>
+            <p className="text-caption text-muted-foreground tabular-nums">
+              <time dateTime={presentationNow.toISOString()}>
+                {formatAttendanceHeaderTime(
+                  presentationNow,
+                  clockTimeZone ?? businessTimeZone
+                )}
+              </time>
             </p>
           )}
         </header>
 
-        <section
-          aria-labelledby="attendance-status-title"
-          className="flex w-full flex-col items-center gap-6 text-center"
-        >
-          <EmployeeAttendanceClock
-            outletTimeZone={clockTimeZone}
-            showTimeZoneLabel={false}
-          />
-          <div className="flex max-w-xl flex-col items-center gap-1">
-            <h2
-              className="text-body font-semibold"
-              id="attendance-status-title"
-            >
-              Status kehadiran hari ini
-            </h2>
-            <p
-              className="text-display font-semibold leading-tight"
-              role="status"
-            >
-              {loading ? "Memuat kehadiran…" : todayStatus}
-            </p>
-          </div>
-          {readyAttendance && !openSession && (
-            <div className="flex w-full max-w-xl flex-col items-center gap-3">
-              {(selectableOutlets.length > 1 || !selectedOutletId) &&
-                selectableOutlets.length > 0 && (
-                  <FieldGroup className="w-full text-left">
-                    <Field data-disabled={pending || busy ? true : undefined}>
-                      <FieldLabel htmlFor="attendance-outlet">
-                        Outlet presensi
-                      </FieldLabel>
-                      <NativeSelect
-                        disabled={Boolean(pending) || busy}
-                        id="attendance-outlet"
-                        onChange={(event) =>
-                          void changeOutlet(event.target.value)
-                        }
-                        value={selectedOutletId}
-                      >
-                        <NativeSelectOption value="" disabled>
-                          Pilih Outlet
+        {readyAttendance && !openSession && (
+          <div className="w-full">
+            {(selectableOutlets.length > 1 || !selectedOutletId) &&
+              selectableOutlets.length > 0 && (
+                <FieldGroup className="w-full">
+                  <Field data-disabled={pending || busy ? true : undefined}>
+                    <FieldLabel htmlFor="attendance-outlet">
+                      Outlet presensi
+                    </FieldLabel>
+                    <NativeSelect
+                      disabled={Boolean(pending) || busy}
+                      id="attendance-outlet"
+                      onChange={(event) =>
+                        void changeOutlet(event.target.value)
+                      }
+                      value={selectedOutletId}
+                    >
+                      <NativeSelectOption value="" disabled>
+                        Pilih Outlet
+                      </NativeSelectOption>
+                      {selectableOutlets.map((outlet) => (
+                        <NativeSelectOption
+                          key={outlet.id}
+                          value={String(outlet.id)}
+                        >
+                          {outlet.name}
                         </NativeSelectOption>
-                        {selectableOutlets.map((outlet) => (
-                          <NativeSelectOption
-                            key={outlet.id}
-                            value={String(outlet.id)}
-                          >
-                            {outlet.name}
-                          </NativeSelectOption>
-                        ))}
-                      </NativeSelect>
-                    </Field>
-                  </FieldGroup>
-                )}
-            </div>
-          )}
-          {openSession && (
-            <p className="max-w-xl text-body">
-              Sesi asal · {formatWorkDate(openSession.work_date)} ·{" "}
-              {openSession.outlet.name ?? "Outlet asal belum tersedia"}
-            </p>
-          )}
-          <div className="grid w-full max-w-xl grid-cols-2 gap-2">
-            <Button
-              className="min-h-12 w-full"
-              disabled={!canCheckIn}
-              onClick={() => void startAttendance("check_in")}
-              variant={
-                homeActionState === "not-checked-in"
-                  ? "default"
-                  : homeActionState === "working"
-                    ? "outline"
-                    : "secondary"
-              }
-            >
-              Absen Masuk
-            </Button>
-            <Button
-              className="min-h-12 w-full"
-              disabled={!canCheckOut}
-              onClick={() => void startAttendance("check_out")}
-              variant={
-                homeActionState === "working"
-                  ? "default"
-                  : homeActionState === "not-checked-in"
-                    ? "outline"
-                    : "secondary"
-              }
-            >
-              Absen Keluar
-            </Button>
+                      ))}
+                    </NativeSelect>
+                  </Field>
+                </FieldGroup>
+              )}
           </div>
-        </section>
+        )}
+        <EmployeeAttendanceHomeCard
+          state={homeDisplayState}
+          greeting={attendanceGreeting(
+            accountName,
+            presentationNow,
+            clockTimeZone ?? businessTimeZone
+          )}
+          duration={homeDuration}
+          checkInTime={homeCheckInTime}
+          timeRange={homeTimeRange}
+          canCheckIn={canCheckIn}
+          canCheckOut={canCheckOut}
+          onCheckIn={() => void startAttendance("check_in")}
+          onCheckOut={() => void startAttendance("check_out")}
+        />
 
         {identityCopy && (
           <Alert variant="destructive">
@@ -1991,14 +1996,15 @@ function AttendancePage() {
               </Alert>
             ) : null}
 
-            <div className="border-t border-border pt-4">
-              <EmployeeAttendanceHistory
-                days={historyWeek}
-                currentWorkDate={historyWorkDate}
-                outletNames={outletNames}
-                correctionOptions={readyAttendance.correction_options}
-              />
-            </div>
+            <EmployeeAttendanceHistory
+              days={historyWeek}
+              currentWorkDate={historyWorkDate}
+              outletNames={outletNames}
+              correctionOptions={readyAttendance.correction_options}
+              activeSession={activeSessionThisWeek}
+              now={presentationNow}
+              summary={weekSummary}
+            />
 
             {stateFresh && locationPolicy?.required && selectedOutletId && (
               <p className="text-caption" role="status">
@@ -2104,43 +2110,29 @@ function AttendancePage() {
 
       <main className="min-h-0 overflow-y-auto overscroll-contain">
         <div className="mx-auto flex w-full max-w-2xl flex-col px-4 pb-5 sm:px-5">
-          {draft?.operation === "check_out" && openSession && (
-            <section
-              aria-label="Sesi asal checkout"
-              className="border-b border-border py-3"
-            >
-              <h2 className="text-label">Sesi asal</h2>
-              <dl className="mt-2 grid grid-cols-2 gap-3 text-body">
-                <div>
-                  <dt className="text-caption text-muted-foreground">
-                    Work Date asal
-                  </dt>
-                  <dd>
-                    <time dateTime={openSession.work_date}>
-                      {formatWorkDate(openSession.work_date)}
-                    </time>
-                  </dd>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-caption text-muted-foreground">
-                    Outlet asal
-                  </dt>
-                  <dd className="break-words">
-                    {openSession.outlet.name ?? "Outlet asal belum tersedia"}
-                  </dd>
-                </div>
-              </dl>
-            </section>
-          )}
-
-          <section aria-labelledby="verification-outlet-title" className="py-4">
+          <section aria-labelledby="verification-outlet-title" className="py-2">
             <h2 className="text-label" id="verification-outlet-title">
               {draft?.operation === "check_out"
                 ? "Outlet tujuan checkout"
                 : "Outlet presensi"}
             </h2>
+            {draft?.operation === "check_out" && openSession ? (
+              <section
+                aria-label="Sesi asal checkout"
+                className="mt-1 flex flex-wrap gap-x-1 text-caption text-muted-foreground"
+              >
+                <span>Work Date asal</span>
+                <time dateTime={openSession.work_date}>
+                  {formatWorkDate(openSession.work_date)}
+                </time>
+                <span>Outlet asal</span>
+                <span>
+                  {openSession.outlet.name ?? "Outlet asal belum tersedia"}
+                </span>
+              </section>
+            ) : null}
             {draft?.operation === "check_out" ? (
-              <FieldGroup className="mt-2">
+              <FieldGroup className="mt-1">
                 <Field data-disabled={busy || pending ? true : undefined}>
                   <FieldLabel htmlFor="checkout-destination">
                     Pilih Outlet tujuan checkout
@@ -2173,7 +2165,7 @@ function AttendancePage() {
                 )}
               </FieldGroup>
             ) : (
-              <p className="mt-2 min-h-11 break-words text-body font-medium">
+              <p className="mt-1 break-words text-body font-medium">
                 {verificationOutletName ?? "Outlet belum tersedia"}
               </p>
             )}
@@ -2183,7 +2175,7 @@ function AttendancePage() {
 
           <section
             aria-labelledby="verification-location-title"
-            className="flex flex-col py-4"
+            className="flex flex-col py-2"
           >
             <h2 className="text-label" id="verification-location-title">
               Lokasi
@@ -2192,41 +2184,21 @@ function AttendancePage() {
               {locating
                 ? "Mendapatkan lokasi…"
                 : locationState === "inside"
-                  ? `Di area outlet · ${verificationDistanceMeters} m · akurasi ±${verificationAccuracyMeters} m`
+                  ? `Lokasi berada di area absen (${verificationDistanceMeters} m; akurasi ±${verificationAccuracyMeters} m).`
                   : locationState === "outside"
-                    ? `Di luar area · ${verificationDistanceMeters} m. Datang ke outlet, lalu`
+                    ? `Lokasi di luar area absen (${verificationDistanceMeters} m). Datang ke Outlet, lalu tekan Perbarui lokasi.`
                     : locationState === "weak"
-                      ? `Sinyal lokasi lemah · akurasi ±${verificationAccuracyMeters} m. Pindah dekat pintu atau jendela, lalu`
+                      ? `Sinyal lokasi lemah (akurasi ±${verificationAccuracyMeters} m). Pindah dekat pintu atau jendela, lalu tekan Perbarui lokasi.`
                       : locationState === "denied"
-                        ? "Izin lokasi ditolak. Periksa izin di setelan browser atau ponsel."
+                        ? "Izin lokasi ditolak. Izinkan lokasi di setelan browser atau ponsel, lalu tekan Perbarui lokasi."
                         : verificationStage === "destination"
                           ? "Pilih Outlet tujuan checkout."
                           : locationPolicy
                             ? locationError ||
-                              "Lokasi belum tersedia. Perbarui lokasi untuk melanjutkan."
+                              "Lokasi belum tersedia. Aktifkan izin lokasi, lalu tekan Perbarui lokasi."
                             : "Outlet tujuan belum dapat diverifikasi."}
             </p>
-            {locationState === "outside" || locationState === "weak" ? (
-              <Button
-                className="mt-2 min-h-11 self-start"
-                disabled={busy || locating || Boolean(pending)}
-                onClick={() => void refreshVerificationLocation()}
-                variant="outline"
-              >
-                Perbarui lokasi
-              </Button>
-            ) : locationState === "denied" ? (
-              <Button
-                className="mt-2 min-h-11 self-start"
-                disabled={busy || locating || Boolean(pending)}
-                onClick={() => void refreshVerificationLocation()}
-                variant="outline"
-              >
-                Coba lagi
-              </Button>
-            ) : locationState === "unavailable" &&
-              verificationStage !== "destination" &&
-              locationPolicy?.required ? (
+            {locationPolicy?.required && verificationStage !== "destination" ? (
               <Button
                 className="mt-2 min-h-11 self-start"
                 disabled={busy || locating || Boolean(pending)}
@@ -2250,7 +2222,7 @@ function AttendancePage() {
                   : `±${verificationAccuracyMeters} m`}
               </p>
             </div>
-            <div className="mt-3">
+            <div className="mt-2">
               <OutletGeofenceMap
                 outletName={verificationOutletName ?? "Outlet"}
                 latitude={locationPolicy?.latitude ?? null}
@@ -2268,19 +2240,17 @@ function AttendancePage() {
                       }
                     : null
                 }
-                onLocate={
-                  locationPolicy?.required && locationPolicy.geofence_configured
-                    ? () => void refreshVerificationLocation()
-                    : undefined
-                }
                 locating={locating || busy || Boolean(pending)}
               />
             </div>
+            <p className="text-caption text-muted-foreground">
+              Ungu = area absen · Biru = lokasi Anda
+            </p>
           </section>
 
           <Separator className="bg-border/70" />
 
-          <section aria-labelledby="verification-photo-title" className="py-4">
+          <section aria-labelledby="verification-photo-title" className="py-2">
             <h2 className="text-label" id="verification-photo-title">
               Foto
             </h2>
@@ -2407,18 +2377,27 @@ function AttendancePage() {
       >
         <span
           aria-hidden="true"
-          className="text-6xl font-semibold text-primary"
+          className="text-3xl font-semibold text-primary"
         >
           ✓
         </span>
-        <h1 className="text-title" id="attendance-receipt-title">
+        <h1
+          className="text-display font-semibold"
+          id="attendance-receipt-title"
+        >
           Absen{" "}
           {attendanceReceipt.operation === "check_in" ? "masuk" : "keluar"}{" "}
           tercatat
-          <span className="block text-lead font-normal tabular-nums">
-            {attendanceReceipt.time ?? "--.--"}
-          </span>
         </h1>
+        <time className="text-subtitle tabular-nums">
+          {attendanceReceipt.time ?? "--.--"}
+        </time>
+        {attendanceReceipt.operation === "check_out" &&
+        attendanceReceipt.totalDuration ? (
+          <p className="text-body">
+            Total hari ini {attendanceReceipt.totalDuration}
+          </p>
+        ) : null}
         <p className="sr-only">{notice}</p>
         <Button className="min-h-11" onClick={() => setAttendanceReceipt(null)}>
           Kembali ke beranda
@@ -2452,6 +2431,18 @@ function attendanceReceiptFrom(
   return {
     operation,
     time: formatLocalClockTime(recordedAt ?? null, result.session?.timezone),
+    totalDuration:
+      operation === "check_out" &&
+      result.session?.check_in_at &&
+      result.session.check_out_at
+        ? (() => {
+            const minutes = attendanceDurationMinutes(
+              result.session.check_in_at,
+              result.session.check_out_at
+            )
+            return minutes === null ? null : formatAttendanceDuration(minutes)
+          })()
+        : null,
   }
 }
 

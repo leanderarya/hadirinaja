@@ -50,11 +50,19 @@ vi.mock("@/components/employee-shell", () => ({
 vi.mock("@/components/employee-attendance-history", () => ({
   EmployeeAttendanceHistory: ({
     days,
+    summary,
   }: {
     days?: Array<{ work_date: string }>
+    summary?: { workedDays: number; totalMinutes: number | null } | null
   }) => (
-    <section aria-label="Riwayat minggu ini">
-      <h2>Riwayat minggu ini</h2>
+    <section aria-label="Minggu ini">
+      <h2>Minggu ini</h2>
+      {summary ? (
+        <p>
+          {summary.workedDays} hari ·{" "}
+          {summary.totalMinutes ?? "total belum tersedia"}
+        </p>
+      ) : null}
       {days?.length ? (
         <ol aria-label="Riwayat minggu ini, terbaru lebih dulu">
           {days.map((day) => (
@@ -167,7 +175,7 @@ import { prepareAttendanceIdentityChange } from "@/lib/attendance-photo-recovery
 import { Route } from "./attendance"
 
 const AttendancePage = Route.options.component as ComponentType
-function focusView(action = "Absen Masuk") {
+function focusView(action = "Absen masuk") {
   const heading = screen.getByRole("heading", { name: action })
   const view = heading.closest<HTMLElement>('[data-verification-mode="focus"]')
   if (!view) throw new Error("Verification focus view was not rendered")
@@ -379,7 +387,7 @@ async function cameraReady() {
 }
 
 describe("Employee attendance camera", () => {
-  it("keeps both actions disabled when an Outlet eligibility read fails", async () => {
+  it("keeps attendance actions unavailable when an Outlet eligibility read fails", async () => {
     const defaultRequest = apiRequest.getMockImplementation()
     apiRequest.mockImplementation(async (path: string) => {
       if (path === "/attendance/me") {
@@ -394,14 +402,8 @@ describe("Employee attendance camera", () => {
     })
     render(<AttendancePage />)
     await screen.findByRole("button", { name: "Muat Ulang Status" })
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Absen Masuk" })
-        .disabled
-    ).toBe(true)
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Absen Keluar" })
-        .disabled
-    ).toBe(true)
+    expect(screen.queryByRole("button", { name: "Absen masuk" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Absen keluar" })).toBeNull()
     expect(
       apiRequest.mock.calls.some(([, options]) => options?.method === "POST")
     ).toBe(false)
@@ -420,13 +422,10 @@ describe("Employee attendance camera", () => {
       return defaultRequest?.(path)
     })
     render(<AttendancePage />)
-    await screen.findByText(/^Sedang bekerja sejak \d{2}\.\d{2}$/)
+    await screen.findByText("Sedang bekerja")
+    expect(screen.queryByRole("button", { name: "Absen masuk" })).toBeNull()
     expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Absen Masuk" })
-        .disabled
-    ).toBe(true)
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Absen Keluar" })
+      screen.getByRole<HTMLButtonElement>("button", { name: "Absen keluar" })
         .disabled
     ).toBe(true)
     expect(
@@ -460,7 +459,7 @@ describe("Employee attendance camera", () => {
       return defaultRequest?.(path)
     })
     render(<AttendancePage />)
-    await enabledButton("Absen Masuk")
+    await enabledButton("Absen masuk")
     expect(screen.getByTestId("outlet-header").textContent).toBe(
       "Outlet Makassar"
     )
@@ -488,15 +487,12 @@ describe("Employee attendance camera", () => {
       return defaultRequest?.(path)
     })
     render(<AttendancePage />)
-    await screen.findByRole("region", { name: "Status kehadiran hari ini" })
+    await screen.findByRole("region", { name: "Hari ini" })
     expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Absen Masuk" })
+      screen.getByRole<HTMLButtonElement>("button", { name: "Absen masuk" })
         .disabled
     ).toBe(true)
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Absen Keluar" })
-        .disabled
-    ).toBe(true)
+    expect(screen.queryByRole("button", { name: "Absen keluar" })).toBeNull()
     expect(
       screen.queryByRole("combobox", { name: "Outlet presensi" })
     ).toBeNull()
@@ -523,20 +519,14 @@ describe("Employee attendance camera", () => {
       return defaultRequest?.(path)
     })
     render(<AttendancePage />)
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Absen Masuk" })
-        .disabled
-    ).toBe(true)
+    expect(screen.queryByRole("button", { name: "Absen masuk" })).toBeNull()
     const select = await screen.findByRole<HTMLSelectElement>("combobox", {
       name: "Outlet presensi",
     })
     expect(select.value).toBe("")
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Absen Keluar" })
-        .disabled
-    ).toBe(true)
+    expect(screen.queryByRole("button", { name: "Absen keluar" })).toBeNull()
     fireEvent.change(select, { target: { value: "6" } })
-    await enabledButton("Absen Masuk")
+    await enabledButton("Absen masuk")
     expect(screen.getByTestId("outlet-header").textContent).toBe(
       "Outlet Makassar"
     )
@@ -575,12 +565,9 @@ describe("Employee attendance camera", () => {
     expect(
       screen.getByText("Koreksi menunggu keputusan. Sesi tetap terbuka.")
     ).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Absen masuk" })).toBeNull()
     expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Absen Masuk" })
-        .disabled
-    ).toBe(true)
-    expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "Absen Keluar" })
+      screen.getByRole<HTMLButtonElement>("button", { name: "Absen keluar" })
         .disabled
     ).toBe(false)
     expect(apiRequest.mock.calls.map(([path]) => path)).toEqual(
@@ -628,58 +615,36 @@ describe("Employee attendance camera", () => {
     })
 
     render(<AttendancePage />)
-    expect(
-      await screen.findByRole("region", { name: "Status kehadiran hari ini" })
-    ).toBeTruthy()
-    expect(
-      screen.getByRole("heading", { name: "Status kehadiran hari ini" })
-    ).toBeTruthy()
-    expect(screen.getByRole("status").textContent).toBe("Sakit disetujui")
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Absen Keluar",
-        }) as HTMLButtonElement
-      ).disabled
-    ).toBe(true)
+    expect(await screen.findByRole("region", { name: "Hari ini" })).toBeTruthy()
     expect(screen.getAllByText(/Outlet Pusat/).length).toBeGreaterThan(0)
-    expect(screen.getByRole("button", { name: "Absen Masuk" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Absen masuk" })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Absen keluar" })).toBeNull()
   })
 
-  it("renders the live clock in the scheduled Outlet timezone", async () => {
+  it("renders a compact minute-precision date and time", async () => {
     render(<AttendancePage />)
 
-    expect(
-      await screen.findByRole("region", { name: "Status kehadiran hari ini" })
-    ).toBeTruthy()
-    expect(screen.getByRole("timer").textContent).toMatch(/^\d{2}:\d{2}:\d{2}$/)
-    expect(screen.queryByText("Zona waktu Outlet · Asia/Jakarta")).toBeNull()
-    expect(
-      screen.getByRole("button", { name: "Absen Masuk" }).className
-    ).toContain("w-full")
-    expect(
-      screen.getByRole("button", { name: "Absen Keluar" }).className
-    ).toContain("w-full")
+    expect(await screen.findByRole("region", { name: "Hari ini" })).toBeTruthy()
+    expect(screen.getByText(/· \d{2}\.\d{2}$/)).toBeTruthy()
+    expect(screen.queryByRole("timer")).toBeNull()
+    expect(screen.getByRole("button", { name: "Absen masuk" })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Absen keluar" })).toBeNull()
   })
 
-  it("keeps weekly history flat immediately after the centered Home actions", async () => {
+  it("places this week's history immediately after the today card", async () => {
     render(<AttendancePage />)
 
-    const status = await screen.findByRole("region", {
-      name: "Status kehadiran hari ini",
-    })
+    const card = await screen.findByRole("region", { name: "Hari ini" })
     expect(
       screen.queryByRole("combobox", { name: "Pilih Outlet tujuan checkout" })
     ).toBeNull()
-    expect(screen.getByRole("button", { name: "Absen Masuk" })).toBeTruthy()
-    expect(screen.getByRole("button", { name: "Absen Keluar" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Absen masuk" })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Absen keluar" })).toBeNull()
 
-    const historyHeading = screen.getByRole("heading", {
-      name: "Riwayat minggu ini",
-    })
-    const historyBoundary = historyHeading.closest(".border-t")
-    expect(historyBoundary).toBe(status.nextElementSibling)
-    expect(historyBoundary?.className).toContain("pt-4")
+    const history = screen.getByRole("region", { name: "Minggu ini" })
+    expect(
+      card.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
   })
 
   it("renders current-week attendance history newest first on Home", async () => {
@@ -729,20 +694,16 @@ describe("Employee attendance camera", () => {
     installCamera()
     render(<AttendancePage />)
 
-    expect(
-      await screen.findByRole("region", { name: "Status kehadiran hari ini" })
-    ).toBeTruthy()
-    fireEvent.click(await enabledButton("Absen Masuk"))
-    const view = await screen.findByRole("heading", { name: "Absen Masuk" })
+    expect(await screen.findByRole("region", { name: "Hari ini" })).toBeTruthy()
+    fireEvent.click(await enabledButton("Absen masuk"))
+    const view = await screen.findByRole("heading", { name: "Absen masuk" })
     expect(view.tagName).toBe("H1")
     expect(screen.getByText(/Work Date/).parentElement?.textContent).toContain(
       "Minggu, 25 Oktober"
     )
     expect(screen.queryByRole("dialog")).toBeNull()
-    expect(
-      screen.queryByRole("region", { name: "Status kehadiran hari ini" })
-    ).toBeNull()
-    expect(screen.queryByRole("button", { name: "Absen Keluar" })).toBeNull()
+    expect(screen.queryByRole("region", { name: "Hari ini" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Absen keluar" })).toBeNull()
     expect(view.closest("[data-verification-mode='focus']")).toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(view))
     expect(
@@ -758,21 +719,35 @@ describe("Employee attendance camera", () => {
     expect(
       screen.getByRole("region", { name: "Peta batas lokasi Outlet Pusat" })
     ).toBeTruthy()
+    const outletSection = screen.getByRole("region", {
+      name: "Outlet presensi",
+    })
+    const locationSection = screen.getByRole("region", { name: "Lokasi" })
+    const photoSection = screen.getByRole("region", { name: "Foto" })
+    expect(
+      outletSection.compareDocumentPosition(locationSection) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      locationSection.compareDocumentPosition(photoSection) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      within(locationSection).queryAllByRole("button", {
+        name: "Perbarui lokasi",
+      }).length
+    ).toBeLessThanOrEqual(1)
     expect(screen.queryByRole("link", { name: "Jadwal" })).toBeNull()
-    expect(
-      view.closest("[data-verification-mode='focus']")?.className
-    ).toContain("grid-rows-[auto_minmax(0,1fr)_auto]")
-    expect(
-      view.closest("[data-verification-mode='focus']")?.lastElementChild
-        ?.className
-    ).toContain("safe-area-inset-bottom")
+    const focusRoot = view.closest("[data-verification-mode='focus']")
+    expect(focusRoot?.querySelector("main")).toBeTruthy()
+    expect(focusRoot?.querySelector("footer")).toBe(focusRoot?.lastElementChild)
   })
 
   it("submits the captured Blob as multipart and shows only server-confirmed success", async () => {
     installCamera()
     render(<AttendancePage />)
 
-    fireEvent.click(await enabledButton("Absen Masuk"))
+    fireEvent.click(await enabledButton("Absen masuk"))
     const capture = await screen.findByRole("button", { name: "Ambil foto" })
     fireEvent.loadedData(screen.getByLabelText("Pratinjau kamera karyawan"))
     await waitFor(() =>
@@ -820,7 +795,7 @@ describe("Employee attendance camera", () => {
       return result
     })
     render(<AttendancePage />)
-    fireEvent.click(await enabledButton("Absen Masuk"))
+    fireEvent.click(await enabledButton("Absen masuk"))
     fireEvent.click(await captureButton())
     fireEvent.click(
       await screen.findByRole("button", { name: "Pakai foto ini" })
@@ -883,7 +858,7 @@ describe("Employee attendance camera", () => {
       }
     )
     render(<AttendancePage />)
-    fireEvent.click(await enabledButton("Absen Masuk"))
+    fireEvent.click(await enabledButton("Absen masuk"))
     await screen.findByText(/Izin kamera ditolak/)
     fireEvent.click(screen.getByRole("button", { name: "Kirim Absen Masuk" }))
     await screen.findByText(/Presensi masuk dikonfirmasi oleh server/)
@@ -905,7 +880,7 @@ describe("Employee attendance camera", () => {
     installCamera()
     videoReadyState = HTMLMediaElement.HAVE_NOTHING
     render(<AttendancePage />)
-    fireEvent.click(await enabledButton("Absen Masuk"))
+    fireEvent.click(await enabledButton("Absen masuk"))
 
     expect(await screen.findByText("Menyiapkan kamera…")).toBeTruthy()
     const capture = await screen.findByRole("button", { name: "Ambil foto" })
@@ -921,16 +896,14 @@ describe("Employee attendance camera", () => {
 
   it("does not present a device clock as the confirmed attendance timestamp", async () => {
     render(<AttendancePage />)
-    expect(
-      await screen.findByRole("region", { name: "Status kehadiran hari ini" })
-    ).toBeTruthy()
+    expect(await screen.findByRole("region", { name: "Hari ini" })).toBeTruthy()
     expect(screen.queryByText(/Jam perangkat/)).toBeNull()
   })
 
   it("supports retake and releases camera tracks when verification is cancelled", async () => {
     installCamera()
     render(<AttendancePage />)
-    fireEvent.click(await enabledButton("Absen Masuk"))
+    fireEvent.click(await enabledButton("Absen masuk"))
     const capture = await screen.findByRole("button", { name: "Ambil foto" })
     fireEvent.loadedData(screen.getByLabelText("Pratinjau kamera karyawan"))
     await waitFor(() =>
@@ -945,7 +918,7 @@ describe("Employee attendance camera", () => {
       screen.getByRole("button", { name: "Kembali ke halaman presensi" })
     )
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Absen Masuk" })).toBeNull()
+      expect(screen.queryByRole("heading", { name: "Absen masuk" })).toBeNull()
     )
     expect(track.stop).toHaveBeenCalled()
     expect(
@@ -956,11 +929,11 @@ describe("Employee attendance camera", () => {
   it("keeps background navigation hidden and restores focus on Escape", async () => {
     installCamera()
     render(<AttendancePage />)
-    const trigger = await enabledButton("Absen Masuk")
+    const trigger = await enabledButton("Absen masuk")
     trigger.focus()
     fireEvent.click(trigger)
 
-    await screen.findByRole("heading", { name: "Absen Masuk" })
+    await screen.findByRole("heading", { name: "Absen masuk" })
     const view = focusView()
     await waitFor(() =>
       expect(view.contains(document.activeElement)).toBe(true)
@@ -970,7 +943,7 @@ describe("Employee attendance camera", () => {
 
     fireEvent.keyDown(document.activeElement ?? view, { key: "Escape" })
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Absen Masuk" })).toBeNull()
+      expect(screen.queryByRole("heading", { name: "Absen masuk" })).toBeNull()
     )
     await waitFor(() => expect(document.activeElement).toBe(trigger))
     expect(track.stop).toHaveBeenCalled()
@@ -1027,7 +1000,7 @@ describe("Employee attendance camera", () => {
       }
     )
     render(<AttendancePage />)
-    fireEvent.click(await enabledButton("Absen Masuk"))
+    fireEvent.click(await enabledButton("Absen masuk"))
     fireEvent.click(await captureButton())
     fireEvent.click(
       await screen.findByRole("button", { name: "Pakai foto ini" })
@@ -1117,10 +1090,10 @@ describe("Employee attendance camera", () => {
     expect(
       screen.queryByRole("combobox", { name: "Pilih Outlet tujuan checkout" })
     ).toBeNull()
-    const checkout = await enabledButton("Absen Keluar")
+    const checkout = await enabledButton("Absen keluar")
     fireEvent.click(checkout)
-    await screen.findByRole("heading", { name: "Absen Keluar" })
-    const view = focusView("Absen Keluar")
+    await screen.findByRole("heading", { name: "Absen keluar" })
+    const view = focusView("Absen keluar")
     const select = within(view).getByRole<HTMLSelectElement>("combobox", {
       name: "Pilih Outlet tujuan checkout",
     })
@@ -1131,9 +1104,7 @@ describe("Employee attendance camera", () => {
     expect(screen.queryByLabelText("Pratinjau kamera karyawan")).toBeNull()
     expect(posts).toHaveLength(0)
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Perbarui lokasi saya" })
-    )
+    fireEvent.click(screen.getByRole("button", { name: "Perbarui lokasi" }))
     expect(
       await screen.findByLabelText("Pratinjau kamera karyawan")
     ).toBeTruthy()
@@ -1172,7 +1143,7 @@ describe("Employee attendance camera", () => {
     expect(
       (
         screen.getByRole("button", {
-          name: "Absen Keluar",
+          name: "Absen keluar",
         }) as HTMLButtonElement
       ).disabled
     ).toBe(true)
@@ -1266,10 +1237,10 @@ describe("Employee attendance camera", () => {
     })
 
     render(<AttendancePage />)
-    const checkoutAction = await enabledButton("Absen Keluar")
+    const checkoutAction = await enabledButton("Absen keluar")
     fireEvent.click(checkoutAction)
-    await screen.findByRole("heading", { name: "Absen Keluar" })
-    const view = focusView("Absen Keluar")
+    await screen.findByRole("heading", { name: "Absen keluar" })
+    const view = focusView("Absen keluar")
     const select = within(view).getByRole<HTMLSelectElement>("combobox", {
       name: "Pilih Outlet tujuan checkout",
     })
@@ -1292,7 +1263,7 @@ describe("Employee attendance camera", () => {
       ).length
     ).toBeGreaterThanOrEqual(3)
     const checkout = screen.getByRole<HTMLButtonElement>("button", {
-      name: "Absen Keluar",
+      name: "Absen keluar",
     })
     expect(
       screen.queryByRole("combobox", { name: "Pilih Outlet tujuan checkout" })
@@ -1310,10 +1281,10 @@ describe("Employee attendance camera", () => {
       await waitFor(() => expect(checkout.disabled).toBe(false))
     }
     if (outcome === "eligible" || outcome === "offline") {
-      const retryCheckout = await enabledButton("Absen Keluar")
+      const retryCheckout = await enabledButton("Absen keluar")
       fireEvent.click(retryCheckout)
-      await screen.findByRole("heading", { name: "Absen Keluar" })
-      const retryView = focusView("Absen Keluar")
+      await screen.findByRole("heading", { name: "Absen keluar" })
+      const retryView = focusView("Absen keluar")
       const retrySelect = within(retryView).getByRole<HTMLSelectElement>(
         "combobox",
         { name: "Pilih Outlet tujuan checkout" }
@@ -1329,10 +1300,10 @@ describe("Employee attendance camera", () => {
       }
     } else if (outcome !== "new session") {
       restored = true
-      const retryCheckout = await enabledButton("Absen Keluar")
+      const retryCheckout = await enabledButton("Absen keluar")
       fireEvent.click(retryCheckout)
-      await screen.findByRole("heading", { name: "Absen Keluar" })
-      const retryView = focusView("Absen Keluar")
+      await screen.findByRole("heading", { name: "Absen keluar" })
+      const retryView = focusView("Absen keluar")
       const retrySelect = within(retryView).getByRole<HTMLSelectElement>(
         "combobox",
         { name: "Pilih Outlet tujuan checkout" }
@@ -1395,7 +1366,7 @@ describe("Employee attendance camera", () => {
     })
     render(<AttendancePage />)
     if (bound) {
-      await enabledButton("Absen Keluar")
+      await enabledButton("Absen keluar")
     } else {
       await screen.findByText("Checkout ditolak.")
       await waitFor(() => expect(storedMetadata.size).toBe(0))
@@ -1404,7 +1375,7 @@ describe("Employee attendance camera", () => {
       screen.queryByRole("combobox", { name: "Pilih Outlet tujuan checkout" })
     ).toBeNull()
     const checkout = screen.getByRole<HTMLButtonElement>("button", {
-      name: "Absen Keluar",
+      name: "Absen keluar",
     })
     expect(checkout.disabled).toBe(!bound)
     expect(toast.error).toHaveBeenCalledOnce()
@@ -1415,9 +1386,9 @@ describe("Employee attendance camera", () => {
     ).toBe(false)
     if (bound) {
       fireEvent.click(checkout)
-      await screen.findByRole("heading", { name: "Absen Keluar" })
+      await screen.findByRole("heading", { name: "Absen keluar" })
       expect(
-        within(focusView("Absen Keluar")).getByRole<HTMLSelectElement>(
+        within(focusView("Absen keluar")).getByRole<HTMLSelectElement>(
           "combobox",
           { name: "Pilih Outlet tujuan checkout" }
         ).value
@@ -1443,10 +1414,10 @@ describe("Employee attendance camera", () => {
       return defaultRequest?.(path)
     })
     render(<AttendancePage />)
-    const checkout = await enabledButton("Absen Keluar")
+    const checkout = await enabledButton("Absen keluar")
     fireEvent.click(checkout)
-    await screen.findByRole("heading", { name: "Absen Keluar" })
-    const view = focusView("Absen Keluar")
+    await screen.findByRole("heading", { name: "Absen keluar" })
+    const view = focusView("Absen keluar")
     fireEvent.change(
       within(view).getByRole("combobox", {
         name: "Pilih Outlet tujuan checkout",
@@ -1472,12 +1443,12 @@ describe("Employee attendance camera", () => {
       within(view).getByRole("button", { name: "Kembali ke halaman presensi" })
     )
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Absen Keluar" })).toBeNull()
+      expect(screen.queryByRole("heading", { name: "Absen keluar" })).toBeNull()
     )
     expect(
       (
         screen.getByRole("button", {
-          name: "Absen Keluar",
+          name: "Absen keluar",
         }) as HTMLButtonElement
       ).disabled
     ).toBe(true)
@@ -1558,7 +1529,7 @@ describe("Employee attendance camera", () => {
       },
     })
     render(<AttendancePage />)
-    fireEvent.click(await enabledButton("Absen Masuk"))
+    fireEvent.click(await enabledButton("Absen masuk"))
     expect(await screen.findByText(/Izin kamera ditolak/)).toBeTruthy()
     expect(
       apiRequest.mock.calls.some(([path]) => path === "/attendance/me/check-in")
@@ -1604,7 +1575,7 @@ describe("Employee attendance camera", () => {
     expect(
       (
         screen.getByRole("button", {
-          name: /^Absen Masuk/,
+          name: /^Absen masuk/,
         }) as HTMLButtonElement
       ).disabled
     ).toBe(true)
@@ -1623,9 +1594,9 @@ describe("Employee attendance camera", () => {
       photo: new Blob(["private-image"], { type: "image/jpeg" }),
     })
     render(<AttendancePage />)
-    fireEvent.click(await enabledButton("Absen Masuk"))
+    fireEvent.click(await enabledButton("Absen masuk"))
     expect(
-      await screen.findByRole("heading", { name: "Absen Masuk" })
+      await screen.findByRole("heading", { name: "Absen masuk" })
     ).toBeTruthy()
     await waitFor(() =>
       expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledOnce()
@@ -1635,7 +1606,7 @@ describe("Employee attendance camera", () => {
     await prepareAttendanceIdentityChange()
 
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Absen Masuk" })).toBeNull()
+      expect(screen.queryByRole("heading", { name: "Absen masuk" })).toBeNull()
     )
     expect(track.stop).toHaveBeenCalled()
     expect(storedPhotos.size).toBe(0)
@@ -1658,7 +1629,7 @@ describe("Employee attendance camera", () => {
     })
     render(<AttendancePage />)
 
-    expect(await enabledButton("Absen Masuk")).toBeTruthy()
+    expect(await enabledButton("Absen masuk")).toBeTruthy()
     expect(storedPhotos.size).toBe(0)
     expect(
       screen.queryByRole("img", { name: "Pratinjau foto bukti presensi" })
