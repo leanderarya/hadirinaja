@@ -13,13 +13,14 @@ use App\Models\AttendanceSession;
 use App\Models\Employee;
 use App\Models\EmployeeOutletAssignment;
 use App\Models\EmployeeUserLink;
+use App\Models\ManagementChangeEvent;
 use App\Models\Outlet;
 use App\Models\OutletCalendarVersion;
-use App\Support\SchedulingDefaults;
 use App\Models\SupervisorOutletScope;
 use App\Models\TenantMembership;
 use App\Models\TenantRoleAssignment;
 use App\Models\User;
+use App\Support\SchedulingDefaults;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
@@ -154,11 +155,13 @@ final class ApprovalWorkflowService
         return [$current, $employee];
     }
 
-    public function submitManagedReconstruction(TenantMembership $membership, User $user, int $employeeId, array $data, string $key): ApprovalRequest
+    /** @return array{request: ApprovalRequest, applied: bool} */
+    public function submitManagedReconstruction(TenantMembership $membership, User $user, int $employeeId, array $data, string $key): array
     {
-        return DB::transaction(function () use ($membership, $user, $employeeId, $data, $key): ApprovalRequest {
+        return DB::transaction(function () use ($membership, $user, $employeeId, $data, $key): array {
             $current = $this->currentMembership($membership, $user);
-            if (! $this->hasRole($current, TenantRole::Owner)
+            $isOwner = $this->hasRole($current, TenantRole::Owner);
+            if (! $isOwner
                 && (! $this->hasRole($current, TenantRole::Supervisor) || ! $this->isSupervisorScoped($current, (int) $data['effective_outlet_id']))) {
                 throw new AuthorizationException('Outlet tidak tersedia dalam cakupan Anda.');
             }
@@ -172,15 +175,28 @@ final class ApprovalWorkflowService
                     throw ValidationException::withMessages(['idempotency_key' => 'Kunci idempotensi sudah digunakan untuk isi permintaan yang berbeda.']);
                 }
 
-                return $existing;
+                return [
+                    'request' => $existing,
+                    'applied' => $this->isAppliedReconstruction($existing),
+                ];
             }
 
-            return $this->createReconstruction($current, $user, $employee, $data, $key, false, $hash);
+            $request = $this->createReconstruction($current, $user, $employee, $data, $key, false, $hash, $isOwner);
+
+            return ['request' => $request, 'applied' => $isOwner];
         }, attempts: 3);
     }
 
-    private function createReconstruction(TenantMembership $membership, User $user, Employee $employee, array $data, string $key, bool $personal, ?string $hash = null): ApprovalRequest
-    {
+    private function createReconstruction(
+        TenantMembership $membership,
+        User $user,
+        Employee $employee,
+        array $data,
+        string $key,
+        bool $personal,
+        ?string $hash = null,
+        bool $applyImmediately = false,
+    ): ApprovalRequest {
         $tenantId = (int) $employee->tenant_id;
         $outletId = (int) ($data['effective_outlet_id'] ?? 0);
         if (! Outlet::query()->forTenant($tenantId)->whereKey($outletId)->exists()) {
@@ -214,15 +230,16 @@ final class ApprovalWorkflowService
             ->where('effective_from', '<=', $start->toDateTimeString())->where('effective_until', '>', $start->toDateTimeString())
             ->lockForUpdate()->first()?->outlet_id;
 
-        return $this->newRequest($membership, $user, [
+        $request = $this->newRequest($membership, $user, [
             'employee_id' => $employee->getKey(),
             'outlet_id' => $outletId,
             'request_type' => 'attendance_correction',
-            'status' => 'pending',
+            'status' => $applyImmediately ? 'approved' : 'pending',
             'work_date' => $date,
             'reason' => $this->requiredReason($data),
             'details' => [
                 'correction_target' => 'reconstruction', 'contract_version' => 1, 'classification' => 'sensitive',
+                'submitted_as' => $applyImmediately ? 'owner_administrative_reconstruction' : 'administrative_reconstruction',
                 'proposed' => $claim, 'deadline' => $deadline,
                 'historical_assignment_id' => $assignment?->getKey(),
                 'historical_primary_outlet_id' => $primaryOutletId,
@@ -231,6 +248,26 @@ final class ApprovalWorkflowService
             'submission_key' => $key,
             'submission_hash' => $hash ?? $this->payloadHash($data),
         ]);
+
+        if ($applyImmediately) {
+            $effective = [
+                ...$claim,
+                'historical_primary_outlet_id' => $primaryOutletId,
+                'historical_assignment_id' => $assignment?->getKey(),
+                'assignment_exception_approved' => $assignment === null,
+            ];
+            $decision = $this->recordDecision(
+                $membership, $request, $user, 'approved', $request->reason, $key, null, $claim, $effective,
+            );
+            CorrectionEvidenceService::recordSupplementForApproval($request, $membership, (int) $decision->getKey());
+            $this->recordReconstructionLeaveConflict($request, $employee);
+            $this->auditOwnerAdministrativeAttendance(
+                $membership, $request, 'owner_administrative_reconstruction_applied',
+                array_keys($claim), (int) $decision->getKey(),
+            );
+        }
+
+        return $request;
     }
 
     private function historicalAssignment(Employee $employee, array $claim): ?EmployeeOutletAssignment
@@ -257,8 +294,15 @@ final class ApprovalWorkflowService
         return ApprovalRequest::query()->forTenant((int) $employee->tenant_id)
             ->where('employee_id', $employee->getKey())->where('work_date', $date)
             ->where('request_type', 'attendance_correction')->where('details->correction_target', 'reconstruction')
-            ->whereIn('status', ['pending', 'approved'])
+            ->whereIn('status', ['pending', 'approved'])->withoutReversal(lock: true)
             ->when($except !== null, fn ($query) => $query->whereKeyNot($except))->lockForUpdate()->first();
+    }
+
+    private function isAppliedReconstruction(ApprovalRequest $request): bool
+    {
+        return $request->status === 'approved'
+            && $request->decisions()->where('action', 'approved')->exists()
+            && ! $request->decisions()->where('action', 'reversed')->exists();
     }
 
     private function assertNoReconstructionOverlap(Employee $employee, array $interval): void
@@ -344,12 +388,15 @@ final class ApprovalWorkflowService
 
                 return [
                     'request' => $existing,
-                    'applied' => $existing->status === 'approved' && $correction?->classification === 'routine',
+                    'applied' => $existing->status === 'approved'
+                        && $existing->decisions()->whereIn('action', ['approved', 'routine_applied'])->exists()
+                        && ! $existing->decisions()->where('action', 'reversed')->exists(),
                     'classification' => $correction?->classification ?? ($existing->details['classification'] ?? 'sensitive'),
                 ];
             }
             $prepared = $this->prepareCorrection($current, $user, $employee, $session, $data, false);
-            $classification = $this->hasRole($current, TenantRole::Supervisor)
+            $isOwner = $this->hasRole($current, TenantRole::Owner);
+            $classification = ! $isOwner && $this->hasRole($current, TenantRole::Supervisor)
                 && ! $prepared['deadline']['owner_required']
                 ? $this->classifyCorrection($current, $user, $session, $prepared['original'], $prepared['proposed'])
                 : 'sensitive';
@@ -357,7 +404,7 @@ final class ApprovalWorkflowService
                 'employee_id' => (int) $employee->getKey(),
                 'outlet_id' => (int) $session->outlet_id,
                 'request_type' => 'attendance_correction',
-                'status' => $classification === 'routine' ? 'approved' : 'pending',
+                'status' => $isOwner || $classification === 'routine' ? 'approved' : 'pending',
                 'work_date' => $session->work_date->toDateString(),
                 'reason' => $this->requiredReason($data),
                 'details' => [
@@ -365,7 +412,7 @@ final class ApprovalWorkflowService
                     'historical_primary_outlet_id' => $this->historicalSessionPrimaryOutlet($session),
                     'proposed' => $prepared['proposed'],
                     'classification' => $classification,
-                    'submitted_as' => 'administrative_correction',
+                    'submitted_as' => $isOwner ? 'owner_administrative_correction' : 'administrative_correction',
                     'deadline' => $prepared['deadline'],
                 ],
                 'submission_key' => $key,
@@ -387,6 +434,18 @@ final class ApprovalWorkflowService
 
             if ($classification === 'routine') {
                 $this->applyApprovedCorrection($current, $request, $session, $prepared, $user, $key, 'routine_applied');
+
+                return ['request' => $request->fresh(), 'applied' => true, 'classification' => $classification];
+            }
+
+            if ($isOwner) {
+                $decision = $this->applyApprovedCorrection(
+                    $current, $request, $session, $prepared, $user, $key, 'approved',
+                );
+                $this->auditOwnerAdministrativeAttendance(
+                    $current, $request, 'owner_administrative_correction_applied',
+                    array_keys($prepared['proposed']), (int) $decision->getKey(),
+                );
 
                 return ['request' => $request->fresh(), 'applied' => true, 'classification' => $classification];
             }
@@ -484,13 +543,7 @@ final class ApprovalWorkflowService
             }
 
             if ($decision === 'approved' && $reconstruction) {
-                $leave = ApprovalRequest::query()->forTenant((int) $request->tenant_id)
-                    ->where('employee_id', $employee->getKey())->where('request_type', 'leave')->where('status', 'approved')
-                    ->where('starts_on', '<=', $claim['work_date'])->where('ends_on', '>=', $claim['work_date'])
-                    ->lockForUpdate()->first();
-                if ($leave) {
-                    $this->createReconstructionLeaveConflict($request, $leave);
-                }
+                $this->recordReconstructionLeaveConflict($request, $employee);
             }
 
             if ($decision === 'approved' && $request->request_type === 'leave') {
@@ -1200,8 +1253,9 @@ final class ApprovalWorkflowService
             && $proposed['work_date'] === $correction->original_values['work_date'];
         if ($startOnly && in_array($session->status, ['active', 'closed'], true)) {
             $this->assertNoOverlappingAttendance($employee, $session, [
-                    ...$proposed, 'check_out_at' => $session->check_out_at?->toIso8601String() ?? CarbonImmutable::now('UTC')->toIso8601String(),
-                ]);
+                ...$proposed, 'check_out_at' => $session->check_out_at?->toIso8601String() ?? CarbonImmutable::now('UTC')->toIso8601String(),
+            ]);
+
             return;
         }
         $this->assertNoOverlappingAttendance($employee, $session, $proposed);
@@ -1259,13 +1313,46 @@ final class ApprovalWorkflowService
     }
 
     /** @param array{original: array<string, mixed>, proposed: array<string, mixed>} $prepared */
-    private function applyApprovedCorrection(TenantMembership $membership, ApprovalRequest $request, AttendanceSession $session, array $prepared, User $user, string $key, string $action): void
+    private function applyApprovedCorrection(TenantMembership $membership, ApprovalRequest $request, AttendanceSession $session, array $prepared, User $user, string $key, string $action): ApprovalDecision
     {
+        $decision = $this->recordDecision($membership, $request, $user, $action, $request->reason, $key,
+            $prepared['original'], $prepared['proposed'], $prepared['proposed']);
+        CorrectionEvidenceService::recordSupplementForApproval($request, $membership, (int) $decision->getKey());
+
         if ($session->status === 'active' && $session->check_out_at === null && $prepared['proposed']['check_out_at'] !== null) {
             $this->reconcileMissingCheckout($request, $session);
         }
-        $this->recordDecision($membership, $request, $user, $action, $request->reason, $key,
-            $prepared['original'], $prepared['proposed'], $prepared['proposed']);
+
+        return $decision;
+    }
+
+    /** @param list<string> $changedFields */
+    private function auditOwnerAdministrativeAttendance(
+        TenantMembership $membership,
+        ApprovalRequest $request,
+        string $action,
+        array $changedFields,
+        int $decisionId,
+    ): void {
+        ManagementChangeEvent::query()->create([
+            'tenant_id' => $membership->tenant_id,
+            'actor_user_id' => $membership->user_id,
+            'actor_membership_id' => $membership->getKey(),
+            'employee_id' => $request->employee_id,
+            'outlet_id' => $request->outlet_id,
+            'subject_type' => 'attendance_correction',
+            'subject_id' => $request->getKey(),
+            'action' => $action,
+            'changed_fields' => array_values(array_intersect(
+                ['work_date', 'outlet_id', 'check_in_at', 'check_out_at'],
+                $changedFields,
+            )),
+            'details' => [
+                'approval_decision_id' => $decisionId,
+                'reason' => $request->reason,
+            ],
+            'occurred_at' => CarbonImmutable::now('UTC')->format('Y-m-d H:i:s'),
+        ]);
     }
 
     private function assertNoOverlappingAttendance(Employee $employee, ?AttendanceSession $target, array $proposed): void
@@ -1369,6 +1456,18 @@ final class ApprovalWorkflowService
                 'indicators' => ['approved_leave_with_recorded_attendance'],
                 'related_request_id' => (int) $leave->getKey(),
             ]);
+    }
+
+    private function recordReconstructionLeaveConflict(ApprovalRequest $request, Employee $employee): void
+    {
+        $workDate = $request->work_date->toDateString();
+        $leave = ApprovalRequest::query()->forTenant((int) $request->tenant_id)
+            ->where('employee_id', $employee->getKey())->where('request_type', 'leave')->where('status', 'approved')
+            ->where('starts_on', '<=', $workDate)->where('ends_on', '>=', $workDate)
+            ->lockForUpdate()->first();
+        if ($leave) {
+            $this->createReconstructionLeaveConflict($request, $leave);
+        }
     }
 
     private function createReviewCase(?TenantMembership $membership, int $employeeId, ?int $outletId, string $workDate, string $caseType, array $details): bool

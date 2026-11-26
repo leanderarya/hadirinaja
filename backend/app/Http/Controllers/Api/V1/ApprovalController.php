@@ -175,9 +175,14 @@ final class ApprovalController extends Controller
         $employeeId = (int) $validated['employee_id'];
         unset($validated['employee_id']);
         $membership = $this->activeMembership($request);
-        $claim = $this->workflow->submitManagedReconstruction($membership, $request->user(), $employeeId, $validated, $this->idempotencyKey($request));
+        $result = $this->workflow->submitManagedReconstruction(
+            $membership, $request->user(), $employeeId, $validated, $this->idempotencyKey($request),
+        );
 
-        return response()->json(['request' => $this->workflow->show($membership, $request->user(), (int) $claim->getKey())], 201);
+        return response()->json([
+            'applied' => $result['applied'],
+            'request' => $this->workflow->show($membership, $request->user(), (int) $result['request']->getKey()),
+        ], 201);
     }
 
     public function discoverReviews(Request $request): JsonResponse

@@ -29,6 +29,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 use Tests\Support\BuildsTenantFixtures;
 use Tests\TestCase;
 
@@ -423,7 +424,7 @@ class ApprovalWorkflowTest extends TestCase
         }
     }
 
-    public function test_owner_self_approval_leaf_reversal_and_reviewed_refinalization_keep_history(): void
+    public function test_sensitive_supervisor_corrections_require_owner_review_and_keep_reversal_history(): void
     {
         $today = CarbonImmutable::today('UTC');
         Carbon::setTestNow($today->setTime(8, 0));
@@ -438,13 +439,16 @@ class ApprovalWorkflowTest extends TestCase
         $session = $this->recordSession($fixture, true);
         $recorded = $session->getAttributes();
         Carbon::setTestNow($today->setTime(16, 10));
-        $this->loginAs($fixture['ownerUser']);
-        $submit = fn (int $minute) => $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
+        [$supervisorUser, $supervisor] = $this->membershipFor($fixture['owner'], TenantRole::Supervisor);
+        app(TenantMembershipService::class)->assignSupervisorOutletScope($fixture['owner'], $supervisor, $fixture['outlet']);
+        $this->loginAs($supervisorUser);
+        $submit = fn (int $minute): int => $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
             ->postJson('/api/v1/management/attendance/sessions/'.$session->getKey().'/corrections', [
                 'effective_check_in_at' => $today->setTime(8, $minute)->toIso8601String(),
-                'reason' => 'Usulan koreksi Owner.',
+                'effective_check_out_at' => $session->check_out_at->utc()->subMinutes($minute * 30)->toIso8601String(),
+                'reason' => 'Usulan koreksi Supervisor.',
             ])->assertAccepted()->json('request.id');
-        $approve = fn (int $id) => $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
+        $approve = fn (int $id): TestResponse => $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
             ->postJson('/api/v1/management/approvals/'.$id.'/decision', [
                 'decision' => 'approved', 'reason' => 'Catatan kerja telah diperiksa.',
             ]);
@@ -452,9 +456,12 @@ class ApprovalWorkflowTest extends TestCase
             ->postJson('/api/v1/management/approvals/'.$requestId.'/reversal', ['decision_id' => $decisionId, 'reason' => $reason]);
 
         $first = $submit(1);
+        $this->loginAs($fixture['ownerUser']);
         $firstDecision = $approve($first)->assertOk()->json('request.decision_history.0.id');
+        $this->loginAs($supervisorUser);
         $stale = $submit(2);
         $latest = $submit(3);
+        $this->loginAs($fixture['ownerUser']);
         $latestDecision = $approve($latest)->assertOk()->json('request.decision_history.0.id');
         $approve($stale)->assertUnprocessable()->assertJsonValidationErrors('correction');
         $project = fn () => app(EffectiveAttendanceProjectionService::class)
@@ -472,8 +479,6 @@ class ApprovalWorkflowTest extends TestCase
         $snapshot = AttendanceFinalization::query()->sole()->projection_snapshot;
         $reverse($first, $firstDecision, (string) Str::uuid())->assertUnprocessable()->assertJsonValidationErrors('decision_id');
 
-        [$supervisorUser, $supervisor] = $this->membershipFor($fixture['owner'], TenantRole::Supervisor);
-        app(TenantMembershipService::class)->assignSupervisorOutletScope($fixture['owner'], $supervisor, $fixture['outlet']);
         $this->loginAs($supervisorUser);
         $reverse($latest, $latestDecision, (string) Str::uuid())->assertForbidden();
 
@@ -519,8 +524,10 @@ class ApprovalWorkflowTest extends TestCase
         $this->assertSame(2, $session->events()->count());
         $this->assertDatabaseCount('attendance_active_session_owners', 0);
 
+        $this->loginAs($supervisorUser);
         $pendingOnPhysical = $submit(4);
         $temporary = $submit(5);
+        $this->loginAs($fixture['ownerUser']);
         $temporaryDecision = $approve($temporary)->assertOk()->json('request.decision_history.0.id');
         $reverse($temporary, $temporaryDecision, (string) Str::uuid())->assertOk();
         $this->assertNull($project()['sessions'][0]['correction']);
@@ -663,6 +670,116 @@ class ApprovalWorkflowTest extends TestCase
             'employee_id' => $fixture['employee']->getKey(), 'work_date' => $absenceDate->toDateString(),
             'outcome' => 'absence', 'reason' => 'Hasil akhir telah ditinjau.',
         ])->assertCreated()->assertJsonPath('finalization.outcome', 'absence');
+    }
+
+    public function test_owner_administrative_correction_applies_immediately_is_audited_and_can_be_reversed(): void
+    {
+        $today = CarbonImmutable::today('UTC');
+        Carbon::setTestNow($today->setTime(8, 0));
+        $fixture = $this->fixture();
+        $session = $this->recordSession($fixture, true);
+        $recordedCheckIn = $session->fresh()->check_in_at->utc()->toIso8601String();
+        $recordedCheckOut = $session->fresh()->check_out_at->utc()->toIso8601String();
+
+        $this->loginAs($fixture['ownerUser']);
+        $url = '/api/v1/management/attendance/sessions/'.$session->getKey().'/corrections';
+        $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson($url, [
+                'effective_check_in_at' => $today->setTime(8, 15)->toIso8601String(),
+                'effective_check_out_at' => $today->setTime(15, 45)->toIso8601String(),
+            ])->assertUnprocessable()->assertJsonValidationErrors('reason');
+
+        $response = $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson($url, [
+                'effective_check_in_at' => $today->setTime(8, 15)->toIso8601String(),
+                'effective_check_out_at' => $today->setTime(15, 45)->toIso8601String(),
+                'reason' => 'Waktu dikoreksi berdasarkan catatan Owner.',
+            ])->assertOk()
+            ->assertJsonPath('applied', true)
+            ->assertJsonPath('classification', 'sensitive')
+            ->assertJsonPath('request.status', 'approved')
+            ->assertJsonPath('request.details.submitted_as', 'owner_administrative_correction')
+            ->assertJsonPath('request.decision_history.0.action', 'approved');
+        $requestId = (int) $response->json('request.id');
+        $decisionId = (int) $response->json('request.decision_history.0.id');
+
+        $projection = fn () => app(EffectiveAttendanceProjectionService::class)
+            ->project((int) $fixture['tenant']->getKey(), (int) $fixture['employee']->getKey(), $today->toDateString());
+        $this->assertSame($today->setTime(8, 15)->toIso8601String(), $projection()['sessions'][0]['effective']['check_in_at']);
+        $this->assertSame($today->setTime(15, 45)->toIso8601String(), $projection()['sessions'][0]['effective']['check_out_at']);
+        $this->assertSame($recordedCheckIn, $session->fresh()->check_in_at->utc()->toIso8601String());
+        $this->assertSame($recordedCheckOut, $session->fresh()->check_out_at->utc()->toIso8601String());
+        $this->assertDatabaseHas('management_change_events', [
+            'tenant_id' => $fixture['tenant']->getKey(),
+            'subject_type' => 'attendance_correction',
+            'subject_id' => $requestId,
+            'action' => 'owner_administrative_correction_applied',
+        ]);
+
+        $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/management/approvals/'.$requestId.'/reversal', [
+                'decision_id' => $decisionId,
+                'reason' => 'Koreksi dibalik setelah verifikasi ulang.',
+            ])->assertOk()->assertJsonPath('request.reversed', true);
+        $this->assertNull($projection()['sessions'][0]['correction']);
+    }
+
+    public function test_owner_administrative_reconstruction_is_applied_immediately(): void
+    {
+        $today = CarbonImmutable::today('UTC');
+        Carbon::setTestNow($today->setTime(8, 0));
+        $fixture = $this->fixture();
+        Carbon::setTestNow($today->setTime(17, 0));
+        $this->loginAs($fixture['ownerUser']);
+
+        $result = $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/management/attendance/reconstructions', [
+                'employee_id' => $fixture['employee']->getKey(),
+                'work_date' => $today->toDateString(),
+                'effective_check_in_at' => $today->setTime(8, 0)->toIso8601String(),
+                'effective_check_out_at' => $today->setTime(9, 0)->toIso8601String(),
+                'effective_outlet_id' => $fixture['outlet']->getKey(),
+                'reason' => 'Owner melengkapi catatan kerja yang terlewat.',
+            ])->assertCreated()
+            ->assertJsonPath('applied', true)
+            ->assertJsonPath('request.status', 'approved')
+            ->assertJsonPath('request.details.submitted_as', 'owner_administrative_reconstruction')
+            ->assertJsonPath('request.decision_history.0.action', 'approved');
+
+        $requestId = (int) $result->json('request.id');
+        $projection = app(EffectiveAttendanceProjectionService::class)
+            ->project((int) $fixture['tenant']->getKey(), (int) $fixture['employee']->getKey(), $today->toDateString());
+        $this->assertSame('reconstruction', $projection['sources'][0]['source_kind']);
+        $this->assertSame(3600, $projection['effective_duration_seconds']);
+        $this->assertDatabaseCount('attendance_sessions', 0);
+        $this->assertDatabaseHas('management_change_events', [
+            'tenant_id' => $fixture['tenant']->getKey(),
+            'subject_type' => 'attendance_correction',
+            'subject_id' => $requestId,
+            'action' => 'owner_administrative_reconstruction_applied',
+        ]);
+    }
+
+    public function test_supervisor_sensitive_administrative_correction_stays_pending(): void
+    {
+        $today = CarbonImmutable::today('UTC');
+        Carbon::setTestNow($today->setTime(8, 0));
+        $fixture = $this->fixture();
+        $session = $this->recordSession($fixture, true);
+        [$supervisorUser, $supervisor] = $this->membershipFor($fixture['owner'], TenantRole::Supervisor);
+        app(TenantMembershipService::class)->assignSupervisorOutletScope($fixture['owner'], $supervisor, $fixture['outlet']);
+
+        $this->loginAs($supervisorUser);
+        $this->browserRequest()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/management/attendance/sessions/'.$session->getKey().'/corrections', [
+                'effective_check_in_at' => $today->setTime(8, 30)->toIso8601String(),
+                'effective_check_out_at' => $session->check_out_at->utc()->toIso8601String(),
+                'reason' => 'Supervisor mengusulkan perubahan waktu.',
+            ])->assertAccepted()
+            ->assertJsonPath('applied', false)
+            ->assertJsonPath('classification', 'sensitive')
+            ->assertJsonPath('request.status', 'pending')
+            ->assertJsonCount(0, 'request.decision_history');
     }
 
     public function test_multiple_roles_and_explicit_employee_links_cannot_bypass_self_approval_or_outlet_scope(): void
