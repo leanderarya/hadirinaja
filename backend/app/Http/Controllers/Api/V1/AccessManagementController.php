@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Enums\TenantRole;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
+use App\Models\EmailChangeLink;
 use App\Models\Outlet;
 use App\Models\TenantAccessInvitation;
 use App\Models\TenantMembership;
@@ -15,7 +16,6 @@ use App\Services\TenantAuthorization;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -29,37 +29,64 @@ final class AccessManagementController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $owner = $this->authorization->requireOwner($this->activeMembership($request));
-        $tenantId = (int) $owner->tenant_id;
+        $actor = $this->activeMembership($request);
+        $isOwner = $this->authorization->hasRole($actor, TenantRole::Owner);
+        $isSupervisor = ! $isOwner && $this->authorization->hasRole($actor, TenantRole::Supervisor);
+        abort_unless($isOwner || $isSupervisor, 403);
+
+        $tenantId = (int) $actor->tenant_id;
         $memberRecords = TenantMembership::query()->forTenant($tenantId)
             ->with(['user', 'roles', 'employeeUserLink.employee', 'supervisorScopes.outlet'])
             ->orderBy('id')->get();
-        $pendingEmailChanges = DB::table('pending_email_changes')
-            ->where('tenant_id', $tenantId)
+        $scopedEmployees = $isSupervisor
+            ? $this->authorization->employeesFor($actor->user, $tenantId)
+            : collect();
+
+        if ($isSupervisor) {
+            $scopedEmployeeIds = $scopedEmployees->modelKeys();
+            $memberRecords = $memberRecords->filter(function (TenantMembership $membership) use ($scopedEmployeeIds): bool {
+                $roles = $membership->roles->map(fn (TenantRoleAssignment $assignment): string => $assignment->role->value);
+                $employeeId = $membership->employeeUserLink?->employee?->getKey();
+
+                return $roles->contains(TenantRole::Employee->value)
+                    && ! $roles->contains(TenantRole::Owner->value)
+                    && ! $roles->contains(TenantRole::Supervisor->value)
+                    && $employeeId !== null
+                    && in_array((int) $employeeId, $scopedEmployeeIds, true);
+            })->values();
+        }
+
+        $emailChangeLinks = EmailChangeLink::query()->forTenant($tenantId)
             ->whereIn('membership_id', $memberRecords->modelKeys())
-            ->whereNull('confirmed_at')->whereNull('revoked_at')->where('expires_at', '>', now())
-            ->orderByDesc('id')->get()->keyBy('membership_id');
+            ->whereNull('used_at')->whereNull('revoked_at')->where('expires_at', '>', now())
+            ->with('issuerMembership.user')
+            ->orderByDesc('id')->get()->unique('membership_id')->keyBy('membership_id');
         $members = $memberRecords->map(
             fn (TenantMembership $membership): array => $this->memberData(
                 $membership,
-                $pendingEmailChanges->get($membership->getKey()),
+                $emailChangeLinks->get($membership->getKey()),
             ),
         );
-        $invitations = TenantAccessInvitation::query()->forTenant($tenantId)
+        $invitations = $isOwner ? TenantAccessInvitation::query()->forTenant($tenantId)
             ->with(['tenant', 'creatorMembership.user', 'employee'])
             ->orderByDesc('id')->limit(100)->get()
-            ->map(fn (TenantAccessInvitation $invitation): array => $this->invitationData($invitation));
+            ->map(fn (TenantAccessInvitation $invitation): array => $this->invitationData($invitation))
+            : collect();
+        $employees = $isOwner
+            ? Employee::query()->forTenant($tenantId)->orderBy('name')->get()
+            : $scopedEmployees;
+        $outlets = $this->authorization->outletsFor($actor->user, $tenantId);
 
         return response()->json([
             'members' => $members,
             'invitations' => $invitations,
-            'employees' => Employee::query()->forTenant($tenantId)->orderBy('name')->get(['id', 'name', 'tenant_id'])
+            'employees' => $employees
                 ->map(fn (Employee $employee): array => [
                     'id' => (int) $employee->getKey(),
                     'name' => $employee->name,
                     'access_status' => $this->access->employeeAccessStatus($employee),
                 ]),
-            'outlets' => Outlet::query()->forTenant($tenantId)->with('businessUnit')->orderBy('id')->get()
+            'outlets' => $outlets->loadMissing('businessUnit')
                 ->map(fn (Outlet $outlet): array => [
                     'id' => (int) $outlet->getKey(),
                     'name' => $outlet->name,
@@ -199,7 +226,7 @@ final class AccessManagementController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function memberData(TenantMembership $membership, ?object $pendingEmailChange = null): array
+    private function memberData(TenantMembership $membership, ?EmailChangeLink $emailChangeLink = null): array
     {
         $roles = $membership->roles->map(fn (TenantRoleAssignment $assignment): string => $assignment->role->value)->values()->all();
         $status = $membership->revoked_at !== null ? 'revoked' : ($membership->is_active ? 'active' : 'deactivated');
@@ -208,10 +235,13 @@ final class AccessManagementController extends Controller
             'id' => (int) $membership->getKey(),
             'name' => $membership->user->name,
             'email' => $membership->user->email,
-            'pending_email_change' => $pendingEmailChange === null ? null : [
-                'id' => (int) $pendingEmailChange->id,
-                'email' => $pendingEmailChange->new_email,
-                'expires_at' => Carbon::parse($pendingEmailChange->expires_at)->toIso8601String(),
+            'email_change_link' => $emailChangeLink === null || $status !== 'active' ? null : [
+                'id' => (int) $emailChangeLink->getKey(),
+                'expires_at' => $emailChangeLink->expires_at->toIso8601String(),
+                'issued_by' => [
+                    'id' => (int) $emailChangeLink->issued_by_membership_id,
+                    'name' => $emailChangeLink->issuerMembership?->user?->name ?? 'Pengelola',
+                ],
             ],
             'roles' => $roles,
             'status' => $status,

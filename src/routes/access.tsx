@@ -1,4 +1,8 @@
 import { MemberAdministration } from "./-member-administration"
+import {
+  EmailChangeLinkManager,
+  type EmailChangeLinkMetadata,
+} from "./-email-change-link"
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbSeparator, BreadcrumbPage } from "@/components/ui/breadcrumb"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog"
 import { PageHeading, ScopeBanner } from "@/components/r2c/screen-blocks"
@@ -61,6 +65,7 @@ type AccessMember = {
   status: "active" | "deactivated" | "revoked"
   employee: { id: number; name: string } | null
   outlets: Array<{ id: number; name: string }>
+  email_change_link: EmailChangeLinkMetadata
 }
 
 type AccessInvitation = {
@@ -159,10 +164,13 @@ function AccessManagementPage() {
         window.location.assign("/select-tenant")
         return
       }
-      if (!session.active_membership.roles.includes("owner")) {
+      if (
+        !session.active_membership.roles.includes("owner") &&
+        !session.active_membership.roles.includes("supervisor")
+      ) {
         setData(null)
         setActivationToken(null)
-        setError("Pengelolaan akses hanya tersedia untuk Owner organisasi.")
+        setError("Pengelolaan tautan email hanya tersedia untuk Owner atau Supervisor.")
         return
       }
       if (accessTenant.current !== null && accessTenant.current !== session.active_membership.tenant.id) {
@@ -410,8 +418,18 @@ function AccessManagementPage() {
     )
   }
 
-  if (!data) return <main className="flex min-h-svh flex-col gap-4 bg-canvas p-4"><h1 className="text-title">Akses tidak tersedia</h1><Alert variant="destructive"><AlertTitle>Pengelolaan akses belum dapat dibuka</AlertTitle><AlertDescription>{error || "Owner organisasi diperlukan."}</AlertDescription></Alert><Button variant="outline" render={<a href={settingsContext ? "/settings" : "/workspace"} />}>{settingsContext ? "Kembali ke Pengaturan" : "Kembali ke ruang kerja"}</Button></main>
+  if (!data) return <main className="flex min-h-svh flex-col gap-4 bg-canvas p-4"><h1 className="text-title">Akses tidak tersedia</h1><Alert variant="destructive"><AlertTitle>Pengelolaan akses belum dapat dibuka</AlertTitle><AlertDescription>{error || "Owner atau Supervisor organisasi diperlukan."}</AlertDescription></Alert><Button variant="outline" render={<a href={settingsContext ? "/settings" : "/workspace"} />}>{settingsContext ? "Kembali ke Pengaturan" : "Kembali ke ruang kerja"}</Button></main>
 
+  const isOwner = data.session.active_membership?.roles.includes("owner") === true
+  const actorMembershipId = data.session.active_membership?.id
+  const visibleMembers = isOwner
+    ? data.members
+    : data.members.filter(
+        (member) =>
+          member.roles.includes("employee") &&
+          !member.roles.includes("owner") &&
+          !member.roles.includes("supervisor")
+      )
   const navigationContext = data ? { tenantName: data.session.active_membership?.tenant.name ?? "Organisasi", roles: data.session.active_membership?.roles ?? [], userName: data.session.user.name } : null
 
   return (
@@ -430,7 +448,7 @@ function AccessManagementPage() {
               {settingsContext ? "← Kembali ke Pengaturan" : "← Kembali ke ruang kerja"}
             </Button>
             {settingsContext ? <Breadcrumb className="hidden md:block"><BreadcrumbList><BreadcrumbItem><BreadcrumbLink href="/settings">Pengaturan</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator /><BreadcrumbItem><BreadcrumbPage>Akses pengguna</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb> : null}
-            <PageHeading title="Akses pengguna" description="Akun pengguna, undangan, dan akses ke Outlet di organisasi." />
+            <PageHeading title="Akses pengguna" description={isOwner ? "Akun pengguna, undangan, dan akses ke Outlet di organisasi." : "Tautan ubah email untuk karyawan pada Outlet yang dapat Anda akses."} />
           </div>
           <Button
             disabled={Boolean(operation)}
@@ -442,7 +460,7 @@ function AccessManagementPage() {
           </Button>
         </header>
 
-        <ScopeBanner title="Owner · organisasi aktif">Profil karyawan terpisah dari akun pengguna. Tautan aktivasi dibagikan secara manual.</ScopeBanner>
+        <ScopeBanner title={isOwner ? "Owner · organisasi aktif" : "Supervisor · Outlet dalam cakupan"}>{isOwner ? "Profil karyawan terpisah dari akun pengguna. Tautan aktivasi dibagikan secara manual." : "Daftar hanya memuat karyawan pada Outlet yang dapat Anda akses. Tautan ubah email berlaku 24 jam dan hanya dapat digunakan sekali."}</ScopeBanner>
 
         {error ? (
           <Alert variant="destructive">
@@ -457,7 +475,7 @@ function AccessManagementPage() {
           </Alert>
         ) : null}
 
-        {activationToken ? (
+        {isOwner && activationToken ? (
           <Card className="border-primary/40">
             <CardHeader>
               <CardTitle>Tautan aktivasi satu kali</CardTitle>
@@ -492,16 +510,17 @@ function AccessManagementPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Anggota organisasi</CardTitle>
+              <CardTitle>{isOwner ? "Anggota organisasi" : "Karyawan dalam cakupan Outlet"}</CardTitle>
               <CardDescription>
-                Perubahan status dan akses berlaku saat anggota melakukan
-                tindakan berikutnya.
+                {isOwner
+                  ? "Perubahan status dan akses berlaku saat anggota melakukan tindakan berikutnya."
+                  : "Tautan hanya dapat diterbitkan untuk akun karyawan yang aktif dalam cakupan Anda."}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {data?.members.length ? (
+              {visibleMembers.length ? (
                 <ul className="flex flex-col gap-3">
-                  {data.members.map((member) => (
+                  {visibleMembers.map((member) => (
                     <li
                       className="rounded-2xl border bg-background p-4"
                       key={member.id}
@@ -521,13 +540,30 @@ function AccessManagementPage() {
                       </div>
 
                       <Dialog>
-                        <DialogTrigger render={<Button className="mt-3 h-auto min-h-11 max-w-full whitespace-normal text-start" variant="outline" />}>Lihat akses {member.name}</DialogTrigger>
+                        <DialogTrigger render={<Button className="mt-3 h-auto min-h-11 max-w-full whitespace-normal text-start" variant="outline" />}>{isOwner ? `Lihat akses ${member.name}` : `Ubah email ${member.name}`}</DialogTrigger>
                         <DialogContent className="w-[calc(100%-2rem)] max-w-[480px] max-h-[calc(100dvh-2rem)] overflow-y-auto p-4 md:p-8 sm:max-w-[480px]">
                           <DialogHeader><DialogTitle>{member.name}</DialogTitle><DialogDescription>{member.email} · {member.roles.map(roleLabel).join(" · ")} · {statusLabel(member.status)}</DialogDescription></DialogHeader>
-                          <MemberAdministration member={member} actorId={data.session.active_membership?.id} employees={data.employees} outlets={data.outlets} onChanged={() => refresh(true)} />
+                          {isOwner ? (
+                            <MemberAdministration member={member} actorId={actorMembershipId} emailChangeLink={member.email_change_link ?? null} employees={data.employees} outlets={data.outlets} onChanged={() => refresh(true)} />
+                          ) : member.status === "active" ? (
+                            <EmailChangeLinkManager
+                              membership={member.id}
+                              memberName={member.name}
+                              emailChangeLink={member.email_change_link ?? null}
+                              actorMembershipId={actorMembershipId}
+                              isOwner={false}
+                              onChanged={() => refresh(true)}
+                            />
+                          ) : (
+                            <Alert>
+                              <AlertDescription>
+                                Hanya akun aktif yang dapat menerima tautan ubah email.
+                              </AlertDescription>
+                            </Alert>
+                          )}
                           {error ? <Alert variant="destructive"><AlertTitle>Periksa status perubahan</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
                           {notice ? <Alert><AlertDescription>{notice}</AlertDescription></Alert> : null}
-                      {member.employee ? (
+                      {isOwner && member.employee ? (
                         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-muted/40 px-3 py-2">
                           <p className="text-caption">
                             Identitas karyawan: {member.employee.name}
@@ -546,7 +582,7 @@ function AccessManagementPage() {
                             </Button>
                           ) : null}
                         </div>
-                      ) : member.status === "active" &&
+                      ) : isOwner && member.status === "active" &&
                         member.roles.length > 0 ? (
                         <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                           <NativeSelect
@@ -591,7 +627,7 @@ function AccessManagementPage() {
                         </div>
                       ) : null}
 
-                      {member.roles.includes("supervisor") &&
+                      {isOwner && member.roles.includes("supervisor") &&
                       member.status !== "revoked" ? (
                         <form
                           className="mt-3 flex flex-col gap-3 rounded-xl border p-3"
@@ -644,7 +680,7 @@ function AccessManagementPage() {
                         </form>
                       ) : null}
 
-                      {member.status !== "revoked" &&
+                      {isOwner && member.status !== "revoked" &&
                       member.id !== data.session.active_membership?.id ? (
                         <div className="mt-3 flex flex-wrap gap-2">
                           {member.status === "active" ? (
@@ -695,7 +731,7 @@ function AccessManagementPage() {
                   Belum ada anggota organisasi.
                 </p>
               )}
-        <Dialog open={inviteOpen} onOpenChange={open => { if (!operation) setInviteOpen(open) }}>
+        {isOwner ? <Dialog open={inviteOpen} onOpenChange={open => { if (!operation) setInviteOpen(open) }}>
           <DialogTrigger render={<Button className="w-fit" variant="outline" />}>Undang pengguna</DialogTrigger>
           <DialogContent className="w-[calc(100%-2rem)] max-w-[480px] max-h-[calc(100dvh-2rem)] overflow-y-auto p-4 md:p-8 sm:max-w-[480px]">
           <div id="invite" className="flex flex-col gap-4">
@@ -826,9 +862,10 @@ function AccessManagementPage() {
             <Button variant="outline" disabled={Boolean(operation)} onClick={() => setInviteOpen(false)}>Batal</Button>
           </DialogContent>
         </Dialog>
+        : null}
             </CardContent>
           </Card>
-          <details className="lg:col-span-2 order-last rounded-[16px] border border-border bg-surface p-4">
+          {isOwner ? <details className="lg:col-span-2 order-last rounded-[16px] border border-border bg-surface p-4">
             <summary className="cursor-pointer text-label">Lihat status akses karyawan</summary>
           <Card>
             <CardHeader>
@@ -883,7 +920,8 @@ function AccessManagementPage() {
           </Card>
 
           </details>
-          <Card>
+          : null}
+          {isOwner ? <Card>
             <CardHeader>
               <CardTitle>Undangan</CardTitle>
               <CardDescription>
@@ -1005,6 +1043,7 @@ function AccessManagementPage() {
               )}
             </CardContent>
           </Card>
+          : null}
         </section>
       </div>
 

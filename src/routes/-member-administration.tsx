@@ -1,4 +1,8 @@
 import { OwnerPasswordReset } from "./-owner-password-reset"
+import {
+  EmailChangeLinkManager,
+  type EmailChangeLinkMetadata,
+} from "./-email-change-link"
 import { useId, useState } from "react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
@@ -64,12 +68,14 @@ function blockerLabel(reference: string): string {
 export function MemberAdministration({
   member,
   actorId,
+  emailChangeLink,
   employees,
   outlets,
   onChanged,
 }: {
   member: Member
   actorId: number | undefined
+  emailChangeLink?: EmailChangeLinkMetadata
   employees: { id: number; name: string; access_status: string }[]
   outlets: { id: number; name: string }[]
   onChanged: () => Promise<void>
@@ -197,6 +203,16 @@ export function MemberAdministration({
       aria-label="Administrasi keanggotaan"
     >
       <OwnerPasswordReset key={member.id} membership={member.id} email={member.email} />
+      {member.status === "active" ? (
+        <EmailChangeLinkManager
+          membership={member.id}
+          memberName={member.name}
+          emailChangeLink={emailChangeLink ?? null}
+          actorMembershipId={actorId}
+          isOwner
+          onChanged={onChanged}
+        />
+      ) : null}
       <Separator />
       <h3 className="text-subtitle">Ubah role langsung</h3>
       <p className="text-caption text-muted-foreground">

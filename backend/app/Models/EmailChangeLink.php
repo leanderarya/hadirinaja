@@ -8,10 +8,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'tenant_id', 'membership_id', 'user_id', 'issued_by_membership_id', 'old_email', 'new_email',
-    'token_digest', 'expires_at', 'confirmed_at', 'revoked_at',
+    'tenant_id', 'membership_id', 'user_id', 'issued_by_membership_id', 'email_at_issue',
+    'token_digest', 'expires_at', 'used_at', 'revoked_at',
 ])]
-class PendingEmailChange extends Model
+class EmailChangeLink extends Model
 {
     use BelongsToTenant;
 
@@ -19,7 +19,7 @@ class PendingEmailChange extends Model
     {
         return [
             'expires_at' => 'immutable_datetime',
-            'confirmed_at' => 'immutable_datetime',
+            'used_at' => 'immutable_datetime',
             'revoked_at' => 'immutable_datetime',
         ];
     }

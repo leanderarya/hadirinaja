@@ -73,8 +73,8 @@ class HealthApiTest extends TestCase
             'api/v1/auth/tenants',
             'api/v1/correction-evidence/{approvalRequest}',
             'api/v1/correction-evidence/{approvalRequest}/{evidence}',
-            'api/v1/email-changes/confirm',
-            'api/v1/email-changes/inspect',
+            'api/v1/email-change-links/consume',
+            'api/v1/email-change-links/inspect',
             'api/v1/health',
             'api/v1/invitations/accept',
             'api/v1/invitations/activate',
@@ -90,12 +90,12 @@ class HealthApiTest extends TestCase
             'api/v1/kiosk/pin/verify',
             'api/v1/kiosk/status',
             'api/v1/management/access',
-            'api/v1/management/access/email-changes/{change}/cancel',
+            'api/v1/management/access/email-change-links/{link}/revoke',
             'api/v1/management/access/invitations',
             'api/v1/management/access/invitations/{invitation}/cancel',
             'api/v1/management/access/invitations/{invitation}/reissue',
             'api/v1/management/access/members/{membership}',
-            'api/v1/management/access/members/{membership}/email-change',
+            'api/v1/management/access/members/{membership}/email-change-link',
             'api/v1/management/access/members/{membership}/employee-link',
             'api/v1/management/access/members/{membership}/outlet-scope',
             'api/v1/management/access/members/{membership}/password-reset',
@@ -194,8 +194,8 @@ class HealthApiTest extends TestCase
         }
 
         foreach ([
-            'api/v1/email-changes/confirm',
-            'api/v1/email-changes/inspect',
+            'api/v1/email-change-links/consume',
+            'api/v1/email-change-links/inspect',
         ] as $uri) {
             $route = $apiRoutes->get($uri);
             $this->assertContains('no-store', $route->middleware());
