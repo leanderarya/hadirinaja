@@ -15,6 +15,7 @@ use App\Services\TenantAuthorization;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -30,9 +31,20 @@ final class AccessManagementController extends Controller
     {
         $owner = $this->authorization->requireOwner($this->activeMembership($request));
         $tenantId = (int) $owner->tenant_id;
-        $members = TenantMembership::query()->forTenant($tenantId)
+        $memberRecords = TenantMembership::query()->forTenant($tenantId)
             ->with(['user', 'roles', 'employeeUserLink.employee', 'supervisorScopes.outlet'])
-            ->orderBy('id')->get()->map(fn (TenantMembership $membership): array => $this->memberData($membership));
+            ->orderBy('id')->get();
+        $pendingEmailChanges = DB::table('pending_email_changes')
+            ->where('tenant_id', $tenantId)
+            ->whereIn('membership_id', $memberRecords->modelKeys())
+            ->whereNull('confirmed_at')->whereNull('revoked_at')->where('expires_at', '>', now())
+            ->orderByDesc('id')->get()->keyBy('membership_id');
+        $members = $memberRecords->map(
+            fn (TenantMembership $membership): array => $this->memberData(
+                $membership,
+                $pendingEmailChanges->get($membership->getKey()),
+            ),
+        );
         $invitations = TenantAccessInvitation::query()->forTenant($tenantId)
             ->with(['tenant', 'creatorMembership.user', 'employee'])
             ->orderByDesc('id')->limit(100)->get()
@@ -187,7 +199,7 @@ final class AccessManagementController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function memberData(TenantMembership $membership): array
+    private function memberData(TenantMembership $membership, ?object $pendingEmailChange = null): array
     {
         $roles = $membership->roles->map(fn (TenantRoleAssignment $assignment): string => $assignment->role->value)->values()->all();
         $status = $membership->revoked_at !== null ? 'revoked' : ($membership->is_active ? 'active' : 'deactivated');
@@ -196,6 +208,11 @@ final class AccessManagementController extends Controller
             'id' => (int) $membership->getKey(),
             'name' => $membership->user->name,
             'email' => $membership->user->email,
+            'pending_email_change' => $pendingEmailChange === null ? null : [
+                'id' => (int) $pendingEmailChange->id,
+                'email' => $pendingEmailChange->new_email,
+                'expires_at' => Carbon::parse($pendingEmailChange->expires_at)->toIso8601String(),
+            ],
             'roles' => $roles,
             'status' => $status,
             'employee' => $membership->employeeUserLink?->employee ? [

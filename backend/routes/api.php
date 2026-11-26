@@ -2,14 +2,15 @@
 
 use App\Http\Controllers\Api\V1\AccessManagementController;
 use App\Http\Controllers\Api\V1\ApprovalController;
-use App\Http\Controllers\Api\V1\CorrectionEvidenceController;
 use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\AttendanceEvidenceLegalHoldController;
 use App\Http\Controllers\Api\V1\AuthSessionController;
+use App\Http\Controllers\Api\V1\CorrectionEvidenceController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\KioskAccessController;
 use App\Http\Controllers\Api\V1\ManagementController;
 use App\Http\Controllers\Api\V1\MemberAdministrationController;
+use App\Http\Controllers\Api\V1\OwnerEmailChangeController;
 use App\Http\Controllers\Api\V1\OwnerPasswordResetController;
 use App\Http\Controllers\Api\V1\PlannerNotificationController;
 use App\Http\Controllers\Api\V1\ReportingController;
@@ -36,6 +37,13 @@ Route::prefix('/v1/password-resets')->middleware(['no-store', 'throttle:access-i
     Route::post('/complete', [OwnerPasswordResetController::class, 'consume']);
 });
 
+Route::prefix('/v1/email-changes')->middleware(['no-store', 'throttle:access-invitation'])
+    ->name('api.v1.email-changes.')->group(function (): void {
+        Route::get('/confirm', [OwnerEmailChangeController::class, 'confirmationPage'])->name('confirmation');
+        Route::post('/inspect', [OwnerEmailChangeController::class, 'inspect'])->name('inspect');
+        Route::post('/confirm', [OwnerEmailChangeController::class, 'confirm'])->name('confirm');
+    });
+
 Route::prefix('/v1/auth')->middleware('no-store')->name('api.v1.auth.')->group(function (): void {
     Route::post('/login', [AuthSessionController::class, 'login'])
         ->middleware('throttle:auth-login')->name('login');
@@ -59,7 +67,11 @@ Route::prefix('/v1/management')
         Route::get('/access/members/{membership}/permanent-deletion', [MemberAdministrationController::class, 'preview'])->whereNumber('membership');
         Route::delete('/access/members/{membership}/permanent-deletion', [MemberAdministrationController::class, 'delete'])->whereNumber('membership')->middleware('throttle:6,1');
         Route::post('/access/members/{membership}/password-reset', [OwnerPasswordResetController::class, 'issue'])->whereNumber('membership')->middleware('throttle:6,1');
+        Route::post('/access/members/{membership}/email-change', [OwnerEmailChangeController::class, 'request'])
+            ->whereNumber('membership')->middleware('throttle:6,1')->name('access.members.email-change');
         Route::post('/access/password-resets/{reset}/revoke', [OwnerPasswordResetController::class, 'revoke'])->whereNumber('reset')->middleware('throttle:6,1');
+        Route::post('/access/email-changes/{change}/cancel', [OwnerEmailChangeController::class, 'cancel'])
+            ->whereNumber('change')->middleware('throttle:6,1')->name('access.email-changes.cancel');
         Route::get('/access', [AccessManagementController::class, 'index'])->name('access.index');
         Route::post('/access/invitations', [AccessManagementController::class, 'createInvitation'])->name('access.invitations.store');
         Route::post('/access/invitations/{invitation}/cancel', [AccessManagementController::class, 'cancelInvitation'])->whereNumber('invitation')->name('access.invitations.cancel');

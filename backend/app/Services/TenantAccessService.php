@@ -243,6 +243,83 @@ final class TenantAccessService
         });
     }
 
+    /** @return array{invitation: TenantAccessInvitation, token: string} */
+    public function reissueInvitationForEmailChange(
+        TenantMembership $actor,
+        int $invitationId,
+        string $email,
+        int $intendedUserId,
+    ): array {
+        $token = Str::random(64);
+        $email = Str::lower(trim($email));
+
+        return DB::transaction(function () use ($actor, $invitationId, $email, $intendedUserId, $token): array {
+            $tenantId = (int) $actor->tenant_id;
+            Tenant::query()->whereKey($tenantId)->lockForUpdate()->firstOrFail();
+            $owner = $this->authorization->requireOwner($actor);
+            $invitation = TenantAccessInvitation::query()->forTenant($tenantId)
+                ->whereKey($invitationId)->lockForUpdate()->firstOrFail();
+
+            if ($invitation->accepted_at !== null || $invitation->revoked_at !== null) {
+                throw ValidationException::withMessages(['invitation' => 'Hanya undangan yang belum digunakan yang dapat diterbitkan ulang.']);
+            }
+            if (User::query()->where('email', $email)->whereKeyNot($intendedUserId)->exists()) {
+                throw ValidationException::withMessages(['email' => 'Email ini sudah digunakan akun lain.']);
+            }
+
+            $conflictingInvitation = TenantAccessInvitation::query()->forTenant($tenantId)
+                ->whereKeyNot($invitationId)->whereNull('accepted_at')->whereNull('revoked_at')
+                ->where('expires_at', '>', now())
+                ->where(function ($query) use ($email, $invitation): void {
+                    $query->where('invitee_email', $email);
+                    if ($invitation->employee_id !== null) {
+                        $query->orWhere('employee_id', $invitation->employee_id);
+                    }
+                })->exists();
+            if ($conflictingInvitation) {
+                throw ValidationException::withMessages(['email' => 'Undangan lain untuk email atau profil ini masih aktif.']);
+            }
+
+            $outletIds = DB::table('tenant_access_invitation_outlet_scopes')
+                ->where('tenant_id', $tenantId)->where('invitation_id', $invitationId)
+                ->orderBy('outlet_id')->pluck('outlet_id');
+            $invitation->forceFill(['revoked_at' => now()])->save();
+            $this->recordChange(
+                $owner, 'access_invitation', $invitationId, 'recipient_replaced',
+                ['invitation_status', 'invitee_email'], $invitation->employee_id,
+            );
+
+            $replacement = TenantAccessInvitation::query()->create([
+                'tenant_id' => $tenantId,
+                'created_by_membership_id' => $owner->getKey(),
+                'intended_user_id' => $intendedUserId,
+                'employee_id' => $invitation->employee_id,
+                'invitee_email' => $email,
+                'role' => $invitation->role,
+                'token_digest' => hash('sha256', $token),
+                'expires_at' => now()->addHours((int) config('access.invitation_expiration_hours', 24)),
+            ]);
+
+            foreach ($outletIds as $outletId) {
+                DB::table('tenant_access_invitation_outlet_scopes')->insert([
+                    'tenant_id' => $tenantId,
+                    'invitation_id' => $replacement->getKey(),
+                    'outlet_id' => $outletId,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            $this->recordChange(
+                $owner, 'access_invitation', (int) $replacement->getKey(), 'created',
+                ['role', $invitation->role->value === 'employee' ? 'employee_link' : 'outlet_scope'],
+                $invitation->employee_id,
+            );
+
+            return ['invitation' => $replacement, 'token' => $token];
+        });
+    }
+
     public function setMemberActive(TenantMembership $actor, int $membershipId, bool $active): void
     {
         DB::transaction(function () use ($actor, $membershipId, $active): void {
