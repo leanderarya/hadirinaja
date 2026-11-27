@@ -76,6 +76,7 @@ class ReportingTest extends TestCase
         $this->browserRequest()->get($this->reportUrl('attendance.csv', $today->toDateString(), [
             'outlet_ids[0]' => (string) $outletB->getKey(),
         ]))->assertForbidden();
+        $this->browserRequest()->get($this->reportUrl('attendance.csv', $today->toDateString()))->assertForbidden();
         $foreignEmployeeRows = $this->browserRequest()->getJson($this->reportUrl('attendance', $today->toDateString(), [
             'employee_id' => (string) $employeeB->getKey(),
         ]))->assertOk();

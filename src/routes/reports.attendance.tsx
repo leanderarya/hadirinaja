@@ -36,6 +36,7 @@ import {
   apiRequest,
   downloadApiFile,
 } from "@/lib/api"
+import { canExportAttendanceCsv } from "@/lib/reporting-access"
 
 export const Route = createFileRoute("/reports/attendance")({
   component: AttendanceReportPage,
@@ -308,6 +309,8 @@ function AttendanceReportPage() {
   const resultOutletCount = new Set(
     pageRows.flatMap((row) => row.outlets.map((outlet) => outlet.id))
   ).size
+  const membershipRoles = navigationSession?.active_membership?.roles ?? []
+  const canExport = canExportAttendanceCsv(membershipRoles)
 
   const load = useCallback(
     async (
@@ -386,6 +389,7 @@ function AttendanceReportPage() {
   }, [from, load, to])
 
   async function exportCsv() {
+    if (!canExport) return
     setExporting(true)
     setError("")
     try {
@@ -440,8 +444,7 @@ function AttendanceReportPage() {
     requestAnimationFrame(() => mobileDetailTrigger.current?.focus())
   }
 
-  const navigationContext = navigationSession?.active_membership ? { tenantName: navigationSession.active_membership.tenant.name, roles: navigationSession.active_membership.roles, userName: navigationSession.user.name } : null
-  const membershipRoles = navigationSession?.active_membership?.roles ?? []
+  const navigationContext = navigationSession?.active_membership ? { tenantName: navigationSession.active_membership.tenant.name, roles: navigationSession.active_membership.roles, userName: navigationSession.user.name, kioskEnabled: navigationSession.features.kiosk_enabled } : null
   const isSupervisor =
     membershipRoles.includes("supervisor") && !membershipRoles.includes("owner")
   const scopeTitle = isSupervisor
@@ -759,7 +762,7 @@ function AttendanceReportPage() {
                     : "Data akan tampil setelah laporan dimuat."}
                 </CardDescription>
               </div>
-              {result ? (
+              {result && canExport ? (
                 <Button
                   disabled={exporting || loading}
                   onClick={() => void exportCsv()}
@@ -1086,11 +1089,11 @@ function AttendanceReportPage() {
             </Card>
           ) : null}
           <div className="owner-attendance-report-footer">
-            <ScopeBanner title="Batas laporan dan ekspor">
-              {`Rentang maksimal ${options?.maximum_days ?? 31} hari · detail maksimal 5.000 hari kerja karyawan · CSV maksimal 500 baris. Ekspor di atas batas ditolak tanpa pemotongan.`}
+            <ScopeBanner title={canExport ? "Batas laporan dan ekspor" : "Batas laporan"}>
+              {`Rentang maksimal ${options?.maximum_days ?? 31} hari · detail maksimal 5.000 hari kerja karyawan${canExport ? " · CSV maksimal 500 baris. Ekspor di atas batas ditolak tanpa pemotongan." : "."}`}
             </ScopeBanner>
             <div className="owner-attendance-mobile-export-row">
-              {result ? (
+              {result && canExport ? (
                 <Button
                   className="owner-mobile-report-export"
                   disabled={exporting || loading}
@@ -1101,9 +1104,11 @@ function AttendanceReportPage() {
                 </Button>
               ) : null}
             </div>
-            <p className="owner-attendance-export-note text-caption text-muted-foreground">
-              Ekspor tercatat di audit. Waktu audit memakai UTC; tanggal kerja mengikuti zona waktu lokal Outlet.
-            </p>
+            {canExport ? (
+              <p className="owner-attendance-export-note text-caption text-muted-foreground">
+                Ekspor tercatat di audit. Waktu audit memakai UTC; tanggal kerja mengikuti zona waktu lokal Outlet.
+              </p>
+            ) : null}
           </div>
           {result ? (
             <p className="text-caption text-muted-foreground">

@@ -62,6 +62,7 @@ final class ReportingController extends Controller
     public function export(Request $request): StreamedResponse
     {
         $scope = $this->access->scope($request);
+        abort_unless($scope->owner, 403, 'Ekspor CSV hanya tersedia untuk Owner.');
         $filters = $this->filtersFromRequest($request, $scope);
         $rows = $this->reports->exportRows($scope, $filters);
         $generatedAt = CarbonImmutable::now('UTC');
