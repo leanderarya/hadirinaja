@@ -11,13 +11,18 @@ $app = require $basePath.'/bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
 $mysql = config('database.connections.mysql');
+$expectedDatabase = (string) getenv('HADIRINAJA_TEST_DISPOSABLE_DATABASE');
+$expectedPort = (string) getenv('HADIRINAJA_TEST_DISPOSABLE_PORT');
 
 if (
     config('database.default') !== 'mysql'
-    || ($mysql['database'] ?? null) !== 'hadirinaja_test'
+    || $expectedDatabase !== 'hadirinaja_test'
+    || ($mysql['database'] ?? null) !== $expectedDatabase
     || ! in_array($mysql['host'] ?? null, ['127.0.0.1', 'localhost'], true)
-    || (string) ($mysql['port'] ?? '') !== '3306'
+    || $expectedPort === ''
+    || (string) ($mysql['port'] ?? '') !== $expectedPort
     || filled($mysql['url'] ?? null)
+    || getenv('HADIRINAJA_TEST_SCHEMA_PREPARED') !== '1'
 ) {
     fwrite(STDERR, "Worker refused a non-test database configuration.\n");
     exit(2);

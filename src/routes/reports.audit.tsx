@@ -313,7 +313,7 @@ function AuditTrailPage() {
     requestAnimationFrame(() => mobileDetailTrigger.current?.focus())
   }
 
-  const navigationContext = navigationSession?.active_membership ? { tenantName: navigationSession.active_membership.tenant.name, roles: navigationSession.active_membership.roles, userName: navigationSession.user.name } : null
+  const navigationContext = navigationSession?.active_membership ? { tenantName: navigationSession.active_membership.tenant.name, roles: navigationSession.active_membership.roles, userName: navigationSession.user.name, kioskEnabled: navigationSession.features.kiosk_enabled } : null
   const membershipRoles = navigationSession?.active_membership?.roles ?? []
   const isSupervisor =
     membershipRoles.includes("supervisor") && !membershipRoles.includes("owner")

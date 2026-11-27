@@ -185,8 +185,28 @@ export function validatePolicyDraft(
       "Latitude dan longitude harus diisi bersama, atau keduanya kosong."
   return errors
 }
-export const utcToday = () => new Date().toISOString().slice(0, 10)
-export function validatePolicyDate(date: string, today = utcToday()) {
+const POLICY_TIMEZONE = "Asia/Jakarta"
+
+export function policyToday(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: POLICY_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now)
+  const part = (type: string) =>
+    parts.find((value) => value.type === type)?.value ?? "0"
+
+  return `${part("year")}-${part("month")}-${part("day")}`
+}
+
+export function policyTomorrow(now = new Date()) {
+  const tomorrow = new Date(`${policyToday(now)}T00:00:00Z`)
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+  return tomorrow.toISOString().slice(0, 10)
+}
+
+export function validatePolicyDate(date: string, today = policyToday()) {
   return (
     /^\d{4}-\d{2}-\d{2}$/.test(date) &&
     !Number.isNaN(Date.parse(`${date}T00:00:00Z`)) &&

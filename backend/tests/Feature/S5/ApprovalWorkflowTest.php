@@ -37,6 +37,12 @@ class ApprovalWorkflowTest extends TestCase
 {
     use BuildsTenantFixtures, RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['features.kiosk_enabled' => true]);
+    }
+
     protected function tearDown(): void
     {
         Carbon::setTestNow();

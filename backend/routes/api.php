@@ -6,11 +6,11 @@ use App\Http\Controllers\Api\V1\AttendanceController;
 use App\Http\Controllers\Api\V1\AttendanceEvidenceLegalHoldController;
 use App\Http\Controllers\Api\V1\AuthSessionController;
 use App\Http\Controllers\Api\V1\CorrectionEvidenceController;
+use App\Http\Controllers\Api\V1\EmailChangeLinkController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\KioskAccessController;
 use App\Http\Controllers\Api\V1\ManagementController;
 use App\Http\Controllers\Api\V1\MemberAdministrationController;
-use App\Http\Controllers\Api\V1\EmailChangeLinkController;
 use App\Http\Controllers\Api\V1\OwnerPasswordResetController;
 use App\Http\Controllers\Api\V1\PlannerNotificationController;
 use App\Http\Controllers\Api\V1\ReportingController;
@@ -86,11 +86,13 @@ Route::prefix('/v1/management')
         Route::put('/outlets/{outlet}', [ManagementController::class, 'updateOutlet'])->whereNumber('outlet')->name('outlets.update');
         Route::post('/employees', [ManagementController::class, 'createEmployee'])->name('employees.store');
         Route::put('/employees/{employee}', [ManagementController::class, 'updateEmployee'])->whereNumber('employee')->name('employees.update');
-        Route::get('/kiosks', [ManagementController::class, 'kiosks'])->name('kiosks.index');
-        Route::post('/kiosks/pairing-codes', [ManagementController::class, 'issuePairingCode'])->name('kiosks.pairing-codes.store');
-        Route::post('/kiosks/{device}/revoke', [ManagementController::class, 'revokeKiosk'])->whereNumber('device')->name('kiosks.revoke');
-        Route::post('/employees/{employee}/pin-enrollment', [ManagementController::class, 'issuePinEnrollment'])
-            ->whereNumber('employee')->name('employees.pin-enrollment');
+        Route::middleware('kiosk-enabled')->group(function (): void {
+            Route::get('/kiosks', [ManagementController::class, 'kiosks'])->name('kiosks.index');
+            Route::post('/kiosks/pairing-codes', [ManagementController::class, 'issuePairingCode'])->name('kiosks.pairing-codes.store');
+            Route::post('/kiosks/{device}/revoke', [ManagementController::class, 'revokeKiosk'])->whereNumber('device')->name('kiosks.revoke');
+            Route::post('/employees/{employee}/pin-enrollment', [ManagementController::class, 'issuePinEnrollment'])
+                ->whereNumber('employee')->name('employees.pin-enrollment');
+        });
 
         Route::prefix('/scheduling')->name('scheduling.')->controller(SchedulingController::class)->group(function (): void {
             Route::get('/context', 'context')->name('context');
@@ -208,7 +210,7 @@ Route::prefix('/v1/correction-evidence/{approvalRequest}')
         Route::get('/{evidence}', 'download')->whereNumber('evidence')->middleware('throttle:60,1');
     });
 
-Route::prefix('/v1/kiosk')->middleware('no-store')->name('api.v1.kiosk.')->group(function (): void {
+Route::prefix('/v1/kiosk')->middleware(['no-store', 'kiosk-enabled'])->name('api.v1.kiosk.')->group(function (): void {
     Route::post('/pair', [KioskAccessController::class, 'pair'])
         ->middleware('throttle:kiosk-pair')->name('pair');
 

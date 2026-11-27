@@ -37,6 +37,7 @@ export interface ManagementNavigationContext {
   tenantName: string
   roles: readonly string[]
   userName?: string
+  kioskEnabled?: boolean
 }
 
 export interface ManagementNavigationItem {
@@ -126,12 +127,25 @@ const destinations: readonly ManagementNavigationItem[] = [
   },
 ]
 
-export function getManagementNavigation(roles: readonly string[]) {
+export function getManagementNavigation(
+  roles: readonly string[],
+  kioskEnabled = false
+) {
   const owner = roles.includes("owner")
   if (!owner && !roles.includes("supervisor")) return []
   return destinations.map((item) => ({
     ...item,
-    children: item.children?.filter((child) => !child.ownerOnly || owner).map((child) => child.id === "shift" && owner ? { ...child, href: "/settings/shift-templates" } : child),
+    children: item.children
+      ?.filter(
+        (child) =>
+          (!child.ownerOnly || owner) &&
+          (child.id !== "kiosk-devices" || kioskEnabled)
+      )
+      .map((child) =>
+        child.id === "shift" && owner
+          ? { ...child, href: "/settings/shift-templates" }
+          : child
+      ),
   }))
 }
 

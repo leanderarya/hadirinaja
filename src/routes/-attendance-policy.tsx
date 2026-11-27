@@ -60,7 +60,8 @@ import {
   policyFields,
   policyFingerprint,
   policyLeaf,
-  utcToday,
+  policyToday,
+  policyTomorrow,
   validatePolicyDate,
   validatePolicyDraft,
 } from "@/lib/policy-editor"
@@ -93,8 +94,6 @@ const groups = [
     icon: SlidersHorizontal,
   },
 ] as const
-const tomorrowUTC = () =>
-  new Date(Date.now() + 86400000).toISOString().slice(0, 10)
 function Surface({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="policy-surface">
@@ -263,7 +262,7 @@ export function AttendancePolicy({
   const [base, setBase] = useState<PolicyConfiguration | null>(null)
   const [draft, setDraft] = useState<PolicyDraft | null>(null)
   const [review, setReview] = useState<PolicyResponse | null>(null)
-  const [date, setDate] = useState(tomorrowUTC)
+  const [date, setDate] = useState(policyTomorrow)
   const [reason, setReason] = useState("")
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -506,7 +505,7 @@ export function AttendancePolicy({
     setBase(structuredClone(current ?? policyDefaults))
     setDraft(policyDraft(current ?? policyDefaults))
     setView("groups")
-    setDate(tomorrowUTC())
+    setDate(policyTomorrow())
     setError("")
     setNotice("")
     setWarning("")
@@ -581,7 +580,7 @@ export function AttendancePolicy({
     setError("")
     setReview(null)
     if (!validatePolicyDate(date)) {
-      setError("Pilih tanggal hari ini atau ke depan menurut UTC.")
+      setError("Pilih tanggal hari ini atau ke depan menurut kalender Asia/Jakarta.")
       return
     }
     const generation = requestScope.current
@@ -626,7 +625,7 @@ export function AttendancePolicy({
       reason.trim().length > 1000
     ) {
       setError(
-        "Tanggal harus hari ini/ke depan UTC dan alasan wajib 3–1000 karakter."
+        "Tanggal harus hari ini atau setelahnya menurut kalender Asia/Jakarta, dan alasan wajib 3–1000 karakter."
       )
       return
     }
@@ -669,8 +668,8 @@ export function AttendancePolicy({
       clearDraft()
       setView("overview")
       setNotice(
-        date > utcToday()
-          ? `Perubahan untuk ${scope === "tenant" ? context.tenant.name : outlet?.name} terjadwal mulai ${date} (UTC). Ringkasan tetap menampilkan kebijakan hari ini.`
+        date > policyToday()
+          ? `Perubahan untuk ${scope === "tenant" ? context.tenant.name : outlet?.name} terjadwal mulai ${date} (Asia/Jakarta). Ringkasan tetap menampilkan kebijakan hari ini.`
           : "Perubahan dikonfirmasi server. Kebijakan terbaru dimuat kembali."
       )
       const refreshed = await apiRequest<PolicyResponse>(endpoint())
@@ -786,7 +785,7 @@ export function AttendancePolicy({
             {scope === "tenant"
               ? `Perubahan kebijakan ${context.tenant.name} dapat memengaruhi Outlet yang mengikutinya; pengaturan khusus Outlet tetap berlaku. `
               : `Perubahan untuk ${outlet?.name}; nilai yang tidak diubah tetap mengikuti organisasi. `}
-            Nilai yang berlaku tetap digunakan sampai versi baru berlaku. Tanggal efektif dipilih saat meninjau perubahan dan menggunakan UTC.
+            Nilai yang berlaku tetap digunakan sampai versi baru berlaku. Tanggal efektif mengikuti kalender Asia/Jakarta.
           </ContextAlert>
           {warning ? (
             <ContextAlert tone="warning" title="Tinjau kembali">
@@ -1010,12 +1009,12 @@ export function AttendancePolicy({
                 </p>
                 <LabeledControl
                   label="Berlaku mulai"
-                  helper="Hari ini UTC atau ke depan. Tanggal versi duplikat ditolak server."
+                  helper="Hari ini atau ke depan menurut kalender Asia/Jakarta. Tanggal versi duplikat ditolak server."
                   control={
                     <Input
                       type="date"
                       required
-                      min={utcToday()}
+                      min={policyToday()}
                       value={date}
                       disabled={busy || unknown}
                       onChange={(e) => {
@@ -1180,11 +1179,11 @@ export function AttendancePolicy({
           ) : null}
           <LabeledControl
             label="Tanggal evaluasi kebijakan"
-            helper="UTC"
+            helper="Kalender bisnis Asia/Jakarta"
             control={
               <Input
                 type="date"
-                value={search.date ?? utcToday()}
+                value={search.date ?? policyToday()}
                 onChange={(event) => {
                   const date = event.target.value
                   if (date) attempt(() => changeSearch({ date }))
@@ -1195,7 +1194,7 @@ export function AttendancePolicy({
         </div>
       ) : (
         <>
-      {view === "overview" && !compact ? <LabeledControl label="Tanggal evaluasi kebijakan" helper="Nilai efektif pada tanggal UTC terpilih." control={<Input type="date" value={search.date ?? utcToday()} onChange={event => { const date = event.target.value; if (date) attempt(() => changeSearch({ date })) }} />} /> : null}
+      {view === "overview" && !compact ? <LabeledControl label="Tanggal evaluasi kebijakan" helper="Nilai efektif pada tanggal kalender Asia/Jakarta terpilih." control={<Input type="date" value={search.date ?? policyToday()} onChange={event => { const date = event.target.value; if (date) attempt(() => changeSearch({ date })) }} />} /> : null}
       {view === "overview" && scope === "outlet" && !compact ? (
         <Surface title="Outlet yang ingin dilihat">
           <LabeledControl
@@ -1219,8 +1218,8 @@ export function AttendancePolicy({
             Aktif: {outlet?.name ?? "Belum dipilih"} / {unit?.name ?? "—"}
           </p>
           <p className="text-caption">
-            Berlaku pada {data?.effective_date ?? utcToday()} · tanggal evaluasi
-            kebijakan UTC, bukan tanggal kerja Outlet.
+            Berlaku pada {data?.effective_date ?? policyToday()} · tanggal efektif
+            memakai kalender bisnis Asia/Jakarta, terpisah dari tanggal kerja Outlet.
           </p>
         </Surface>
       ) : null}

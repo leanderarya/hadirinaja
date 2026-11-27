@@ -11,8 +11,11 @@ final class DisposableTestDatabaseGuardTest extends TestCase
 {
     private const ENVIRONMENT_KEYS = [
         'APP_ENV',
+        'DB_USERNAME',
+        'DB_PASSWORD',
         'DB_URL',
         'DB_SOCKET',
+        'HADIRINAJA_TEST_SCHEMA_PREPARED',
         'HADIRINAJA_TEST_DISPOSABLE_DATABASE',
         'HADIRINAJA_TEST_DISPOSABLE_PORT',
         'HADIRINAJA_TEST_DISPOSABLE_DATADIR',
@@ -53,6 +56,8 @@ final class DisposableTestDatabaseGuardTest extends TestCase
         $this->socketPath = $this->runDirectory.'/mysql.sock';
         $this->databaseName = 'hadirinaja_p2d_'.gmdate('Ymd').'_'.bin2hex(random_bytes(6));
         $this->port = (string) random_int(45000, 54999);
+        $username = 'p2d_runner_'.bin2hex(random_bytes(6));
+        $password = bin2hex(random_bytes(24));
 
         self::assertTrue(mkdir($this->runDirectory, 0700));
         self::assertTrue(file_put_contents($this->runDirectory.'/.hadirinaja-p2d-runner-owned', 'test') !== false);
@@ -65,13 +70,18 @@ final class DisposableTestDatabaseGuardTest extends TestCase
             'host' => '127.0.0.1',
             'port' => $this->port,
             'database' => $this->databaseName,
+            'username' => $username,
+            'password' => $password,
             'url' => '',
             'unix_socket' => '',
         ];
 
         $this->setEnvironment('APP_ENV', 'testing');
+        $this->setEnvironment('DB_USERNAME', $username);
+        $this->setEnvironment('DB_PASSWORD', $password);
         $this->setEnvironment('DB_URL', '');
         $this->setEnvironment('DB_SOCKET', '');
+        $this->setEnvironment('HADIRINAJA_TEST_SCHEMA_PREPARED', '1');
         $this->setEnvironment('HADIRINAJA_TEST_DISPOSABLE_DATABASE', $this->databaseName);
         $this->setEnvironment('HADIRINAJA_TEST_DISPOSABLE_PORT', $this->port);
         $this->setEnvironment('HADIRINAJA_TEST_DISPOSABLE_DATADIR', $this->dataDirectory);
@@ -183,6 +193,7 @@ final class DisposableTestDatabaseGuardTest extends TestCase
             'port' => $this->port,
             'data_directory' => realpath($this->dataDirectory),
             'socket' => realpath($this->socketPath),
+            'account_name' => getenv('DB_USERNAME').'@127.0.0.1',
         ]);
 
         DisposableTestDatabaseGuard::assertConnected($connection);
@@ -217,7 +228,7 @@ final class DisposableTestDatabaseGuardTest extends TestCase
     }
 
     /** @param array<string, mixed> $config
-     *  @param array<string, string|null> $environment
+     * @param  array<string, string|null>  $environment
      */
     private function assertConfiguredRejected(array $config, array $environment = []): void
     {

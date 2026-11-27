@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\EnsureActiveTenant;
 use App\Http\Middleware\EnsureKioskDevice;
+use App\Http\Middleware\EnsureKioskEnabled;
 use App\Http\Middleware\NoStore;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
@@ -32,6 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'active-tenant' => EnsureActiveTenant::class,
             'kiosk-device' => EnsureKioskDevice::class,
+            'kiosk-enabled' => EnsureKioskEnabled::class,
             'no-store' => NoStore::class,
         ]);
     })

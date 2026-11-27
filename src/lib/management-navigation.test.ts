@@ -44,6 +44,16 @@ describe("approved management navigation", () => {
     expect(settings?.children?.every((item) => !item.ownerOnly)).toBe(true)
   })
 
+  it("shows kiosk settings only when the feature is enabled", () => {
+    const settings = (kioskEnabled: boolean) =>
+      getManagementNavigation(["owner"], kioskEnabled)
+        .find((item) => item.id === "settings")
+        ?.children?.map((item) => item.id)
+
+    expect(settings(false)).not.toContain("kiosk-devices")
+    expect(settings(true)).toContain("kiosk-devices")
+  })
+
   it.each([
     [],
     ["employee"],

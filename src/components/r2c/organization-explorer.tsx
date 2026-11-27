@@ -38,6 +38,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { ApiError, type OrganizationSummary } from "@/lib/api"
 import {
   type OrganizationCommand,
@@ -52,6 +53,7 @@ type Editor = {
   id?: number
   unitId?: number
   original: string
+  originalAddress?: string | null
 }
 
 export interface OrganizationExplorerProps {
@@ -82,16 +84,25 @@ export function OrganizationExplorer({
   const units = organizationUnits(organization, query)
   const [editor, setEditor] = useState<Editor | null>(null)
   const [name, setName] = useState("")
+  const [address, setAddress] = useState("")
   const [error, setError] = useState("")
+  const [errorField, setErrorField] = useState<"name" | "address">("name")
   const [busy, setBusy] = useState(false)
   const [discard, setDiscard] = useState(false)
   const trigger = useRef<HTMLElement | null>(null)
   const saved = useRef(false)
   const detailHeading = useRef<HTMLHeadingElement | null>(null)
   const nameInput = useRef<HTMLInputElement | null>(null)
+  const addressInput = useRef<HTMLTextAreaElement | null>(null)
   const submitting = useRef(false)
   const fieldId = useId()
-  const dirty = Boolean(editor && name !== editor.original)
+  const outletEditor =
+    editor?.kind === "create-outlet" || editor?.kind === "rename-outlet"
+  const dirty = Boolean(
+    editor &&
+      (name !== editor.original ||
+        (outletEditor && address !== (editor.originalAddress ?? "")))
+  )
   const hasSelection = Boolean(selection.unitId || selection.outletId)
   const selectedId = outlet?.id ?? unit?.id
 
@@ -113,7 +124,9 @@ export function OrganizationExplorer({
     trigger.current = button
     setEditor(next)
     setName(next.original)
+    setAddress(next.originalAddress ?? "")
     setError("")
+    setErrorField("name")
   }
 
   function requestClose() {
@@ -127,19 +140,39 @@ export function OrganizationExplorer({
     if (!editor || !canManage || submitting.current) return
     if (!name.trim() || name.trim().length > 120) {
       setError("Nama wajib diisi, maksimal 120 karakter.")
+      setErrorField("name")
       nameInput.current?.focus()
+      return
+    }
+    if (outletEditor && address.trim().length > 500) {
+      setError("Alamat maksimal 500 karakter.")
+      setErrorField("address")
+      addressInput.current?.focus()
       return
     }
     let command: OrganizationCommand
     if (editor.kind === "create-unit")
       command = { kind: editor.kind, name: name.trim() }
     else if (editor.kind === "create-outlet" && editor.unitId)
-      command = { kind: editor.kind, unitId: editor.unitId, name: name.trim() }
+      command = {
+        kind: editor.kind,
+        unitId: editor.unitId,
+        name: name.trim(),
+        address: address.trim(),
+      }
     else if (
       (editor.kind === "rename-unit" || editor.kind === "rename-outlet") &&
       editor.id
     )
-      command = { kind: editor.kind, id: editor.id, name: name.trim() }
+      command =
+        editor.kind === "rename-outlet"
+          ? {
+              kind: editor.kind,
+              id: editor.id,
+              name: name.trim(),
+              address: address.trim(),
+            }
+          : { kind: editor.kind, id: editor.id, name: name.trim() }
     else return
     submitting.current = true
     setBusy(true)
@@ -151,12 +184,20 @@ export function OrganizationExplorer({
       setEditor(null)
       onSelect(next, true)
     } catch (caught) {
+      const nameError =
+        caught instanceof ApiError ? caught.errors?.name?.[0] : undefined
+      const addressError =
+        caught instanceof ApiError ? caught.errors?.address?.[0] : undefined
+      setErrorField(addressError ? "address" : "name")
       setError(
-        caught instanceof ApiError
-          ? (caught.errors?.name?.[0] ?? caught.message)
-          : "Perubahan belum tersimpan. Coba lagi tanpa menutup editor."
+        nameError ??
+          addressError ??
+          (caught instanceof ApiError
+            ? caught.message
+            : "Perubahan belum tersimpan. Coba lagi tanpa menutup editor.")
       )
-      nameInput.current?.focus()
+      if (addressError) addressInput.current?.focus()
+      else nameInput.current?.focus()
     } finally {
       submitting.current = false
       setBusy(false)
@@ -170,7 +211,7 @@ export function OrganizationExplorer({
         ? "Ubah nama unit bisnis"
         : editor?.kind === "create-outlet"
           ? "Tambah Outlet"
-          : "Ubah nama Outlet"
+          : "Ubah detail Outlet"
   const editorParent = organization.business_units.find(
     (item) => item.id === editor?.unitId
   )
@@ -327,6 +368,7 @@ export function OrganizationExplorer({
                                   id: outlet.id,
                                   unitId: unit.id,
                                   original: outlet.name,
+                                  originalAddress: outlet.address,
                                 }
                               : {
                                   kind: "rename-unit",
@@ -338,7 +380,7 @@ export function OrganizationExplorer({
                         }
                       >
                         <Pencil data-icon="inline-start" />
-                        Ubah nama
+                        {outlet ? "Ubah detail" : "Ubah nama"}
                       </Button>
                     ) : null}
                   </div>
@@ -370,6 +412,16 @@ export function OrganizationExplorer({
                         >
                           {unit.name}
                         </Button>
+                      </dd>
+                    </dl>
+                  ) : null}
+                  {outlet ? (
+                    <dl className="flex flex-col gap-1">
+                      <dt className="text-caption text-muted-foreground">
+                        Alamat Outlet
+                      </dt>
+                      <dd className="text-body [overflow-wrap:anywhere]">
+                        {outlet.address || "Belum ada alamat."}
                       </dd>
                     </dl>
                   ) : null}
@@ -493,7 +545,7 @@ export function OrganizationExplorer({
             aria-busy={busy}
           >
             <FieldGroup>
-              <Field data-invalid={Boolean(error)}>
+              <Field data-invalid={errorField === "name" && Boolean(error)}>
                 <FieldLabel htmlFor={`${fieldId}-name`}>
                   Nama{" "}
                   {editor?.kind.endsWith("unit") ? "unit bisnis" : "Outlet"}
@@ -505,20 +557,69 @@ export function OrganizationExplorer({
                   maxLength={120}
                   required
                   disabled={busy}
-                  aria-invalid={Boolean(error)}
-                  aria-describedby={error ? `${fieldId}-error` : undefined}
+                  aria-invalid={errorField === "name" && Boolean(error)}
+                  aria-describedby={
+                    errorField === "name" && error
+                      ? `${fieldId}-name-error`
+                      : undefined
+                  }
                   onChange={(event) => {
-                    onDirtyChange(event.target.value !== editor?.original)
+                    onDirtyChange(
+                      event.target.value !== editor?.original ||
+                        (outletEditor &&
+                          address !== (editor?.originalAddress ?? ""))
+                    )
                     setName(event.target.value)
                     setError("")
                   }}
                 />
-                {error ? (
-                  <FieldError id={`${fieldId}-error`} role="alert">
+                {error && errorField === "name" ? (
+                  <FieldError id={`${fieldId}-name-error`} role="alert">
                     {error}
                   </FieldError>
                 ) : null}
               </Field>
+              {outletEditor ? (
+                <Field
+                  data-invalid={
+                    errorField === "address" && Boolean(error)
+                  }
+                >
+                  <FieldLabel htmlFor={`${fieldId}-address`}>
+                    Alamat Outlet (opsional)
+                  </FieldLabel>
+                  <Textarea
+                    ref={addressInput}
+                    id={`${fieldId}-address`}
+                    value={address}
+                    maxLength={500}
+                    rows={3}
+                    disabled={busy}
+                    aria-invalid={
+                      errorField === "address" && Boolean(error)
+                    }
+                    aria-describedby={
+                      errorField === "address" && error
+                        ? `${fieldId}-address-error`
+                        : undefined
+                    }
+                    onChange={(event) => {
+                      onDirtyChange(
+                        name !== editor?.original ||
+                          event.target.value !==
+                            (editor?.originalAddress ?? "")
+                      )
+                      setAddress(event.target.value)
+                      setError("")
+                    }}
+                  />
+                  {error && errorField === "address" ? (
+                    <FieldError id={`${fieldId}-address-error`} role="alert">
+                      {error}
+                    </FieldError>
+                  ) : null}
+                </Field>
+              ) : null}
             </FieldGroup>
             {dirty ? (
               <p className="text-caption text-muted-foreground" role="status">
@@ -545,7 +646,7 @@ export function OrganizationExplorer({
         open={discard}
         onOpenChange={setDiscard}
         title="Buang perubahan?"
-        consequence="Perubahan nama belum disimpan. Buang perubahan untuk menutup editor."
+        consequence="Perubahan organisasi belum disimpan. Buang perubahan untuk menutup editor."
         actionLabel="Buang perubahan"
         onConfirm={() => {
           setDiscard(false)

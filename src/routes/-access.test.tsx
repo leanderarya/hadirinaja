@@ -15,7 +15,15 @@ vi.mock("@/components/ui/sidebar", () => ({ SidebarProvider: ({ children }: { ch
 import { Route } from "./access"
 const Page = Route.options.component as ComponentType
 const token = "A".repeat(64)
-const session = { user: { id: 1, name: "Owner" }, active_membership: { id: 1, tenant: { id: 1, name: "Tenant QA" }, roles: ["owner"] } }
+const session = {
+  user: { id: 1, name: "Owner" },
+  features: { kiosk_enabled: false },
+  active_membership: {
+    id: 1,
+    tenant: { id: 1, name: "Tenant QA" },
+    roles: ["owner"],
+  },
+}
 let data: { members: unknown[]; employees: unknown[]; outlets: unknown[]; invitations: unknown[] }
 const writeText = vi.fn().mockResolvedValue(undefined)
 const emailToken = "e".repeat(64)

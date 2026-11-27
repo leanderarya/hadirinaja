@@ -216,6 +216,7 @@ export function SchedulingPage({
     action: () => Promise<void>
   } | null>(null)
   const [context, setContext] = useState<SchedulingContext | null>(null)
+  const [kioskEnabled, setKioskEnabled] = useState(false)
   const [organizationName, setOrganizationName] = useState("")
   const [operationalWeek, setOperationalWeek] = useState(
     () => schedulingSearch(location.search).week ?? mondayOfToday()
@@ -621,6 +622,7 @@ export function SchedulingPage({
           window.location.assign("/select-tenant")
           return
         }
+        setKioskEnabled(session.features.kiosk_enabled)
         setOrganizationName(session.active_membership.tenant?.name ?? "")
         if (
           configuration &&
@@ -1191,6 +1193,7 @@ export function SchedulingPage({
     tenantName: context.tenant.name,
     roles: context.roles,
     userName: context.user.name,
+    kioskEnabled,
   }
 
   return (

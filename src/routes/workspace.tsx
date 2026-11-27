@@ -195,6 +195,14 @@ export function WorkspacePage({ kioskSettings = false }: { kioskSettings?: boole
         return
       }
 
+      if (kioskSettings && !session.features.kiosk_enabled) {
+        setData(null)
+        setOneTimeCode(null)
+        setPairingOpen(false)
+        setError("Pengelolaan kiosk belum diaktifkan untuk organisasi ini.")
+        return
+      }
+
       if ((kioskSettings && !session.active_membership.roles.includes("owner")) || !session.active_membership.roles.some(role => role === "owner" || role === "supervisor")) {
         setData(null)
         setOneTimeCode(null)
@@ -224,7 +232,7 @@ export function WorkspacePage({ kioskSettings = false }: { kioskSettings?: boole
         setError("Konteks organisasi berubah. Muat ulang sebelum melanjutkan.")
         return
       }
-      const kioskPayload = session.active_membership.roles.includes("owner")
+      const kioskPayload = session.features.kiosk_enabled && session.active_membership.roles.includes("owner")
         ? await apiRequest<{ kiosks: KioskDevice[] }>("/management/kiosks")
         : { kiosks: [] }
       const accessPayload = !kioskSettings && session.active_membership.roles.includes("owner")
@@ -248,6 +256,9 @@ export function WorkspacePage({ kioskSettings = false }: { kioskSettings?: boole
         })),
         kiosks: kioskPayload.kiosks,
       })
+      if (!session.features.kiosk_enabled) {
+        setSection((current) => (current === "kiosk" ? "team" : current))
+      }
     } catch (caught) {
       if (
         caught instanceof ApiError &&
@@ -431,6 +442,7 @@ export function WorkspacePage({ kioskSettings = false }: { kioskSettings?: boole
         tenantName: data.organization.tenant.name,
         roles: data.organization.roles,
         userName: data.session.user.name,
+        kioskEnabled: data.session.features.kiosk_enabled,
       }
     : null
   const selectedEmployee = data?.employees.find(
@@ -925,15 +937,17 @@ export function WorkspacePage({ kioskSettings = false }: { kioskSettings?: boole
                   </div>
                 </div>
                 <p className="order-1 text-caption [--type-caption-size:13px] md:order-none md:[--type-caption-size:12px]">
-                  Profil memuat perubahan dasar, penempatan bertanggal, dan
-                  kode pendaftaran PIN sesuai hak akses. Undangan dan
+                  Profil memuat perubahan dasar, penempatan bertanggal
+                  {data.session.features.kiosk_enabled
+                    ? ", dan kode pendaftaran PIN sesuai hak akses"
+                    : ""}. Undangan dan
                   penautan akun adalah proses terpisah; tautan aktivasi satu
                   kali dikirim manual.
                 </p>
               </>
             ) : null}
 
-            {data && section === "kiosk" ? (
+            {data && section === "kiosk" && data.session.features.kiosk_enabled ? (
               <>
                 <span id="kiosk-devices" className="sr-only" />
                 {isOwner ? (
@@ -1048,51 +1062,53 @@ export function WorkspacePage({ kioskSettings = false }: { kioskSettings?: boole
                 <ArrowUpRight aria-hidden="true" data-icon="inline-start" />
                 {employeeAccess(selectedEmployee.access_status).action}
               </Button>
-              <details
-                open={employeeDialog === "more"}
-                className="rounded-[12px] border border-border p-4"
-              >
-                <summary className="flex min-h-11 cursor-pointer items-center text-label">
-                  Kode pendaftaran PIN
-                </summary>
-                <form
-                  className="mt-4 flex flex-col gap-3"
-                  onSubmit={(event) => issuePinCode(event, selectedEmployee.id)}
+              {data.session.features.kiosk_enabled ? (
+                <details
+                  open={employeeDialog === "more"}
+                  className="rounded-[12px] border border-border p-4"
                 >
-                  <LabeledControl
-                    label={`Outlet untuk kode PIN ${selectedEmployee.name}`}
-                    control={
-                      <NativeSelect
-                        className="w-full"
-                        required
-                        value={employeeOutletIds[selectedEmployee.id] ?? ""}
-                        onChange={(event) =>
-                          setEmployeeOutletIds((current) => ({
-                            ...current,
-                            [selectedEmployee.id]: event.target.value,
-                          }))
-                        }
-                      >
-                        <NativeSelectOption value="">
-                          Pilih Outlet
-                        </NativeSelectOption>
-                        {data.organization.outlets.map((outlet) => (
-                          <NativeSelectOption key={outlet.id} value={outlet.id}>
-                            {outlet.name}
-                          </NativeSelectOption>
-                        ))}
-                      </NativeSelect>
-                    }
-                  />
-                  <Button
-                    type="submit"
-                    disabled={busy || !data.organization.outlets.length}
-                    isLoading={busy}
+                  <summary className="flex min-h-11 cursor-pointer items-center text-label">
+                    Kode pendaftaran PIN
+                  </summary>
+                  <form
+                    className="mt-4 flex flex-col gap-3"
+                    onSubmit={(event) => issuePinCode(event, selectedEmployee.id)}
                   >
-                    Buat kode pendaftaran PIN
-                  </Button>
-                </form>
-              </details>
+                    <LabeledControl
+                      label={`Outlet untuk kode PIN ${selectedEmployee.name}`}
+                      control={
+                        <NativeSelect
+                          className="w-full"
+                          required
+                          value={employeeOutletIds[selectedEmployee.id] ?? ""}
+                          onChange={(event) =>
+                            setEmployeeOutletIds((current) => ({
+                              ...current,
+                              [selectedEmployee.id]: event.target.value,
+                            }))
+                          }
+                        >
+                          <NativeSelectOption value="">
+                            Pilih Outlet
+                          </NativeSelectOption>
+                          {data.organization.outlets.map((outlet) => (
+                            <NativeSelectOption key={outlet.id} value={outlet.id}>
+                              {outlet.name}
+                            </NativeSelectOption>
+                          ))}
+                        </NativeSelect>
+                      }
+                    />
+                    <Button
+                      type="submit"
+                      disabled={busy || !data.organization.outlets.length}
+                      isLoading={busy}
+                    >
+                      Buat kode pendaftaran PIN
+                    </Button>
+                  </form>
+                </details>
+              ) : null}
             </>
           ) : null}
           {actionError}

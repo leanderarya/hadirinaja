@@ -36,7 +36,11 @@ beforeEach(() => {
   finalized = false
   pendingEvidence = new Map()
   request.mockImplementation(async (path, options) => {
-    if (path === "/auth/me") return { active_membership: { roles: ["owner"] } } as never
+    if (path === "/auth/me")
+      return {
+        features: { kiosk_enabled: false },
+        active_membership: { roles: ["owner"] },
+      } as never
     if (path === "/management/organization") return { tenant: { id: 1, name: "Synthetic" }, roles: ["owner"], outlets: [] } as never
     if (path === "/management/employees") return { employees: [] } as never
     if (path === "/management/attendance/reviews/discover") return {} as never

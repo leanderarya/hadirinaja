@@ -20,8 +20,8 @@ export type OrganizationSelection = { unitId?: number; outletId?: number }
 export type OrganizationCommand =
   | { kind: "create-unit"; name: string }
   | { kind: "rename-unit"; id: number; name: string }
-  | { kind: "create-outlet"; unitId: number; name: string }
-  | { kind: "rename-outlet"; id: number; name: string }
+  | { kind: "create-outlet"; unitId: number; name: string; address: string }
+  | { kind: "rename-outlet"; id: number; name: string; address: string }
 
 export function selectedOrganization(
   organization: OrganizationSummary,

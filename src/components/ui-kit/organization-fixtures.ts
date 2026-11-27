@@ -10,26 +10,31 @@ export const demoOrganization = {
       id: 301,
       businessUnitId: 201,
       name: "Kopi Kelana Cendana",
+      address: "Alamat contoh",
     },
     {
       id: 302,
       businessUnitId: 201,
       name: "Kopi Kelana Mawar",
+      address: null,
     },
     {
       id: 303,
       businessUnitId: 202,
       name: "Teh Sejuk Cendana",
+      address: null,
     },
     {
       id: 304,
       businessUnitId: 202,
       name: "Teh Sejuk Kenanga",
+      address: null,
     },
     {
       id: 305,
       businessUnitId: 202,
       name: "Teh Sejuk Mawar",
+      address: null,
     },
   ],
 } as const
