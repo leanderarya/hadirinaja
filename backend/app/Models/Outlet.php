@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['tenant_id', 'business_unit_id', 'name'])]
+#[Fillable(['tenant_id', 'business_unit_id', 'name', 'address'])]
 class Outlet extends Model
 {
     use BelongsToTenant;

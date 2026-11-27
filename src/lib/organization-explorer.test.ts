@@ -15,8 +15,8 @@ const data: OrganizationSummary = {
     { id: 12, name: "Unit B" },
   ],
   outlets: [
-    { id: 21, name: "Karangawen", business_unit_id: 11 },
-    { id: 22, name: "Karangawen", business_unit_id: 12 },
+    { id: 21, name: "Karangawen", address: null, business_unit_id: 11 },
+    { id: 22, name: "Karangawen", address: null, business_unit_id: 12 },
   ],
 }
 

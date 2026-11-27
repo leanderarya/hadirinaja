@@ -51,6 +51,7 @@ final class ManagementController extends Controller
             'outlets' => $outlets->map(fn ($outlet): array => [
                 'id' => (int) $outlet->getKey(),
                 'name' => $outlet->name,
+                'address' => $outlet->address,
                 'business_unit_id' => (int) $outlet->business_unit_id,
             ])->values(),
             'employee_count' => $employees->count(),
@@ -171,20 +172,39 @@ final class ManagementController extends Controller
 
     public function updateOutlet(Request $request, int $outlet): JsonResponse
     {
-        $validated = $request->validate(['name' => ['required', 'string', 'max:120']]);
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+            'address' => ['sometimes', 'nullable', 'string', 'max:500'],
+        ]);
         $actor = $this->authorization->requireOwner($this->activeMembership($request));
         $record = Outlet::query()->forTenant((int) $actor->tenant_id)->whereKey($outlet)->first();
         abort_if(! $record, 404);
         $name = trim($validated['name']);
-        DB::transaction(function () use ($actor, $record, $name, $outlet): void {
+        $address = array_key_exists('address', $validated)
+            ? trim((string) $validated['address']) ?: null
+            : $record->address;
+        DB::transaction(function () use ($actor, $record, $name, $address, $outlet): void {
+            $changed = [];
             if ($record->name !== $name) {
                 $record->name = $name;
+                $changed[] = 'name';
+            }
+            if ($record->address !== $address) {
+                $record->address = $address;
+                $changed[] = 'address';
+            }
+            if ($changed !== []) {
                 $record->save();
-                $this->recordManagementChange($actor, 'outlet', $outlet, 'updated', ['name'], null, $outlet);
+                $this->recordManagementChange($actor, 'outlet', $outlet, 'updated', $changed, null, $outlet);
             }
         });
 
-        return response()->json(['outlet' => ['id' => $outlet, 'name' => $record->name, 'business_unit_id' => (int) $record->business_unit_id]]);
+        return response()->json(['outlet' => [
+            'id' => $outlet,
+            'name' => $record->name,
+            'address' => $record->address,
+            'business_unit_id' => (int) $record->business_unit_id,
+        ]]);
     }
 
     /** @return array<string, mixed> */
@@ -227,13 +247,14 @@ final class ManagementController extends Controller
         $validated = $request->validate([
             'business_unit_id' => ['required', 'integer', 'min:1'],
             'name' => ['required', 'string', 'max:120'],
+            'address' => ['sometimes', 'nullable', 'string', 'max:500'],
         ]);
         $actor = $this->authorization->requireOwner($this->activeMembership($request));
         $businessUnit = new BusinessUnit;
         $businessUnit->setAttribute($businessUnit->getKeyName(), $validated['business_unit_id']);
         $outlet = DB::transaction(function () use ($actor, $businessUnit, $validated): Outlet {
-            $outlet = $this->organization->createOutlet($actor, $businessUnit, $validated['name']);
-            $this->recordManagementChange($actor, 'outlet', (int) $outlet->getKey(), 'created', ['name', 'business_unit_id'], null, (int) $outlet->getKey());
+            $outlet = $this->organization->createOutlet($actor, $businessUnit, $validated['name'], $validated['address'] ?? null);
+            $this->recordManagementChange($actor, 'outlet', (int) $outlet->getKey(), 'created', ['name', 'business_unit_id', 'address'], null, (int) $outlet->getKey());
 
             return $outlet;
         });
@@ -241,6 +262,7 @@ final class ManagementController extends Controller
         return response()->json(['outlet' => [
             'id' => (int) $outlet->getKey(),
             'name' => $outlet->name,
+            'address' => $outlet->address,
             'business_unit_id' => (int) $outlet->business_unit_id,
         ]], 201);
     }

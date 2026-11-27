@@ -54,7 +54,7 @@ final class OrganizationService
         ]);
     }
 
-    public function createOutlet(TenantMembership $actor, BusinessUnit $businessUnit, string $name): Outlet
+    public function createOutlet(TenantMembership $actor, BusinessUnit $businessUnit, string $name, ?string $address = null): Outlet
     {
         $actor = $this->authorization->requireOwner($actor);
         $unit = BusinessUnit::query()->forTenant((int) $actor->tenant_id)
@@ -64,11 +64,12 @@ final class OrganizationService
             throw ValidationException::withMessages(['business_unit' => 'The Business Unit must belong to the actor tenant.']);
         }
 
-        return DB::transaction(function () use ($actor, $unit, $name): Outlet {
+        return DB::transaction(function () use ($actor, $unit, $name, $address): Outlet {
             $outlet = Outlet::query()->create([
                 'tenant_id' => $actor->tenant_id,
                 'business_unit_id' => $unit->getKey(),
                 'name' => $this->cleanName($name),
+                'address' => $this->cleanAddress($address),
             ]);
             OutletCalendarVersion::query()->create([
                 'tenant_id' => $actor->tenant_id,
@@ -103,5 +104,12 @@ final class OrganizationService
         }
 
         return $name;
+    }
+
+    private function cleanAddress(?string $address): ?string
+    {
+        $address = trim((string) $address);
+
+        return $address === '' ? null : $address;
     }
 }

@@ -176,7 +176,13 @@ export function OrganizationExperience() {
         method: create ? "POST" : "PUT",
         body:
           command.kind === "create-outlet"
-            ? { name: command.name, business_unit_id: command.unitId }
+            ? {
+                name: command.name,
+                business_unit_id: command.unitId,
+                address: command.address,
+              }
+            : command.kind === "rename-outlet"
+              ? { name: command.name, address: command.address }
             : { name: command.name },
       })
       const unit = result.business_unit
@@ -236,6 +242,7 @@ export function OrganizationExperience() {
         tenantName: data.organization.tenant.name,
         roles: data.session.active_membership?.roles ?? [],
         userName: data.session.user.name,
+        kioskEnabled: data.session.features.kiosk_enabled,
       }
     : null
 

@@ -183,7 +183,7 @@ final class ProvisionDevelopmentTenant extends Command
         $contracts = [
             [OrganizationService::class, 'createTenant', [User::class, 'string']],
             [OrganizationService::class, 'createBusinessUnit', [TenantMembership::class, 'string']],
-            [OrganizationService::class, 'createOutlet', [TenantMembership::class, BusinessUnit::class, 'string']],
+            [OrganizationService::class, 'createOutlet', [TenantMembership::class, BusinessUnit::class, 'string', '?string']],
             [ManagementChangeRecorder::class, 'record', [TenantMembership::class, 'string', 'int', 'string', 'array', '?int', '?int']],
             [DevelopmentTenantProvisioner::class, 'provision', [User::class]],
         ];

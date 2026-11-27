@@ -27,7 +27,7 @@ export function R2cScreensSection() {
     tenant: demoOrganization.tenant,
     roles: ["owner"], employee_count: 0,
     business_units: demoOrganization.businessUnits.map(unit => ({ ...unit })),
-    outlets: demoOrganization.outlets.map(outlet => ({ id: outlet.id, name: outlet.name, business_unit_id: outlet.businessUnitId })),
+    outlets: demoOrganization.outlets.map(outlet => ({ id: outlet.id, name: outlet.name, address: outlet.address, business_unit_id: outlet.businessUnitId })),
   })
   const [open, setOpen] = useState(false)
   const [range, setRange] = useState({ from: "2026-10-26", to: "2026-10-30" })
@@ -53,7 +53,7 @@ export function R2cScreensSection() {
           const id = command.kind === "rename-outlet" ? command.id : Math.max(0, ...organization.outlets.map(outlet => outlet.id)) + 1
           const unitId = command.kind === "create-outlet" ? command.unitId : organization.outlets.find(outlet => outlet.id === id)?.business_unit_id
           if (!unitId) throw new Error("Synthetic parent unavailable")
-          setOrganization(current => ({ ...current, outlets: [...current.outlets.filter(outlet => outlet.id !== id), { id, name: command.name, business_unit_id: unitId }] }))
+          setOrganization(current => ({ ...current, outlets: [...current.outlets.filter(outlet => outlet.id !== id), { id, name: command.name, address: command.address, business_unit_id: unitId }] }))
           return { unitId, outletId: id }
         }} />
       </UiKitSection>

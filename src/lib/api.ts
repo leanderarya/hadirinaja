@@ -38,7 +38,12 @@ export type OrganizationSummary = {
   tenant: { id: number; name: string }
   roles: Array<"owner" | "supervisor" | "employee">
   business_units: Array<{ id: number; name: string }>
-  outlets: Array<{ id: number; name: string; business_unit_id: number }>
+  outlets: Array<{
+    id: number
+    name: string
+    address: string | null
+    business_unit_id: number
+  }>
   employee_count: number
 }
 

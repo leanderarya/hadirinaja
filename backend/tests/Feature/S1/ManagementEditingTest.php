@@ -86,6 +86,50 @@ class ManagementEditingTest extends TestCase
         $this->assertSame(1, $foreignTenant->businessUnits()->count());
     }
 
+    public function test_owner_can_create_and_update_an_optional_outlet_address_up_to_500_characters(): void
+    {
+        [$ownerUser, , $owner] = $this->tenantWithOwner();
+        [$unit] = $this->unitWithOutlet($owner);
+        $this->loginAs($ownerUser);
+
+        $created = $this->browserRequest()->postJson('/api/v1/management/outlets', [
+            'business_unit_id' => $unit->getKey(),
+            'name' => 'Outlet Beralamat',
+            'address' => '  Jl. Merdeka No. 12  ',
+        ])->assertCreated()
+            ->assertJsonPath('outlet.address', 'Jl. Merdeka No. 12');
+        $outletId = (int) $created->json('outlet.id');
+
+        $this->browserRequest()->putJson('/api/v1/management/outlets/'.$outletId, [
+            'name' => 'Outlet Beralamat',
+        ])->assertOk()->assertJsonPath('outlet.address', 'Jl. Merdeka No. 12');
+
+        $maximumAddress = str_repeat('A', 500);
+        $this->browserRequest()->putJson('/api/v1/management/outlets/'.$outletId, [
+            'name' => 'Outlet Beralamat',
+            'address' => $maximumAddress,
+        ])->assertOk()->assertJsonPath('outlet.address', $maximumAddress);
+
+        $this->browserRequest()->putJson('/api/v1/management/outlets/'.$outletId, [
+            'name' => 'Outlet Beralamat',
+            'address' => str_repeat('A', 501),
+        ])->assertUnprocessable()->assertJsonValidationErrors('address');
+
+        $this->browserRequest()->putJson('/api/v1/management/outlets/'.$outletId, [
+            'name' => 'Outlet Beralamat',
+            'address' => null,
+        ])->assertOk()->assertJsonPath('outlet.address', null);
+
+        $withoutAddress = $this->browserRequest()->postJson('/api/v1/management/outlets', [
+            'business_unit_id' => $unit->getKey(),
+            'name' => 'Outlet tanpa alamat',
+        ])->assertCreated()->assertJsonPath('outlet.address', null);
+        $this->assertDatabaseHas('outlets', [
+            'id' => $withoutAddress->json('outlet.id'),
+            'address' => null,
+        ]);
+    }
+
     public function test_employee_creation_rejects_mismatched_and_foreign_placements(): void
     {
         [$ownerUser, , $owner] = $this->tenantWithOwner();
