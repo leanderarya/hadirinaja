@@ -13,6 +13,7 @@ use App\Models\TenantMembership;
 use App\Models\TenantRoleAssignment;
 use App\Models\User;
 use App\Support\SchedulingDefaults;
+use App\Support\VerifiedDisposableTestDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -47,19 +48,26 @@ final class DevelopmentTenantProvisioner
         $environment = app()->environment();
         $connectionConfig = config('database.connections.'.config('database.default'));
 
-        if (
-            ! in_array($environment, ['local', 'testing'], true)
-            || ! is_array($connectionConfig)
-            || config('database.default') !== 'mysql'
-            || ($connectionConfig['database'] ?? null) !== ($environment === 'local' ? 'hadirinaja_dev' : 'hadirinaja_test')
-            || ! in_array($connectionConfig['host'] ?? null, ['127.0.0.1', 'localhost', '::1'], true)
-            || (string) ($connectionConfig['port'] ?? '') !== '3306'
-            || filled($connectionConfig['url'] ?? null)
-        ) {
+        $isApprovedLocalDatabase = $environment === 'local'
+            && config('database.default') === 'mysql'
+            && is_array($connectionConfig)
+            && ($connectionConfig['database'] ?? null) === 'hadirinaja_dev'
+            && in_array($connectionConfig['host'] ?? null, ['127.0.0.1', 'localhost', '::1'], true)
+            && (string) ($connectionConfig['port'] ?? '') === '3306'
+            && ! filled($connectionConfig['url'] ?? null);
+        $isVerifiedTestDatabase = $environment === 'testing'
+            && config('database.default') === 'mysql'
+            && is_array($connectionConfig)
+            && VerifiedDisposableTestDatabase::isConfigured($connectionConfig);
+
+        if (! $isApprovedLocalDatabase && ! $isVerifiedTestDatabase) {
             throw new RuntimeException('Development tenant provisioning is restricted to its verified local or isolated test database.');
         }
 
         $connection = DB::connection();
+        if ($isVerifiedTestDatabase) {
+            VerifiedDisposableTestDatabase::assertConnected($connection);
+        }
         $database = $connection->getDatabaseName();
         $expectedDatabase = $environment === 'local' ? 'hadirinaja_dev' : 'hadirinaja_test';
         if ($database !== $expectedDatabase) {

@@ -10,6 +10,7 @@ use App\Services\DevelopmentTenantProvisioner;
 use App\Services\ManagementChangeRecorder;
 use App\Services\OrganizationService;
 use App\Support\SchedulingDefaults;
+use App\Support\VerifiedDisposableTestDatabase;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -109,25 +110,34 @@ final class ProvisionDevelopmentTenant extends Command
 
     private function preflight(): User
     {
-        if (! in_array(app()->environment(), ['local', 'testing'], true)) {
+        $environment = app()->environment();
+        if (! in_array($environment, ['local', 'testing'], true)) {
             throw new RuntimeException('The command is available only in local or isolated testing environments.');
         }
 
         $connectionName = (string) config('database.default');
         $connectionConfig = config("database.connections.{$connectionName}");
-        $expectedDatabase = app()->environment() === 'local' ? 'hadirinaja_dev' : 'hadirinaja_test';
-        if (
-            $connectionName !== 'mysql'
-            || ! is_array($connectionConfig)
-            || ($connectionConfig['database'] ?? null) !== $expectedDatabase
-            || ! in_array($connectionConfig['host'] ?? null, ['127.0.0.1', 'localhost', '::1'], true)
-            || (string) ($connectionConfig['port'] ?? '') !== '3306'
-            || filled($connectionConfig['url'] ?? null)
-        ) {
+        $expectedDatabase = $environment === 'local' ? 'hadirinaja_dev' : 'hadirinaja_test';
+        $isApprovedLocalDatabase = $environment === 'local'
+            && $connectionName === 'mysql'
+            && is_array($connectionConfig)
+            && ($connectionConfig['database'] ?? null) === 'hadirinaja_dev'
+            && in_array($connectionConfig['host'] ?? null, ['127.0.0.1', 'localhost', '::1'], true)
+            && (string) ($connectionConfig['port'] ?? '') === '3306'
+            && ! filled($connectionConfig['url'] ?? null);
+        $isVerifiedTestDatabase = $environment === 'testing'
+            && $connectionName === 'mysql'
+            && is_array($connectionConfig)
+            && VerifiedDisposableTestDatabase::isConfigured($connectionConfig);
+
+        if (! $isApprovedLocalDatabase && ! $isVerifiedTestDatabase) {
             throw new RuntimeException('The effective connection is not the approved local MySQL target.');
         }
 
         $connection = DB::connection($connectionName);
+        if ($isVerifiedTestDatabase) {
+            VerifiedDisposableTestDatabase::assertConnected($connection);
+        }
         $database = $connection->getDatabaseName();
         if ($database !== $expectedDatabase) {
             throw new RuntimeException("The active database is not {$expectedDatabase}.");

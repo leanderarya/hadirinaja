@@ -215,7 +215,7 @@ final class DevelopmentTenantProvisioningTest extends TestCase
 
         $dryRunExit = Artisan::call('organization:provision-development');
         $dryRunOutput = Artisan::output();
-        $this->assertSame(0, $dryRunExit);
+        $this->assertSame(0, $dryRunExit, $dryRunOutput);
         $this->assertStringContainsString('DRY RUN', $dryRunOutput);
         $this->assertStringContainsString(DevelopmentTenantProvisioner::TENANT_NAME, $dryRunOutput, $dryRunOutput);
 
