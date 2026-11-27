@@ -21,6 +21,7 @@ const requestMock = vi.mocked(apiRequest)
 
 const session: AuthSession = {
   user: { id: 531, name: "Rani Karyawan", email: "rani@example.test" },
+  features: { kiosk_enabled: false },
   memberships: [
     {
       id: 808,

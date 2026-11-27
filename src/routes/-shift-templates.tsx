@@ -351,6 +351,7 @@ export function ShiftTemplatesExperience({
         tenantName: data.context.tenant.name,
         roles: data.context.roles,
         userName: data.session.user.name,
+        kioskEnabled: data.session.features.kiosk_enabled,
       }
     : null
   return (

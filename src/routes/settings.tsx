@@ -131,6 +131,7 @@ function SettingsPage() {
         tenantName: membership.tenant.name,
         roles: membership.roles,
         userName: session?.user.name,
+        kioskEnabled: session?.features.kiosk_enabled ?? false,
       }
     : null
   const entries = owner
@@ -144,6 +145,11 @@ function SettingsPage() {
               ? "Hanya lihat · Nilai yang berlaku di Outlet yang dapat Anda akses."
               : "Hanya lihat · Zona waktu dan hari buka/tutup di Outlet yang dapat Anda akses.",
         }))
+  const visibleEntries = entries.filter(
+    (entry) =>
+      entry.href !== "/settings/kiosk-devices" ||
+      session?.features.kiosk_enabled === true
+  )
   const noScope = !owner && organization?.outlets.length === 0
   return (
     <SidebarProvider className="pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">
@@ -211,7 +217,7 @@ function SettingsPage() {
                       : "Konfigurasi yang dapat dibaca"}
                   </h2>
                   <div className="overflow-hidden rounded-[16px] border border-border bg-surface">
-                    {entries.map((entry) =>
+                    {visibleEntries.map((entry) =>
                       noScope ? (
                         <div
                           key={entry.href}
@@ -245,7 +251,9 @@ function SettingsPage() {
                       href="/workspace#people-devices"
                       summary={
                         owner
-                          ? "Profil, penempatan dan kode pendaftaran PIN karyawan."
+                          ? session?.features.kiosk_enabled
+                            ? "Profil, penempatan dan kode pendaftaran PIN karyawan."
+                            : "Profil dan penempatan karyawan."
                           : "Profil dan penempatan di Outlet yang dapat Anda akses · hanya lihat."
                       }
                       icon={<Users size={20} />}
@@ -277,7 +285,7 @@ function SettingsPage() {
                       </>
                     ) : null}
                   </div>
-                  {owner ? (
+                  {owner && session?.features.kiosk_enabled ? (
                     <ScopeBanner title="Presensi di perangkat">
                       Kiosk presensi digunakan pada perangkat Outlet. Karyawan
                       mengatur PIN di perangkat tersebut.

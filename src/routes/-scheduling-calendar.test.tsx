@@ -149,7 +149,10 @@ beforeEach(() => {
   apiRequest.mockImplementation(
     async (path: string, options?: { method?: string }) => {
       if (path === "/auth/me")
-        return { active_membership: { roles: ["owner"] } }
+        return {
+          features: { kiosk_enabled: false },
+          active_membership: { roles: ["owner"] },
+        }
       if (path === "/management/scheduling/context") return context
       if (options?.method === "POST") return saveResponse
       if (path.startsWith("/management/scheduling/calendar?")) {

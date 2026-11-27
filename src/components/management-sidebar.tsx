@@ -120,7 +120,7 @@ function NavigationLinks({
         : null)
   )
   const { busy, error, logout } = useLogout()
-  const items = getManagementNavigation(context.roles)
+  const items = getManagementNavigation(context.roles, context.kioskEnabled)
   const groups = [
     { label: "Pantau", items: items.slice(0, 1) },
     { label: "Operasional", items: items.slice(1, 4) },
@@ -473,7 +473,7 @@ export function ManagementSidebar({
         <span className="flex size-[34px] shrink-0 items-center justify-center rounded-[11px] bg-primary text-primary-foreground">
           <CalendarCheck aria-hidden="true" size={18} />
         </span>
-        {getManagementNavigation(context.roles).map((item) => {
+        {getManagementNavigation(context.roles, context.kioskEnabled).map((item) => {
           const Icon = item.icon
           const classes = cn(
             "flex min-h-14 w-full shrink-0 flex-col items-center gap-1 rounded-[12px] px-0 py-2 text-muted-foreground focus-visible:outline-2 focus-visible:outline-primary",

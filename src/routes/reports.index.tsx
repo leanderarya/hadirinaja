@@ -278,6 +278,7 @@ function ReportsPage() {
         tenantName: navigationSession.active_membership.tenant.name,
         roles: navigationSession.active_membership.roles,
         userName: navigationSession.user.name,
+        kioskEnabled: navigationSession.features.kiosk_enabled,
       }
     : null
 

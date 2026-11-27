@@ -15,8 +15,20 @@ vi.mock("@tanstack/react-router", () => ({
     options,
   }),
 }))
-vi.mock("@/lib/api", () => ({ apiRequest, ApiError: class extends Error {} }))
+vi.mock("@/lib/api", () => ({
+  apiRequest,
+  ApiError: class extends Error {
+    constructor(
+      message: string,
+      readonly status: number,
+      readonly code?: string
+    ) {
+      super(message)
+    }
+  },
+}))
 
+import { ApiError } from "@/lib/api"
 import { Route } from "./kiosk"
 
 beforeEach(() => {
@@ -208,6 +220,18 @@ it("requires GPS before the kiosk camera, submits the session without an Outlet 
     )
   ).toHaveLength(1)
   expect(window.sessionStorage.getItem(storageKey)).toBeNull()
+})
+
+it("hides pairing controls when the kiosk feature is disabled", async () => {
+  apiRequest.mockRejectedValueOnce(
+    new ApiError("Kiosk belum diaktifkan.", 404, "kiosk_disabled")
+  )
+  const Page = Route.options.component as ComponentType
+  render(<Page />)
+
+  expect(await screen.findByText("Kiosk belum diaktifkan")).toBeTruthy()
+  expect(screen.queryByLabelText("Kode pemasangan")).toBeNull()
+  expect(screen.queryByRole("button", { name: "Pasangkan kiosk" })).toBeNull()
 })
 
 it("keeps a pending checkout when the current pairing has a different Outlet", async () => {

@@ -29,6 +29,7 @@ export type TenantMembership = {
 
 export type AuthSession = {
   user: { id: number; name: string; email: string }
+  features: { kiosk_enabled: boolean }
   memberships: TenantMembership[]
   active_membership: TenantMembership | null
 }

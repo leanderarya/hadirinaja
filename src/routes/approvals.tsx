@@ -154,6 +154,7 @@ function ApprovalsPage() {
   const [organization, setOrganization] = useState<OrganizationData | null>(
     null
   )
+  const [kioskEnabled, setKioskEnabled] = useState(false)
   const [employees, setEmployees] = useState<
     Array<{ id: number; name: string }>
   >([])
@@ -283,6 +284,7 @@ function ApprovalsPage() {
         window.location.assign("/select-tenant")
         return
       }
+      setKioskEnabled(currentSession.features.kiosk_enabled)
       if (
         !currentSession.active_membership.roles.some(
           (role) => role === "owner" || role === "supervisor"
@@ -461,7 +463,11 @@ function ApprovalsPage() {
   }
 
   const navigationContext = organization
-    ? { tenantName: organization.tenant.name, roles: organization.roles }
+    ? {
+        tenantName: organization.tenant.name,
+        roles: organization.roles,
+        kioskEnabled,
+      }
     : null
 
   return (

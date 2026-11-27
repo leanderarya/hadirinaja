@@ -430,7 +430,7 @@ function AccessManagementPage() {
           !member.roles.includes("owner") &&
           !member.roles.includes("supervisor")
       )
-  const navigationContext = data ? { tenantName: data.session.active_membership?.tenant.name ?? "Organisasi", roles: data.session.active_membership?.roles ?? [], userName: data.session.user.name } : null
+  const navigationContext = data ? { tenantName: data.session.active_membership?.tenant.name ?? "Organisasi", roles: data.session.active_membership?.roles ?? [], userName: data.session.user.name, kioskEnabled: data.session.features.kiosk_enabled } : null
 
   return (
     <SidebarProvider className="pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-0">

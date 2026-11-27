@@ -24,6 +24,12 @@ class KioskSecurityTest extends TestCase
 {
     use BuildsTenantFixtures, RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['features.kiosk_enabled' => true]);
+    }
+
     public function test_pairing_is_short_lived_single_use_and_revocation_is_immediate(): void
     {
         [$ownerUser, , $owner] = $this->tenantWithOwner('Kiosk tenant');

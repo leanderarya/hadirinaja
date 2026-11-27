@@ -6,8 +6,8 @@ use App\Enums\TenantRole;
 use App\Http\Controllers\Controller;
 use App\Models\TenantMembership;
 use App\Models\User;
-use App\Support\IdentityNormalizer;
 use App\Services\TenantAccessService;
+use App\Support\IdentityNormalizer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -190,6 +190,9 @@ final class AuthSessionController extends Controller
                 'id' => (int) $user->getKey(),
                 'name' => $user->name,
                 'email' => $user->email,
+            ],
+            'features' => [
+                'kiosk_enabled' => (bool) config('features.kiosk_enabled'),
             ],
             'memberships' => $memberships->map(fn (TenantMembership $membership): array => $this->membershipData($membership))->values(),
             'active_membership' => $activeMembership ? $this->membershipData($activeMembership) : null,

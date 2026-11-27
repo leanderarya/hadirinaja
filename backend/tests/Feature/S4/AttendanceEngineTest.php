@@ -53,6 +53,12 @@ class AttendanceEngineTest extends TestCase
     /** @var list<string> */
     private array $temporaryImages = [];
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['features.kiosk_enabled' => true]);
+    }
+
     protected function tearDown(): void
     {
         foreach ($this->temporaryImages as $path) {

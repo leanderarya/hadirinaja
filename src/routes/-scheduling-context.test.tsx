@@ -173,6 +173,7 @@ beforeEach(() => {
   apiRequest.mockImplementation(async (path: string) => {
     if (path === "/auth/me")
       return {
+        features: { kiosk_enabled: false },
         active_membership: {
           roles: [employee ? "employee" : "supervisor"],
           tenant: { name: "Organisasi QA" },

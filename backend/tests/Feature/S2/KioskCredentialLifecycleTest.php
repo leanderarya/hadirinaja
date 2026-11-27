@@ -24,6 +24,7 @@ class KioskCredentialLifecycleTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        config(['features.kiosk_enabled' => true]);
         $this->withCredentials()->withHeaders(['Origin' => 'http://localhost:3000', 'Referer' => 'http://localhost:3000/']);
         $this->travelTo(now()->startOfSecond());
     }

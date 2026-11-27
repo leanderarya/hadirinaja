@@ -50,7 +50,7 @@ const pendingStorageKey = "hadirinaja.kiosk.attendance.pending"
 function KioskPage() {
   const [status, setStatus] = useState<KioskStatus | null>(null)
   const [state, setState] = useState<
-    "loading" | "unpaired" | "ready" | "revoked"
+    "loading" | "disabled" | "unpaired" | "ready" | "revoked"
   >("loading")
   const [employees, setEmployees] = useState<KioskEmployee[]>([])
   const [pairingCode, setPairingCode] = useState("")
@@ -110,6 +110,8 @@ function KioskPage() {
       setEmployees([])
       if (caught instanceof ApiError && caught.code === "kiosk_revoked") {
         setState("revoked")
+      } else if (caught instanceof ApiError && caught.code === "kiosk_disabled") {
+        setState("disabled")
       } else {
         if (caught instanceof ApiError && caught.code === "kiosk_expired")
           setError(
@@ -642,6 +644,16 @@ function KioskPage() {
             <CardTitle>Akses perangkat dicabut</CardTitle>
             <CardDescription>
               Hubungi Owner untuk mendaftarkan perangkat ini kembali.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      ) : null}
+      {state === "disabled" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Kiosk belum diaktifkan</CardTitle>
+            <CardDescription>
+              Perangkat ini belum dapat digunakan. Hubungi Owner organisasi.
             </CardDescription>
           </CardHeader>
         </Card>
