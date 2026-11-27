@@ -3,6 +3,8 @@ import {
   buildPolicySnapshot,
   changedPolicyFields,
   hasPolicyOverride,
+  policyToday,
+  policyTomorrow,
   type PolicyResponse,
   policyDefaults,
   policyDraft,
@@ -184,7 +186,7 @@ describe("policy version snapshot editing", () => {
       )
     ).toThrow("Kebijakan organisasi harus tersedia")
   })
-  it("validates range boundaries, integers, modes and UTC dates", () => {
+  it("validates range boundaries, integers, modes and business-local dates", () => {
     const draft = policyDraft(policyDefaults)
     draft.late_tolerance_minutes = "0"
     draft["check_in_window.early_minutes"] = "360"
@@ -198,6 +200,15 @@ describe("policy version snapshot editing", () => {
     expect(validatePolicyDate("2026-10-28", "2026-10-28")).toBe(true)
     for (const date of ["2026-10-27", "2026-02-30", "invalid"])
       expect(validatePolicyDate(date, "2026-10-28")).toBe(false)
+  })
+  it("uses the Asia/Jakarta calendar at 23:30 WIB and across local midnight", () => {
+    const beforeMidnight = new Date("2026-11-26T16:30:00.000Z")
+    expect(policyToday(beforeMidnight)).toBe("2026-11-26")
+    expect(policyTomorrow(beforeMidnight)).toBe("2026-11-27")
+
+    const afterMidnight = new Date("2026-11-26T17:30:00.000Z")
+    expect(policyToday(afterMidnight)).toBe("2026-11-27")
+    expect(policyTomorrow(afterMidnight)).toBe("2026-11-28")
   })
   it("accepts a 25 meter geofence radius and rejects 24.99 meters", () => {
     const draft = policyDraft(policyDefaults),
